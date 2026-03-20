@@ -45,3 +45,6 @@ Additional deterrence implemented in this build:
 Important:
 - These measures are deterrents, not true protection against a determined attacker.
 - Real anti-scraping strength still depends on edge controls such as Cloudflare WAF, Bot Fight Mode, rate limiting, hotlink protection, and origin hardening.
+
+
+SEO/entity upgrades included in this package: Person schema, WebSite schema, article pages with Article schema, expanded sitemap, stronger title/meta data, and internal linking for branded search.
