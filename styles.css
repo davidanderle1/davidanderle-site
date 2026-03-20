@@ -866,3 +866,89 @@ img, a, button {
     grid-template-columns: 1fr;
   }
 }
+
+
+.mini-pills {
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin: 10px 0 16px;
+}
+
+.mini-pill {
+  display:inline-flex;
+  align-items:center;
+  padding:8px 12px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  color:#ececf0;
+  background:rgba(255,255,255,0.04);
+  font-size:0.9rem;
+}
+
+.flagship-stack {
+  display:grid;
+  gap:22px;
+}
+
+.flagship-wide {
+  padding:28px;
+}
+
+.flagship-split {
+  display:grid;
+  grid-template-columns:minmax(0,1.8fr) minmax(240px,0.8fr);
+  gap:22px;
+  align-items:start;
+}
+
+.flagship-badge-col {
+  display:grid;
+  gap:12px;
+}
+
+.metric-card {
+  padding:16px 18px;
+  border:1px solid var(--line);
+  border-radius:20px;
+  background:rgba(255,255,255,0.03);
+}
+
+.metric-label {
+  color:var(--muted);
+  font-size:0.86rem;
+  margin-bottom:6px;
+}
+
+.metric-value {
+  font-size:1.15rem;
+  letter-spacing:-0.03em;
+  color:#fafafd;
+}
+
+.concept-grid {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:22px;
+}
+
+.concept-card h3 a {
+  color:inherit;
+}
+
+.concept-primary {
+  border-color:rgba(255,255,255,0.2);
+  box-shadow:0 18px 50px rgba(0,0,0,0.28);
+}
+
+@media (max-width: 1100px) {
+  .concept-grid {
+    grid-template-columns:1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .flagship-split {
+    grid-template-columns:1fr;
+  }
+}
