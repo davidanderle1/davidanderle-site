@@ -650,3 +650,55 @@
         gap: 8px;
       }
     }
+
+
+/* Anti-copy / anti-casual-scrape deterrence */
+* {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+img, a, button {
+  -webkit-user-drag: none;
+}
+
+.portrait-frame,
+.image-protected {
+  position: relative;
+  overflow: hidden;
+}
+
+.portrait-frame::after,
+.image-protected::after {
+  content: "DAVID ANDERLE · DAVIDANDERLE.COM · DAVID ANDERLE · DAVIDANDERLE.COM";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  font-size: clamp(0.9rem, 1.3vw, 1.15rem);
+  letter-spacing: 0.34em;
+  line-height: 1.9;
+  color: rgba(255,255,255,0.08);
+  text-shadow: 0 1px 0 rgba(0,0,0,0.45);
+  pointer-events: auto;
+  white-space: pre-wrap;
+  background:
+    repeating-linear-gradient(
+      -28deg,
+      rgba(255,255,255,0.00) 0 48px,
+      rgba(255,255,255,0.018) 48px 49px,
+      rgba(255,255,255,0.00) 49px 96px
+    );
+}
+
+.portrait-frame img {
+  pointer-events: none;
+}
+
+.legal-note {
+  color: var(--soft);
+  font-size: 0.92rem;
+}

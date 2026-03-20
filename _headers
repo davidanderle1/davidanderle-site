@@ -18,8 +18,6 @@
 /styles.css
   Cache-Control: public, max-age=31536000, immutable
 
-/me.jpg
-  Cache-Control: public, max-age=31536000, immutable
 
 /robots.txt
   Cache-Control: public, max-age=86400
@@ -27,3 +25,13 @@
 /.well-known/security.txt
   Content-Type: text/plain; charset=utf-8
   Cache-Control: public, max-age=86400
+
+
+/assets-guard.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/terms.html
+  Cache-Control: public, max-age=3600
+
+/portrait-39dc22f9df015f86.jpg
+  Cache-Control: public, max-age=31536000, immutable

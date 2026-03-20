@@ -32,3 +32,16 @@ Notes:
 - `Cache-Control: immutable` is applied to version-stable assets only. `index.html` is intentionally `no-store` so updates are visible immediately.
 - `Cross-Origin-Embedder-Policy: require-corp` can break third-party embeds. The current site does not use them.
 - `HSTS preload` should only be used if the domain is permanently HTTPS-only.
+
+
+Additional deterrence implemented in this build:
+- Global copy/select/context-menu/drag blocking in assets-guard.js
+- Shortcut blocking for common save/view-source/devtools combinations
+- Basic devtools-size detection with lock screen replacement
+- Portrait watermark overlay for casual image theft deterrence
+- Hashed image filename to reduce guessable asset paths
+- Terms of Use page with explicit reproduction restrictions
+
+Important:
+- These measures are deterrents, not true protection against a determined attacker.
+- Real anti-scraping strength still depends on edge controls such as Cloudflare WAF, Bot Fight Mode, rate limiting, hotlink protection, and origin hardening.
