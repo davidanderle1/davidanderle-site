@@ -3,25 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>David Anderle | Quantitative Finance, Systems, and Market Volatility</title>
-  <meta name="description" content="Personal website of David Anderle, a UW–Madison exchange student and informatics student at CZU Prague focused on market volatility, derivatives, policy analysis, and systems-driven finance work." />
+  <title>David Anderle | Quantitative Systems Analyst in Training</title>
+  <meta name="description" content="David Anderle is a systems-driven quantitative analyst in training, combining Czech engineering rigor with global finance insight across markets, risk, policy, and technical systems." />
   <meta name="robots" content="index, follow" />
   <meta name="author" content="David Anderle" />
-  <meta name="theme-color" content="#0b1020" />
+  <meta name="theme-color" content="#0a0a0b" />
   <meta name="color-scheme" content="dark light" />
-  <meta name="keywords" content="David Anderle, quantitative finance, market volatility, derivatives, risk systems, UW–Madison, CZU Prague, policy memo, informatics" />
+  <meta name="keywords" content="David Anderle, quantitative finance, systems analyst, volatility, derivatives, risk systems, UW–Madison, Czech engineering, policy memo, informatics" />
   <link rel="canonical" href="https://davidanderle.com/" />
 
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://davidanderle.com/" />
   <meta property="og:site_name" content="David Anderle" />
-  <meta property="og:title" content="David Anderle | Quantitative Finance, Systems, and Market Volatility" />
-  <meta property="og:description" content="Systems-oriented finance work spanning market volatility, policy analysis, institutional decision-making, and engineering-adjacent projects." />
+  <meta property="og:title" content="David Anderle | Quantitative Systems Analyst in Training" />
+  <meta property="og:description" content="Systems-driven work across quantitative finance, market volatility, decision-making under uncertainty, and applied technical projects." />
   <meta property="og:image" content="https://davidanderle.com/portrait-39dc22f9df015f86.jpg" />
 
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="David Anderle | Quantitative Finance, Systems, and Market Volatility" />
-  <meta name="twitter:description" content="Work, writing, and case studies by David Anderle." />
+  <meta name="twitter:title" content="David Anderle | Quantitative Systems Analyst in Training" />
+  <meta name="twitter:description" content="Markets, volatility, risk systems, policy, and technical work by David Anderle." />
   <meta name="twitter:image" content="https://davidanderle.com/portrait-39dc22f9df015f86.jpg" />
 
   <script type="application/ld+json">
@@ -36,43 +36,45 @@
       "https://www.linkedin.com/in/david-anderle",
       "https://github.com/davidanderle1"
     ],
-    "jobTitle": "Systems-Oriented Quantitative Analyst",
-    "description": "David Anderle works at the intersection of quantitative finance, volatility, institutional decision-making, and engineering-style systems thinking.",
+    "jobTitle": "Quantitative Systems Analyst in Training",
+    "description": "David Anderle is a systems-driven quantitative analyst in training working across quantitative finance, volatility, policy, and engineering-oriented technical projects.",
     "affiliation": [
       {"@type": "CollegeOrUniversity", "name": "University of Wisconsin–Madison"},
       {"@type": "CollegeOrUniversity", "name": "Czech University of Life Sciences Prague"}
     ],
     "knowsAbout": [
       "Quantitative finance",
-      "Volatility modeling",
+      "Volatility",
       "Derivatives",
       "Risk systems",
+      "Decision-making under uncertainty",
       "Policy analysis",
-      "Institutional decision-making",
       "Engineering systems"
     ]
   }
   </script>
 
-  <link rel="stylesheet" href="/styles.css" />
-  <script defer src="/assets-guard.js"></script>
+    <link rel="stylesheet" href="/styles.css" />
+
 </head>
 <body>
-  <div class="site-shell">
+  <div class="page">
+    <div class="grid-overlay" aria-hidden="true"></div>
+
     <header class="site-header">
-      <div class="container header-inner">
+      <div class="container site-header-inner">
         <a class="brand" href="#top" aria-label="David Anderle home">
           <span class="brand-mark">DA</span>
-          <span class="brand-text">
+          <span class="brand-copy">
             <span class="brand-name">David Anderle</span>
-            <span class="brand-role">Finance, systems, and volatility</span>
+            <span class="brand-sub">Quantitative systems analyst in training</span>
           </span>
         </a>
-        <nav class="nav" aria-label="Primary navigation">
-          <a href="#profile">Profile</a>
-          <a href="#case-studies">Case Studies</a>
-          <a href="#writing">Writing</a>
-          <a href="#timeline">Timeline</a>
+        <nav class="nav" aria-label="Primary">
+          <a href="#about">About</a>
+          <a href="#work">Projects</a>
+          <a href="#writing">Thinking</a>
+          <a href="#timeline">Path</a>
           <a href="#contact">Contact</a>
         </nav>
       </div>
@@ -80,316 +82,494 @@
 
     <main id="top">
       <section class="hero">
-        <div class="container hero-grid">
-          <div class="hero-copy">
-            <div class="hero-chip">UW–Madison exchange student · CZU Prague Informatics</div>
-            <h1>David Anderle builds analytical work around market stress, incentives, and system design.</h1>
+        <div class="container hero-layout">
+          <div class="hero-card">
+            <span class="eyebrow">Official website</span>
+            <p class="hero-nameplate">David Anderle</p>
+            <div class="hero-rotator" aria-live="polite" aria-atomic="true">
+              <h1 id="hero-rotating-text" class="hero-rotating-text">Big ideas.<br>Small words.</h1>
+              <div class="hero-variant-nav" aria-label="Hero statement variants">
+                <button class="hero-dot is-active" type="button" data-hero-index="0" aria-label="Show minimalist hero"></button>
+                <button class="hero-dot" type="button" data-hero-index="1" aria-label="Show analytical hero"></button>
+                <button class="hero-dot" type="button" data-hero-index="2" aria-label="Show bold hero"></button>
+                <button class="hero-dot" type="button" data-hero-index="3" aria-label="Show witty hero"></button>
+                <button class="hero-dot" type="button" data-hero-index="4" aria-label="Show humanist hero"></button>
+              </div>
+            </div>
             <p class="hero-lead">
-              I bridge Czech engineering discipline with finance study at UW–Madison. My focus is market volatility, derivatives, policy design, and the way decisions change when systems are under pressure.
+              Systems, risk, markets, and decision-making under uncertainty. This site is built to make the signal clear fast.
+            </p>
+            <p class="hero-sublead">
+              Default position: minimalist and sharp. The hero line rotates through the strongest approved variants, with the clearest one leading.
             </p>
             <div class="hero-actions">
-              <a class="button button-primary" href="#case-studies">View case studies</a>
-              <a class="button button-secondary" href="https://github.com/davidanderle1" target="_blank" rel="noreferrer">View GitHub</a>
-              <a class="button button-secondary" href="https://www.linkedin.com/in/david-anderle" target="_blank" rel="noreferrer">LinkedIn</a>
+              <a class="button primary" href="#work">View selected work</a>
+              <a class="button secondary" href="mailto:david.anderle1@gmail.com">Email</a>
+              <a class="button secondary" href="https://www.linkedin.com/in/david-anderle" target="_blank" rel="noreferrer">LinkedIn</a>
+              <a class="button secondary" href="terms.html">Terms</a>
             </div>
-            <div class="hero-signals">
-              <article>
-                <span class="signal-label">Current edge</span>
-                <p>Finance + systems thinking rather than finance alone.</p>
-              </article>
-              <article>
-                <span class="signal-label">Best signal</span>
-                <p>Selected for the Wisconsin Ideas Conference policy memo track.</p>
-              </article>
-              <article>
-                <span class="signal-label">What I want to prove</span>
-                <p>That I can turn rigorous thinking into work with measurable consequences.</p>
-              </article>
+            <div class="hero-stats">
+              <div class="signal-row">
+                <div class="stat-label">Education</div>
+                <div class="stat-value">UW–Madison exchange student, home institution: CZU Prague Informatics</div>
+              </div>
+              <div class="signal-row">
+                <div class="stat-label">Current themes</div>
+                <div class="stat-value">Volatility, derivatives, market structure, policy, and technical systems</div>
+              </div>
+              <div class="signal-row">
+                <div class="stat-label">Operating style</div>
+                <div class="stat-value">Evidence first, clearer models, less noise, higher standards</div>
+              </div>
             </div>
           </div>
 
-          <aside class="hero-visual" aria-label="Portrait and profile highlights">
-            <div class="portrait-card image-guard">
-              <div class="portrait-mesh" aria-hidden="true"></div>
-              <img src="portrait-39dc22f9df015f86.jpg" alt="Portrait of David Anderle" draggable="false" loading="eager" />
-              <div class="portrait-overlay">
-                <span>David Anderle</span>
-                <span>davidanderle.com</span>
-              </div>
+          <aside class="hero-portrait" aria-label="Profile image and summary">
+            <div class="portrait-frame">
+              <img src="portrait-39dc22f9df015f86.jpg" alt="Portrait of David Anderle" loading="eager" / draggable="false">
             </div>
-            <div class="metrics-card">
-              <div class="metrics-header">
-                <span class="mini-kicker">Profile signal</span>
-                <span class="mini-badge">Cross-disciplinary</span>
+            <div class="portrait-caption">
+              <div>
+                <strong>Based between Europe and the United States</strong>
+                Building a profile around quantitative finance, systems thinking, and work that holds up under pressure.
               </div>
-              <div class="metric-list">
-                <div class="metric-item">
-                  <span class="metric-key">Academic base</span>
-                  <span class="metric-value">UW–Madison and CZU Prague</span>
-                </div>
-                <div class="metric-item">
-                  <span class="metric-key">Operating domains</span>
-                  <span class="metric-value">Markets, institutions, engineering-adjacent systems</span>
-                </div>
-                <div class="metric-item">
-                  <span class="metric-key">Relevant roles</span>
-                  <span class="metric-value">Student Council, Aviation Club, Formula Student sponsorship</span>
-                </div>
-              </div>
+              <div class="mono">davidanderle.com</div>
             </div>
           </aside>
         </div>
       </section>
 
-      <section class="section section-profile" id="profile">
+      <section class="section" id="about">
         <div class="container">
-          <div class="section-head split-head">
+          <div class="section-heading">
             <div>
-              <span class="kicker">Profile</span>
-              <h2>A more precise picture of what I do</h2>
+              <span class="section-kicker">About</span>
+              <h2 class="section-title">A profile built around systems, not slogans</h2>
             </div>
-            <p>
-              This site is a concise portfolio of work, direction, and evidence. It is not a list of vague ambitions. It is a public record of how I think, what I choose to build, and which problems keep pulling me back.
+            <p class="section-intro">
+              I am interested in what happens when markets become unstable, information quality drops, and incentives stop aligning with good decisions.
+              That interest pulls me toward quantitative finance, risk systems, institutional design, and engineering problems where errors are costly and reasoning has to stay clear.
             </p>
           </div>
 
-          <div class="profile-grid">
-            <article class="info-card spotlight-card">
+          <div class="about-grid">
+            <article class="panel">
               <span class="card-kicker">Positioning</span>
-              <h3>Systems-oriented quantitative analyst</h3>
+              <h3>Why this profile is different</h3>
               <p>
-                I am interested in how markets behave when volatility rises, information quality falls, and incentives distort decisions. That is why my work keeps converging on quantitative finance, institutional design, and engineering-style problem solving.
-              </p>
-              <ul class="feature-list">
-                <li>Built around finance, systems, and consequences rather than generic “interest in markets.”</li>
-                <li>Driven by stress testing, not surface-level commentary.</li>
-                <li>Aims for work that can be defended with evidence.</li>
-              </ul>
-            </article>
-
-            <article class="info-card">
-              <span class="card-kicker">Education</span>
-              <h3>International academic path</h3>
-              <p>
-                Exchange student at the University of Wisconsin–Madison. Home institution: Czech University of Life Sciences Prague, Informatics. The combination matters because it joins technical training with business and economics exposure in a global environment.
+                The overlap matters. My work is not only finance-facing and not only technical. It sits in the space where models, incentives, systems, and execution all affect the outcome.
               </p>
             </article>
-
-            <article class="info-card">
-              <span class="card-kicker">Current focus</span>
-              <h3>Where my attention goes now</h3>
-              <div class="pill-row">
-                <span>Market volatility</span>
-                <span>Derivatives</span>
-                <span>Policy analysis</span>
-                <span>Risk systems</span>
-                <span>Institutional incentives</span>
-                <span>Technical finance projects</span>
-              </div>
-            </article>
-
-            <article class="info-card">
-              <span class="card-kicker">Why this profile stands out</span>
-              <h3>Finance with engineering pressure</h3>
+            <article class="panel">
+              <span class="card-kicker">Intellectual identity</span>
+              <h3>What I keep returning to</h3>
               <p>
-                The overlap is the point. I am not presenting as only a finance student or only a technical builder. The stronger story is the combination: finance questions approached with systems discipline and engineering curiosity.
+                Volatility, derivatives, market behavior, high-stakes decision design, and engineering-style thinking. I care about how systems behave when stress exposes what was weak all along.
+              </p>
+            </article>
+            <article class="panel">
+              <span class="card-kicker">Long-term direction</span>
+              <h3>Where this is heading</h3>
+              <p>
+                Toward work that rewards rigor, independence, and analytical depth. That can mean finance, technical research, infrastructure, or ventures built around difficult systems problems.
               </p>
             </article>
           </div>
         </div>
       </section>
 
-      <section class="section" id="case-studies">
-        <div class="container">
-          <div class="section-head split-head">
-            <div>
-              <span class="kicker">Case studies</span>
-              <h2>The strongest signals on the site</h2>
-            </div>
-            <p>
-              These are the pieces that actually matter. They are included because they show judgment, initiative, and analytical direction. Where I do not have hard metrics yet, I do not invent them.
-            </p>
-          </div>
-
-          <article class="featured-case">
-            <div class="featured-copy">
-              <span class="card-kicker">Lead case study</span>
-              <h3>Retail Investor Protection in the Post-Memestock Era</h3>
-              <p class="featured-summary">
-                I developed a policy proposal on how brokerage interface design, volatility warnings, and social-media-driven investment content shape retail investor decisions under stress.
-              </p>
-              <div class="case-grid">
-                <div>
-                  <span class="case-label">Problem</span>
-                  <p>Retail investing platforms often compress complex risk into frictionless interfaces exactly when users are most vulnerable to hype and volatility.</p>
-                </div>
-                <div>
-                  <span class="case-label">Approach</span>
-                  <p>I analyzed the issue through platform incentives, disclosure timing, investor behavior, and decision architecture instead of treating losses as simple user error.</p>
-                </div>
-                <div>
-                  <span class="case-label">Outcome</span>
-                  <p>Selected for the Wisconsin Ideas Conference policy memo track. It stands as my clearest public example of structured work on finance under pressure.</p>
-                </div>
+      <section class="section">
+        <div class="container credential-grid">
+          <article class="panel">
+            <span class="section-kicker">Profile</span>
+            <h2 style="font-size:1.75rem; letter-spacing:-0.04em; margin-bottom:18px;">Snapshot</h2>
+            <div class="info-stack">
+              <div class="info-row">
+                <div class="info-key">Education</div>
+                <div class="info-value">University of Wisconsin–Madison exchange study. Home institution: Czech University of Life Sciences Prague, Informatics.</div>
               </div>
-            </div>
-            <div class="featured-visual" aria-hidden="true">
-              <div class="signal-chart">
-                <span class="axis-label axis-top">Decision pressure</span>
-                <span class="axis-label axis-left">Investor risk</span>
-                <div class="chart-line chart-line-one"></div>
-                <div class="chart-line chart-line-two"></div>
-                <div class="chart-dot chart-dot-one"></div>
-                <div class="chart-dot chart-dot-two"></div>
-                <div class="chart-dot chart-dot-three"></div>
+              <div class="info-row">
+                <div class="info-key">Roles</div>
+                <div class="info-value">Associated Students of Madison Student Council, CULS Racing sponsorship work, Aviation Club financial strategy involvement, and independent technical exploration.</div>
+              </div>
+              <div class="info-row">
+                <div class="info-key">Credibility signals</div>
+                <div class="info-value">Wisconsin Ideas Conference policy memo track selection, international study path, cross-disciplinary work spanning policy, finance, and technical systems.</div>
+              </div>
+              <div class="info-row">
+                <div class="info-key">Standard</div>
+                <div class="info-value">Prefer concrete work, sharper writing, and verifiable outputs over inflated language.</div>
               </div>
             </div>
           </article>
 
-          <div class="cards-grid">
+          <article class="panel">
+            <span class="section-kicker">Core themes</span>
+            <h2 style="font-size:1.75rem; letter-spacing:-0.04em; margin-bottom:18px;">Areas of concentration</h2>
+            <div class="pill-row">
+              <span class="pill">Quantitative finance</span>
+              <span class="pill">Volatility</span>
+              <span class="pill">Derivatives</span>
+              <span class="pill">Risk systems</span>
+              <span class="pill">Market structure</span>
+              <span class="pill">Policy analysis</span>
+              <span class="pill">Engineering systems</span>
+              <span class="pill">Decision-making under uncertainty</span>
+            </div>
+            <p style="margin-top:18px; color:var(--muted);">
+              The common thread is not a theme chosen for branding. It is a real attraction to environments where structure matters, failure has consequences, and improvement depends on better models rather than louder claims.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="work">
+        <div class="container">
+          <div class="section-heading">
+            <div>
+              <span class="section-kicker">Selected work</span>
+              <h2 class="section-title">Projects, roles, and high-signal case studies</h2>
+            </div>
+            <p class="section-intro">
+              This section is intentionally selective. It prioritizes work that shows analytical direction, judgment, or execution quality. Where a project is still being developed, it is labeled accordingly rather than dressed up as finished research.
+            </p>
+          </div>
+
+          <div class="projects-grid">
             <article class="project-card">
-              <span class="card-kicker">Finance operations</span>
-              <h3>Aviation Club Financial Strategy</h3>
+              <div class="project-meta">
+                <span class="tag">Policy</span>
+                <span class="tag">Markets</span>
+                <span class="tag">Selected for conference</span>
+              </div>
+              <h3>Protecting retail investors in the post-memestock era</h3>
               <p>
-                Worked around budgeting logic and sponsor-facing thinking in the UW–Madison Aviation Club. The value here is practical: it forced me to connect resource allocation, institutional constraints, and real operational trade-offs.
+                Policy memo focused on transparency in social-media-driven investment content, high-volatility risk warnings inside brokerage apps, and short-form investor education during periods of extreme speculative behavior.
               </p>
+              <ul class="project-points">
+                <li>Framed the problem through incentives, interface design, and information asymmetry rather than generic investor-blame narratives.</li>
+                <li>Built a clear decision-policy lens around what platforms can disclose, when warnings matter, and how users behave under pressure.</li>
+                <li>Selected for the Wisconsin Ideas Conference policy memo track.</li>
+              </ul>
+              <div class="project-note">Why it matters: it demonstrates structured thinking about markets where volatility, design, and human behavior collide.</div>
             </article>
 
             <article class="project-card">
-              <span class="card-kicker">Business + engineering</span>
-              <h3>Formula Student Sponsorship Work</h3>
-              <p>
-                Supported sponsorship efforts for the CULS Racing Formula Student team. This matters because it ties engineering output to negotiation, incentives, and the business reality behind competitive technical work.
-              </p>
-            </article>
-
-            <article class="project-card">
-              <span class="card-kicker">Governance</span>
+              <div class="project-meta">
+                <span class="tag">Institutions</span>
+                <span class="tag">Leadership</span>
+              </div>
               <h3>Associated Students of Madison Student Council</h3>
               <p>
-                Student governance made institutional decision-making concrete. It sharpened how I think about trade-offs, priorities, and the gap between good arguments and actual outcomes.
+                Student governance work that exposed how institutions allocate resources, reconcile competing priorities, and translate argument into actual decisions.
               </p>
+              <ul class="project-points">
+                <li>Strengthened structured argument, public-facing judgment, and the ability to separate signal from noise in group decision environments.</li>
+                <li>Made institutional design more concrete by showing how process quality affects outcomes even outside formal finance settings.</li>
+                <li>Useful because it adds a governance and incentives layer to otherwise technical interests.</li>
+              </ul>
+              <div class="project-note">Why it matters: serious analytical work is not only about models. It is also about how organizations decide.</div>
             </article>
 
             <article class="project-card">
-              <span class="card-kicker">Next proof point</span>
-              <h3>Flagship quantitative build in progress</h3>
+              <div class="project-meta">
+                <span class="tag">Engineering</span>
+                <span class="tag">External relations</span>
+              </div>
+              <h3>Formula Student sponsorship and partner outreach</h3>
               <p>
-                The most important next step is a full quantitative case study with code, data, and results. The site is now designed to hold that level of work the moment it is ready.
+                Sponsor-facing work for a student racing team, centered on converting technical ambition into credible external communication and practical support.
               </p>
+              <ul class="project-points">
+                <li>Required preparation, persistence, and a better understanding of how technical projects are funded and explained.</li>
+                <li>Built early experience with professional outreach, negotiation, and sponsor-facing expectations.</li>
+                <li>Added a practical execution layer to an otherwise analytical profile.</li>
+              </ul>
+              <div class="project-note">Why it matters: a strong profile should show more than analysis. It should also show follow-through.</div>
             </article>
+
+            <article class="project-card">
+              <div class="project-meta">
+                <span class="tag">Current build</span>
+                <span class="tag">Quantitative finance</span>
+              </div>
+              <h3>Volatility and risk research slate</h3>
+              <p>
+                Ongoing project direction around volatility forecasting, derivatives logic, backtesting discipline, and decision-support models for high-uncertainty environments.
+              </p>
+              <ul class="project-points">
+                <li>Core questions include what forecast quality is actually useful, how to compare models honestly, and how risk should be communicated under stress.</li>
+                <li>Built as a research slate rather than presented as a finished result that does not yet exist.</li>
+                <li>Designed to become a stronger body of work over time through real data, documented methods, and clearer outputs.</li>
+              </ul>
+              <div class="project-note">Why it matters: it makes the long-term direction explicit without pretending the work is finished before it is.</div>
+            </article>
+
+            <article class="project-card">
+              <div class="project-meta">
+                <span class="tag">Aviation</span>
+                <span class="tag">Finance strategy</span>
+              </div>
+              <h3>Aviation Club financial strategy involvement</h3>
+              <p>
+                Finance-facing student work connected to aviation, budgeting, organizational priorities, and resource planning inside a constrained operating environment.
+              </p>
+              <ul class="project-points">
+                <li>Interesting because it sits directly between engineering culture and financial decision-making.</li>
+                <li>Reinforced the practical side of allocation, tradeoffs, and strategic communication.</li>
+                <li>Contributes to a broader systems identity rather than a narrow single-domain profile.</li>
+              </ul>
+              <div class="project-note">Why it matters: the strongest profiles often connect disciplines through actual responsibilities.</div>
+            </article>
+
+            <article class="project-card">
+              <div class="project-meta">
+                <span class="tag">Independent exploration</span>
+                <span class="tag">Systems under stress</span>
+              </div>
+              <h3>High-altitude and hard-environment systems interest</h3>
+              <p>
+                Independent exploration of flight systems, sensing, environmental constraints, and performance questions where physical conditions make reliability non-trivial.
+              </p>
+              <ul class="project-points">
+                <li>Connects naturally with the same questions that drive interest in market stress, namely failure modes, uncertainty, and robustness.</li>
+                <li>Represents a serious intellectual pull toward aerospace-adjacent systems rather than a casual side hobby.</li>
+                <li>Shows that the systems lens extends beyond finance into engineered environments with real constraints.</li>
+              </ul>
+              <div class="project-note">Why it matters: it broadens the profile without diluting it, because the underlying thinking is consistent.</div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container">
+          <div class="quote-box">
+            <p>
+              The standard is not to sound impressive. The standard is to make the models sharper, the evidence cleaner, and the finished work harder to dismiss.
+            </p>
+            <small>Personal operating principle</small>
           </div>
         </div>
       </section>
 
       <section class="section" id="writing">
         <div class="container">
-          <div class="section-head split-head">
+          <div class="section-heading">
             <div>
-              <span class="kicker">Writing</span>
-              <h2>Ideas worth publishing, not just mentioning</h2>
+              <span class="section-kicker">Thinking and writing</span>
+              <h2 class="section-title">Ideas worth developing in public</h2>
             </div>
-            <p>
-              Writing is where I pressure test an argument before I pretend it is a finished position. These pieces are here to show what I keep thinking about when the page is not limited to a résumé bullet.
+            <p class="section-intro">
+              This part of the site is designed for longer-form analytical writing. It is not a personal diary. It is where research notes, policy pieces, and technical reflections can accumulate into a more serious body of thought over time.
             </p>
           </div>
 
           <div class="writing-grid">
             <article class="writing-card">
-              <span class="card-kicker">Policy analysis</span>
-              <h3>Retail Investor Protection &amp; Platform Design</h3>
+              <span class="card-kicker">Policy writing</span>
+              <h3>Retail investor protection and platform design</h3>
               <p>
-                Extends the Wisconsin Ideas Conference memo into a broader question: how broker interfaces, social feeds, and volatility warnings change decision quality in retail markets.
+                A natural extension of the policy memo work: how brokerage interfaces, social distribution, and volatility warnings shape retail decisions during unstable market periods.
               </p>
+              <a class="text-link" href="mailto:david.anderle1@gmail.com?subject=Policy%20memo%20request">Request paper details</a>
             </article>
 
             <article class="writing-card">
-              <span class="card-kicker">Parallel track</span>
-              <h3>Engineering Curiosity Beside Finance</h3>
+              <span class="card-kicker">Quantitative research</span>
+              <h3>Volatility models, derivatives logic, and honest backtesting</h3>
               <p>
-                A running thread on why aviation, Formula Student, and engineering systems matter to my finance work. The overlap is not decorative. It changes how I frame risk and execution.
+                Planned writing around what makes a volatility framework useful in practice, how to compare forecasting approaches, and how weak methodology creates false confidence.
               </p>
+              <a class="text-link" href="#contact">Discuss research direction</a>
             </article>
 
             <article class="writing-card">
-              <span class="card-kicker">Next article</span>
-              <h3>What makes a strong volatility project credible</h3>
+              <span class="card-kicker">Systems thinking</span>
+              <h3>What finance and engineering failure modes have in common</h3>
               <p>
-                A planned note on the difference between a vague “quant project” and work that actually proves ability through data, validation, and interpretable results.
+                An emerging theme across the entire profile: stress reveals weak assumptions. The same lens can be used to study market fragility and engineered systems under extreme conditions.
               </p>
+              <a class="text-link" href="#about">Read the broader thesis</a>
             </article>
           </div>
         </div>
       </section>
 
-      <section class="section timeline-section" id="timeline">
+      <section class="section" id="timeline">
         <div class="container">
-          <div class="section-head split-head">
+          <div class="section-heading">
             <div>
-              <span class="kicker">Timeline</span>
-              <h2>The path behind the profile</h2>
+              <span class="section-kicker">Path</span>
+              <h2 class="section-title">Current trajectory</h2>
             </div>
-            <p>
-              The story is easier to understand when it is chronological: technical base first, then broader institutional and finance exposure, then progressively stronger work around high-stakes systems.
+            <p class="section-intro">
+              A compressed version of the path so far. Included for context, not decoration.
             </p>
           </div>
 
-          <div class="timeline-grid">
-            <article class="timeline-card">
-              <span class="timeline-year">Foundation</span>
-              <h3>Czech technical base</h3>
-              <p>Built a technical foundation through informatics study in Prague while keeping a strong interest in systems, engineering, and decision quality.</p>
+          <div class="timeline">
+            <article class="timeline-item">
+              <div class="timeline-date">Now</div>
+              <div>
+                <h3>UW–Madison exchange year</h3>
+                <p>
+                  Building range in a more international environment, improving communication, and pushing the quality of academic and independent work to a higher standard.
+                </p>
+              </div>
             </article>
-            <article class="timeline-card">
-              <span class="timeline-year">Expansion</span>
-              <h3>UW–Madison exchange</h3>
-              <p>Added international academic perspective and closer exposure to business, economics, governance, and finance-oriented environments.</p>
+
+            <article class="timeline-item">
+              <div class="timeline-date">Active focus</div>
+              <div>
+                <h3>Quantitative finance, policy, and systems thinking</h3>
+                <p>
+                  Connecting volatility, market structure, investor behavior, and institutional design into a more coherent analytical direction.
+                </p>
+              </div>
             </article>
-            <article class="timeline-card">
-              <span class="timeline-year">Application</span>
-              <h3>Policy, clubs, and sponsorship work</h3>
-              <p>Moved from abstract interest to practical settings where incentives, budgets, and organizational trade-offs were visible and consequential.</p>
-            </article>
-            <article class="timeline-card">
-              <span class="timeline-year">Next move</span>
-              <h3>Deeper quantitative evidence</h3>
-              <p>The strongest next step is an original research-grade finance project with code, charts, and a result that can survive scrutiny.</p>
+
+            <article class="timeline-item">
+              <div class="timeline-date">Parallel track</div>
+              <div>
+                <h3>Engineering-oriented curiosity and technical builds</h3>
+                <p>
+                  Continuing to move toward work that is more build-heavy, system-aware, and grounded in constraints rather than abstraction alone.
+                </p>
+              </div>
             </article>
           </div>
         </div>
       </section>
 
-      <section class="section contact-section" id="contact">
-        <div class="container contact-wrap">
-          <div class="contact-card">
-            <span class="kicker">Contact</span>
-            <h2>Let’s connect around serious work.</h2>
-            <p>
-              The best next conversation is about quantitative finance, market structure, decision-making, or a project that demands more than surface-level language.
+      <section class="section" id="contact">
+        <div class="container contact-grid">
+          <article class="panel">
+            <span class="section-kicker">Contact</span>
+            <h2 style="font-size:clamp(2rem,4vw,3rem); line-height:0.98; letter-spacing:-0.055em; max-width:12ch;">Open to serious opportunities and useful conversations</h2>
+            <p style="margin-top:18px; color:#d8d8dc; max-width:60ch;">
+              I am interested in conversations around internships, selective student initiatives, research opportunities, finance and systems work, and collaborations where analytical rigor actually matters.
             </p>
             <div class="contact-actions">
-              <a class="button button-primary" href="mailto:david.anderle1@gmail.com">Email David</a>
-              <a class="button button-secondary" href="https://www.linkedin.com/in/david-anderle" target="_blank" rel="noreferrer">Connect on LinkedIn</a>
-              <a class="button button-secondary" href="terms.html">Terms of use</a>
+              <a class="button primary" href="mailto:david.anderle1@gmail.com">david.anderle1@gmail.com</a>
+              <a class="button secondary" href="https://www.linkedin.com/in/david-anderle" target="_blank" rel="noreferrer">Connect on LinkedIn</a>
+              <a class="button secondary" href="https://github.com/davidanderle1" target="_blank" rel="noreferrer">View GitHub</a>
             </div>
-          </div>
+          </article>
+
+          <article class="panel">
+            <span class="section-kicker">Public profile</span>
+            <div class="info-stack">
+              <div class="info-row">
+                <div class="info-key">Website</div>
+                <div class="info-value">Intended as a durable public profile and long-term entity home for future work.</div>
+              </div>
+              <div class="info-row">
+                <div class="info-key">Email</div>
+                <div class="info-value"><a href="mailto:david.anderle1@gmail.com">david.anderle1@gmail.com</a></div>
+              </div>
+              <div class="info-row">
+                <div class="info-key">LinkedIn</div>
+                <div class="info-value"><a href="https://www.linkedin.com/in/david-anderle" target="_blank" rel="noreferrer">linkedin.com/in/david-anderle</a></div>
+              </div>
+              <div class="info-row">
+                <div class="info-key">GitHub</div>
+                <div class="info-value"><a href="https://github.com/davidanderle1" target="_blank" rel="noreferrer">github.com/davidanderle1</a></div>
+              </div>
+            </div>
+          </article>
         </div>
       </section>
     </main>
 
-    <footer class="site-footer">
-      <div class="container footer-inner">
-        <div>
-          <strong>David Anderle</strong>
-          <p>Quantitative finance, institutional design, and systems that have to hold under stress.</p>
-        </div>
-        <div class="footer-links">
-          <a href="mailto:david.anderle1@gmail.com">Email</a>
-          <a href="https://github.com/davidanderle1" target="_blank" rel="noreferrer">GitHub</a>
-          <a href="https://www.linkedin.com/in/david-anderle" target="_blank" rel="noreferrer">LinkedIn</a>
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-panel">
+          <div>
+            <strong>David Anderle</strong>
+            <div class="footer-copy">Quantitative finance, systems thinking, and work built to hold up under pressure.</div>
+          </div>
+          <div class="footer-copy mono">© 2026 · Content may not be reproduced, mirrored, or redistributed without written permission.</div>
         </div>
       </div>
     </footer>
   </div>
+
+  <script src="/assets-guard.js" defer></script>
+
+  <script>
+    (() => {
+      const heroEl = document.getElementById('hero-rotating-text');
+      if (!heroEl) return;
+
+      const variants = [
+        'Big ideas.<br>Small words.',
+        'Clarity in complexity.<br>Solutions that endure.',
+        'Unsettled by easy answers.<br>Never out of ideas.',
+        'I solve puzzles for a living.<br>Boredom is optional.',
+        'I look for people, not bullet points.<br>Stories, not spreadsheets.'
+      ];
+
+      const dots = Array.from(document.querySelectorAll('.hero-dot'));
+      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      let currentIndex = 0;
+      let timer = null;
+      let isPaused = false;
+
+      const render = (index) => {
+        currentIndex = index;
+        heroEl.classList.remove('is-visible');
+
+        window.setTimeout(() => {
+          heroEl.innerHTML = variants[index];
+          heroEl.classList.add('is-visible');
+          dots.forEach((dot, i) => {
+            const active = i === index;
+            dot.classList.toggle('is-active', active);
+            dot.setAttribute('aria-pressed', active ? 'true' : 'false');
+          });
+        }, prefersReducedMotion ? 0 : 180);
+      };
+
+      const restart = () => {
+        if (timer) window.clearInterval(timer);
+        if (prefersReducedMotion || isPaused) return;
+        timer = window.setInterval(() => {
+          render((currentIndex + 1) % variants.length);
+        }, 4400);
+      };
+
+      dots.forEach((dot) => {
+        dot.addEventListener('click', () => {
+          render(Number(dot.dataset.heroIndex || 0));
+          restart();
+        });
+      });
+
+      const rotator = document.querySelector('.hero-rotator');
+      if (rotator) {
+        rotator.addEventListener('mouseenter', () => {
+          isPaused = true;
+          restart();
+        });
+        rotator.addEventListener('mouseleave', () => {
+          isPaused = false;
+          restart();
+        });
+        rotator.addEventListener('focusin', () => {
+          isPaused = true;
+          restart();
+        });
+        rotator.addEventListener('focusout', () => {
+          isPaused = false;
+          restart();
+        });
+      }
+
+      heroEl.classList.add('is-visible');
+      restart();
+    })();
+  </script>
+
 </body>
 </html>
