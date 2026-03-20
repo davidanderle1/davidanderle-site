@@ -714,15 +714,22 @@
     }
 
 
-/* Anti-copy / anti-casual-scrape deterrence */
-* {
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
+/* Compatibility-first anti-casual-copy deterrence */
+html {
+  -webkit-touch-callout: default;
 }
 
-img, a, button {
+body {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+img,
+.image-protected img,
+.portrait-frame img {
   -webkit-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .portrait-frame,

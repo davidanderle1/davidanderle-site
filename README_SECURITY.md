@@ -35,14 +35,15 @@ Notes:
 
 
 Additional deterrence implemented in this build:
-- Global copy/select/context-menu/drag blocking in assets-guard.js
-- Shortcut blocking for common save/view-source/devtools combinations
-- Basic devtools-size detection with lock screen replacement
+- Compatibility-first image drag/context-menu deterrence in assets-guard.js
+- Minimal desktop-only shortcut blocking for common save/view-source/devtools combinations
+- Removed devtools-detection lock screen to avoid mobile false positives and broken access
 - Portrait watermark overlay for casual image theft deterrence
 - Hashed image filename to reduce guessable asset paths
 - Terms of Use page with explicit reproduction restrictions
 
 Important:
+- Mobile compatibility and accessibility were prioritized over aggressive client-side blocking.
 - These measures are deterrents, not true protection against a determined attacker.
 - Real anti-scraping strength still depends on edge controls such as Cloudflare WAF, Bot Fight Mode, rate limiting, hotlink protection, and origin hardening.
 

@@ -1,1 +1,40 @@
-(()=>{const d=document,w=window;const kill=e=>{e.preventDefault();e.stopPropagation();return false};["copy","cut","contextmenu","dragstart","selectstart"].forEach(t=>d.addEventListener(t,kill,{capture:true}));d.addEventListener("keydown",e=>{const k=(e.key||"").toLowerCase();if((e.ctrlKey&&["c","u","s","a","x","p"].includes(k))||(e.metaKey&&["c","u","s","a","x","p"].includes(k))||e.key==="F12"||(e.ctrlKey&&e.shiftKey&&["i","j","c","k"].includes(k))||(e.metaKey&&e.altKey&&["i","j","c","k"].includes(k))){kill(e)}},{capture:true});const blocked='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Access blocked</title><style>html,body{height:100%;margin:0;background:#070708;color:#f4f4f4;font-family:system-ui,-apple-system,Segoe UI,sans-serif}body{display:grid;place-items:center;padding:24px}main{max-width:720px;text-align:center;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);padding:40px 28px;border-radius:24px;box-shadow:0 20px 60px rgba(0,0,0,.45)}h1{margin:0 0 14px;font-size:clamp(2rem,7vw,3.4rem);letter-spacing:-.06em}p{margin:8px 0;color:#b3b3b8;line-height:1.7}</style></head><body><main><h1>Access blocked</h1><p>Developer tools or automated extraction behavior were detected.</p><p>This site is protected against casual copying, scraping, and unauthorized reproduction.</p></main></body></html>';let locked=false;const lock=()=>{if(locked)return;locked=true;d.documentElement.innerHTML=blocked};const dt=()=>{const widthGap=w.outerWidth-w.innerWidth>120;const heightGap=w.outerHeight-w.innerHeight>120;if(widthGap||heightGap){lock()}};setInterval(dt,1000);d.addEventListener("visibilitychange",()=>{if(!d.hidden)dt()});try{if(navigator.webdriver||!navigator.plugins||navigator.plugins.length===0){setTimeout(lock,1500)}}catch(_){}})();
+(() => {
+  const d = document;
+  const isTouchLike = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const protectedSelector = 'img, .image-protected, .portrait-frame';
+
+  const isProtectedTarget = (target) => {
+    return !!(target && target.closest && target.closest(protectedSelector));
+  };
+
+  // Compatibility-first deterrence only.
+  // No devtools detection, no lock screens, no viewport heuristics.
+
+  d.addEventListener('dragstart', (event) => {
+    if (isProtectedTarget(event.target)) {
+      event.preventDefault();
+    }
+  }, { capture: true });
+
+  d.addEventListener('contextmenu', (event) => {
+    if (isProtectedTarget(event.target)) {
+      event.preventDefault();
+    }
+  }, { capture: true });
+
+  // Keep keyboard interference minimal and desktop-only.
+  if (!isTouchLike) {
+    d.addEventListener('keydown', (event) => {
+      const key = (event.key || '').toLowerCase();
+      const blocked = [
+        (event.ctrlKey || event.metaKey) && (key === 's' || key === 'u'),
+        key === 'f12'
+      ].some(Boolean);
+
+      if (blocked) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, { capture: true });
+  }
+})();
