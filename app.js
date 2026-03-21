@@ -1,52 +1,74 @@
 (() => {
-  const root = document.documentElement;
-  const progress = document.querySelector('.progress-bar');
-  const navLinks = [...document.querySelectorAll('.nav a[href^="#"], .nav a[href*="index.html#"]')];
-  const revealTargets = [...document.querySelectorAll('.hero-card, .hero-summary-card, .panel, .project-card, .writing-card, .timeline-item, .quote-box, .article-header, .article-body, .author-bio, .visual-panel')];
+  const doc = document.documentElement;
+  const progress = document.querySelector('.scroll-progress-bar');
+  const cursor = document.querySelector('.cursor-glow');
+  const revealTargets = document.querySelectorAll(
+    '.hero-card, .panel, .project-card, .writing-card, .timeline-item, .quote-box, .hero-summary-card, .article-header, .article-body, .author-bio, .visual-panel'
+  );
 
-  const setProgress = () => {
-    const scrollTop = window.scrollY;
-    const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
-    const pct = scrollHeight > 0 ? `${(scrollTop / scrollHeight) * 100}%` : '0%';
-    root.style.setProperty('--scroll-progress', pct);
-    if (progress) progress.style.width = pct;
+  const navLinks = [...document.querySelectorAll('.nav a[href^="#"], .nav a[href*="index.html#"]')];
+  const sections = [...document.querySelectorAll('main section[id]')];
+
+  const updateProgress = () => {
+    const h = doc.scrollHeight - window.innerHeight;
+    const ratio = h > 0 ? window.scrollY / h : 0;
+    if (progress) progress.style.transform = `scaleX(${Math.min(1, Math.max(0, ratio))})`;
   };
 
-  revealTargets.forEach((el, i) => {
-    el.classList.add('reveal');
-    el.style.transitionDelay = `${Math.min(i * 35, 240)}ms`;
-  });
-
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) entry.target.classList.add('is-visible');
+  const updateActiveNav = () => {
+    const y = window.scrollY + 140;
+    let activeId = '';
+    for (const section of sections) {
+      if (section.offsetTop <= y) activeId = section.id;
+    }
+    navLinks.forEach(link => {
+      const href = link.getAttribute('href') || '';
+      const id = href.includes('#') ? href.split('#')[1] : '';
+      link.classList.toggle('is-active', !!activeId && id === activeId);
     });
-  }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+  };
 
-  revealTargets.forEach(el => io.observe(el));
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+          observer.unobserve(entry.target);
+        }
+      }
+    }, { threshold: 0.14, rootMargin: '0px 0px -8% 0px' });
 
-  const sectionIds = ['about', 'flagship', 'work', 'writing', 'timeline', 'contact'];
-  const sections = sectionIds
-    .map(id => document.getElementById(id))
-    .filter(Boolean);
-
-  if (sections.length && navLinks.length) {
-    const sectionObserver = new IntersectionObserver((entries) => {
-      const visible = entries
-        .filter(entry => entry.isIntersecting)
-        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-      if (!visible) return;
-      navLinks.forEach(link => {
-        const href = link.getAttribute('href') || '';
-        const active = href.endsWith(`#${visible.target.id}`);
-        link.classList.toggle('is-active', active);
-      });
-    }, { threshold: 0.45, rootMargin: '-10% 0px -40% 0px' });
-
-    sections.forEach(section => sectionObserver.observe(section));
+    revealTargets.forEach((el, i) => {
+      el.classList.add('reveal');
+      el.style.setProperty('--reveal-delay', `${(i % 8) * 35}ms`);
+      observer.observe(el);
+    });
+  } else {
+    revealTargets.forEach(el => el.classList.add('is-visible'));
   }
 
-  setProgress();
-  window.addEventListener('scroll', setProgress, { passive: true });
-  window.addEventListener('resize', setProgress);
+  let mx = window.innerWidth * 0.5;
+  let my = window.innerHeight * 0.25;
+  let tx = mx;
+  let ty = my;
+  const loop = () => {
+    mx += (tx - mx) * 0.08;
+    my += (ty - my) * 0.08;
+    if (cursor) cursor.style.transform = `translate(${mx - 260}px, ${my - 260}px)`;
+    requestAnimationFrame(loop);
+  };
+  loop();
+
+  window.addEventListener('pointermove', (e) => {
+    tx = e.clientX;
+    ty = e.clientY;
+  }, { passive: true });
+
+  window.addEventListener('scroll', () => {
+    updateProgress();
+    updateActiveNav();
+  }, { passive: true });
+
+  updateProgress();
+  updateActiveNav();
 })();
