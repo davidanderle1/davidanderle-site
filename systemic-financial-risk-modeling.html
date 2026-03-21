@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Systemic financial risk modeling | David Anderle</title>
-  <meta name="description" content="A flagship project concept for David Anderle focused on network contagion, stress propagation, and systemic financial fragility." />
+  <title>Volatility Cascade Engine | David Anderle</title>
+  <meta name="description" content="A systems-risk project by David Anderle modeling how leverage, margin pressure, and forced selling can turn an initial shock into a cascade." />
   <meta name="robots" content="index, follow" />
   <meta name="author" content="David Anderle" />
   <meta name="theme-color" content="#0a0a0b" />
@@ -13,25 +13,37 @@
   <meta property="og:type" content="article" />
   <meta property="og:url" content="https://davidanderle.com/systemic-financial-risk-modeling.html" />
   <meta property="og:site_name" content="David Anderle" />
-  <meta property="og:title" content="Systemic financial risk modeling | David Anderle" />
-  <meta property="og:description" content="A flagship project concept for David Anderle focused on network contagion, stress propagation, and systemic financial fragility." />
-  <meta property="og:image" content="https://davidanderle.com/portrait-39dc22f9df015f86.jpg" />
+  <meta property="og:title" content="Volatility Cascade Engine | David Anderle" />
+  <meta property="og:description" content="A systems-risk project by David Anderle modeling how leverage, margin pressure, and forced selling can turn an initial shock into a cascade." />
+  <meta property="og:image" content="https://davidanderle.com/network_snapshot.png" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Systemic financial risk modeling | David Anderle" />
-  <meta name="twitter:description" content="A flagship project concept for David Anderle focused on network contagion, stress propagation, and systemic financial fragility." />
-  <meta name="twitter:image" content="https://davidanderle.com/portrait-39dc22f9df015f86.jpg" />
+  <meta name="twitter:title" content="Volatility Cascade Engine | David Anderle" />
+  <meta name="twitter:description" content="A systems-risk project by David Anderle modeling how leverage, margin pressure, and forced selling can turn an initial shock into a cascade." />
+  <meta name="twitter:image" content="https://davidanderle.com/network_snapshot.png" />
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "Article",
-    "headline": "Systemic financial risk modeling",
-    "author": {"@type": "Person", "name": "David Anderle", "url": "https://davidanderle.com/"},
-    "publisher": {"@type": "Person", "name": "David Anderle"},
-    "mainEntityOfPage": "https://davidanderle.com/systemic-financial-risk-modeling.html",
-    "datePublished": "2026-03-20",
-    "dateModified": "2026-03-20",
-    "description": "A flagship project concept for David Anderle focused on network contagion, stress propagation, and systemic financial fragility.",
-    "image": "https://davidanderle.com/portrait-39dc22f9df015f86.jpg"
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Volatility Cascade Engine",
+        "author": {"@type": "Person", "name": "David Anderle", "url": "https://davidanderle.com/"},
+        "publisher": {"@type": "Person", "name": "David Anderle"},
+        "mainEntityOfPage": "https://davidanderle.com/systemic-financial-risk-modeling.html",
+        "datePublished": "2026-03-20",
+        "dateModified": "2026-03-20",
+        "description": "A systems-risk project by David Anderle modeling how leverage, margin pressure, and forced selling can turn an initial shock into a cascade.",
+        "image": "https://davidanderle.com/network_snapshot.png"
+      },
+      {
+        "@type": "SoftwareSourceCode",
+        "name": "Volatility Cascade Engine",
+        "codeRepository": "https://davidanderle.com/volatility_cascade_engine.zip",
+        "programmingLanguage": "Python",
+        "creator": {"@type": "Person", "name": "David Anderle"},
+        "description": "A simulation of leveraged portfolios under stress with margin breaches, forced liquidations, and impact-driven secondary declines."
+      }
+    ]
   }
   </script>
   <link rel="stylesheet" href="/styles.css" />
@@ -63,31 +75,79 @@
           <a class="back-link" href="/">← Back to homepage</a>
           <div class="article-meta">
             <span class="tag">By David Anderle</span>
-            <span class="tag">Flagship concept</span><span class="tag">Finance</span><span class="tag">Networks</span><span class="tag">Primary recommendation</span>
+            <span class="tag">Implemented project</span>
+            <span class="tag">Finance</span>
+            <span class="tag">Simulation</span>
+            <span class="tag">Python</span>
           </div>
-          <h1>Systemic financial risk modeling</h1>
-          <p class="article-lead">This flagship concept would model how shocks move through connected financial institutions, turning local weakness into system-wide risk once pressure rises.</p>
+          <h1>Volatility Cascade Engine</h1>
+          <p class="article-lead">I built a simulation of how an initial shock in one asset can propagate through a leveraged financial system through mark-to-market losses, margin breaches, forced liquidations, and impact-driven secondary declines.</p>
+          <div class="hero-actions" style="margin-top:28px;">
+            <a class="button primary" href="/volatility_cascade_engine.zip">Download project</a>
+            <a class="button secondary" href="/volatility_cascade_engine.py">View Python file</a>
+          </div>
         </article>
-        <article class="article-body">
-          <p>This is the strongest long-horizon flagship direction for the site because it fits the profile at three levels at once. It is intellectually coherent with the site’s central theme of systems under pressure. It is technically ambitious enough to signal real analytical depth. And it has obvious relevance to finance, regulation, and risk-focused research.</p>
-<h2>Core problem</h2>
-<p>Financial systems do not break only because one institution is weak. They break because institutions are connected, incentives are misaligned, and losses can propagate through structures that looked stable in quieter periods. A good flagship project should make that propagation visible.</p>
-<h2>Approach</h2>
-<ul>
-<li>Model institutions as nodes and exposures as edges in a network.</li>
-<li>Run stress scenarios that show how local failures cascade through the network.</li>
-<li>Compare simple balance-sheet views with network-aware risk views.</li>
-<li>Produce interpretable outputs rather than opaque complexity for its own sake.</li>
-</ul>
-<h2>Expected output</h2>
-<p>The visible output should be strong enough to live on the site and on GitHub: a reproducible notebook, network visualizations, ranked systemic-risk tables, and short notes explaining what each stress scenario reveals. That creates something that can be checked, shared, and extended later.</p>
-<h2>Why it should be primary</h2>
-<p>Among the flagship directions considered here, this one has the clearest overlap with the current public identity of the site. It takes the existing themes of volatility, institutional design, and decision-making under uncertainty and turns them into a concrete body of work.</p>
+
+        <article class="article-body project-case-study">
+          <div class="article-grid-2">
+            <div>
+              <h2>Problem</h2>
+              <p>Most people talk about market stress as if losses scale smoothly with the size of the initial shock. In leveraged systems, that assumption can fail. Once enough portfolios cross their margin thresholds, forced selling can create a second wave of losses that is larger than the first.</p>
+            </div>
+            <div>
+              <h2>Model logic</h2>
+              <p>Each fund has equity, leverage, a margin threshold, a liquidation rule, and overlapping exposures to a shared set of assets. After an initial shock hits CHIP, the engine revalues portfolios, checks for breaches, forces distressed funds to sell, applies price impact, and repeats until the system stabilizes.</p>
+            </div>
+          </div>
+
+          <div class="keyline-grid">
+            <div class="metric-card"><div class="metric-label">Shock range tested</div><div class="metric-value">2% to 30%</div></div>
+            <div class="metric-card"><div class="metric-label">First distressed fund</div><div class="metric-value">16% shock</div></div>
+            <div class="metric-card"><div class="metric-label">Three distressed funds</div><div class="metric-value">20% shock</div></div>
+            <div class="metric-card"><div class="metric-label">System loss at 30%</div><div class="metric-value">34.3%</div></div>
+          </div>
+
+          <h2>What the outputs show</h2>
+          <p>The system looks stable under smaller shocks. Then the shape changes. At 16%, the first distressed fund appears. At 18%, there are two. At 20%, there are three. System loss rises from 11.1% at a 14% shock to 16.9% at 16%, 21.6% at 18%, and 25.7% at 20%. The exact numbers are not the point. The visible nonlinearity is.</p>
+
+          <div class="visual-stack">
+            <figure class="panel visual-panel">
+              <img class="engine-chart" src="/system_loss_curve.png" alt="Shock size versus system loss chart from the Volatility Cascade Engine" loading="eager" decoding="async">
+              <figcaption class="engine-caption">Final system loss steepens once liquidations begin feeding back into prices.</figcaption>
+            </figure>
+
+            <div class="article-grid-2">
+              <figure class="panel visual-panel">
+                <img class="engine-chart" src="/cascade_count_curve.png" alt="Shock size versus distressed funds chart from the Volatility Cascade Engine" loading="lazy" decoding="async">
+                <figcaption class="engine-caption">Distress stays at zero until the system crosses a boundary, then begins to spread.</figcaption>
+              </figure>
+              <figure class="panel visual-panel">
+                <img class="engine-chart" src="/network_snapshot.png" alt="Fund-asset network after an initial CHIP shock" loading="lazy" decoding="async">
+                <figcaption class="engine-caption">A network view makes overlapping exposures and spillover paths easier to inspect.</figcaption>
+              </figure>
+            </div>
+          </div>
+
+          <div class="article-grid-2">
+            <div>
+              <h2>Why this project matters</h2>
+              <ul>
+                <li>I can turn an abstract systems idea into a working model.</li>
+                <li>I think in terms of thresholds, propagation, and feedback loops.</li>
+                <li>I care about how systems fail under pressure, not just how they look in calm conditions.</li>
+              </ul>
+            </div>
+            <div>
+              <h2>What it is not</h2>
+              <p>This is intentionally simplified. It is not a production risk engine, a forecasting product, or a claim about real institutions. Its value is that it makes a clear systems argument visible in code, charts, and interpretable outputs.</p>
+            </div>
+          </div>
         </article>
+
         <aside class="panel author-bio">
           <span class="card-kicker">Author</span>
           <h2>About David Anderle</h2>
-          <p>David Anderle is an Informatics student at the Czech University of Life Sciences Prague and an exchange student at UW–Madison. He writes about systems behavior, financial risk, market structure, and decision-making under uncertainty.</p>
+          <p>David Anderle is an Informatics student at the Czech University of Life Sciences Prague and an exchange student at UW–Madison. He works on systems behavior, financial risk, market structure, and decision-making under uncertainty.</p>
           <p><a class="text-link" href="/index.html#about">Read the full profile</a></p>
         </aside>
       </div>
