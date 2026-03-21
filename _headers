@@ -38,15 +38,3 @@
 
 /*.webp
   Cache-Control: public, max-age=31536000, immutable
-
-/sitemap.xml
-  Cache-Control: public, max-age=86400
-
-/*.png
-  Cache-Control: public, max-age=31536000, immutable
-
-/*.jpg
-  Cache-Control: public, max-age=31536000, immutable
-
-/*.pdf
-  Cache-Control: public, max-age=86400
