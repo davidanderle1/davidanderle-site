@@ -1,0 +1,21 @@
+Volatility Cascade Engine — summary
+
+Key result:
+No obvious threshold detected.
+
+Scenario table:
+- Shock  2% | System loss   1.6% | Distressed funds 0
+- Shock  4% | System loss   3.2% | Distressed funds 0
+- Shock  6% | System loss   4.7% | Distressed funds 0
+- Shock  8% | System loss   6.3% | Distressed funds 0
+- Shock 10% | System loss   7.9% | Distressed funds 0
+- Shock 12% | System loss   9.5% | Distressed funds 0
+- Shock 14% | System loss  11.1% | Distressed funds 0
+- Shock 16% | System loss  16.9% | Distressed funds 1
+- Shock 18% | System loss  21.6% | Distressed funds 2
+- Shock 20% | System loss  25.7% | Distressed funds 3
+- Shock 22% | System loss  26.9% | Distressed funds 3
+- Shock 24% | System loss  28.0% | Distressed funds 3
+- Shock 26% | System loss  29.2% | Distressed funds 3
+- Shock 28% | System loss  30.4% | Distressed funds 3
+- Shock 30% | System loss  34.3% | Distressed funds 4
