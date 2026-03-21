@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>David Anderle Writing</title>
+    <link>https://davidanderle.com/writing</link>
+    <description>Writing by David Anderle on systems, risk, and financial systems.</description>
+    <language>en-us</language>
+    <lastBuildDate>Sat, 21 Mar 2026 00:00:00 +0000</lastBuildDate>
+    
+<item>
+  <title>Why systems fail under stress</title>
+  <link>https://davidanderle.com/systems-fail-under-stress</link>
+  <guid>https://davidanderle.com/systems-fail-under-stress</guid>
+  <pubDate>Fri, 20 Mar 2026 00:00:00 +0000</pubDate>
+  <description>David Anderle on why systems fail under stress, from financial systems to organizations and engineered environments.</description>
+</item>
+<item>
+  <title>Decision-making when uncertainty spikes</title>
+  <link>https://davidanderle.com/decision-making-when-uncertainty-spikes</link>
+  <guid>https://davidanderle.com/decision-making-when-uncertainty-spikes</guid>
+  <pubDate>Fri, 20 Mar 2026 00:00:00 +0000</pubDate>
+  <description>David Anderle on decision-making under uncertainty, information quality, and better structure when pressure rises.</description>
+</item>
+<item>
+  <title>What real-world organizations taught me about risk</title>
+  <link>https://davidanderle.com/real-world-organizations-and-risk</link>
+  <guid>https://davidanderle.com/real-world-organizations-and-risk</guid>
+  <pubDate>Fri, 20 Mar 2026 00:00:00 +0000</pubDate>
+  <description>David Anderle on what student governance, sponsorship outreach, and finance-facing roles taught him about risk and execution.</description>
+</item>
+<item>
+  <title>Applying systems thinking to financial risk</title>
+  <link>https://davidanderle.com/applying-systems-thinking-to-financial-risk</link>
+  <guid>https://davidanderle.com/applying-systems-thinking-to-financial-risk</guid>
+  <pubDate>Fri, 20 Mar 2026 00:00:00 +0000</pubDate>
+  <description>An article by David Anderle on why isolated metrics miss financial risk once dependencies and incentives interact.</description>
+</item>
+<item>
+  <title>Building resilient financial systems</title>
+  <link>https://davidanderle.com/building-resilient-financial-systems</link>
+  <guid>https://davidanderle.com/building-resilient-financial-systems</guid>
+  <pubDate>Fri, 20 Mar 2026 00:00:00 +0000</pubDate>
+  <description>An article by David Anderle on resilience, redundancy, and decision design in financial systems.</description>
+</item>
+<item>
+  <title>Network models of systemic risk</title>
+  <link>https://davidanderle.com/network-models-of-systemic-risk</link>
+  <guid>https://davidanderle.com/network-models-of-systemic-risk</guid>
+  <pubDate>Fri, 20 Mar 2026 00:00:00 +0000</pubDate>
+  <description>An article by David Anderle on how network views help explain systemic financial fragility.</description>
+</item>
+<item>
+  <title>Systemic financial risk modeling</title>
+  <link>https://davidanderle.com/systemic-financial-risk-modeling</link>
+  <guid>https://davidanderle.com/systemic-financial-risk-modeling</guid>
+  <pubDate>Fri, 20 Mar 2026 00:00:00 +0000</pubDate>
+  <description>A flagship project concept for David Anderle focused on network contagion, stress propagation, and systemic financial fragility.</description>
+</item>
+<item>
+  <title>Climate-resilient grid planning</title>
+  <link>https://davidanderle.com/climate-resilient-grid-planning</link>
+  <guid>https://davidanderle.com/climate-resilient-grid-planning</guid>
+  <pubDate>Fri, 20 Mar 2026 00:00:00 +0000</pubDate>
+  <description>A project concept focused on grid reliability, climate stress, and robust infrastructure decisions under uncertainty.</description>
+</item>
+<item>
+  <title>Global supply chain resilience</title>
+  <link>https://davidanderle.com/global-supply-chain-resilience</link>
+  <guid>https://davidanderle.com/global-supply-chain-resilience</guid>
+  <pubDate>Fri, 20 Mar 2026 00:00:00 +0000</pubDate>
+  <description>A project concept focused on networked supply chains, disruption scenarios, and robust decision support.</description>
+</item>
+  </channel>
+</rss>
