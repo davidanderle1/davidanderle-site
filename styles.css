@@ -68,7 +68,7 @@ h1, h2, h3, h4, p, ul { margin: 0; }
   top: 0;
   z-index: 50;
   backdrop-filter: blur(20px);
-  background: rgba(248, 244, 238, 0.78);
+  background: rgba(248, 244, 238, 0.84);
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
 }
 
@@ -151,11 +151,12 @@ h1, h2, h3, h4, p, ul { margin: 0; }
   background: rgba(15,23,42,0.05);
   color: var(--text);
   outline: none;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 30px rgba(15,23,42,0.08);
 }
 
 .hero {
-  padding: 88px 0 56px;
+  padding: 96px 0 64px;
 }
 
 .hero-layout {
@@ -243,8 +244,8 @@ h1,
 h1 {
   margin-top: 20px;
   font-size: clamp(3rem, 7vw, 5.6rem);
-  line-height: 0.95;
-  letter-spacing: -0.06em;
+  line-height: 0.98;
+  letter-spacing: -0.05em;
   max-width: 10.8ch;
 }
 
@@ -314,8 +315,8 @@ h1 {
 
 .hero-sublead {
   margin-top: 16px;
-  max-width: 60ch;
-  font-size: 1rem;
+  max-width: 64ch;
+  font-size: 1.02rem;
 }
 
 .hero-actions,
@@ -372,7 +373,7 @@ h1 {
 .hero-portrait {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .portrait-frame {
@@ -431,22 +432,64 @@ img {
   text-transform: uppercase;
 }
 
+.institution-strip {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.institution-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(15,23,42,0.12);
+  background: rgba(15,23,42,0.04);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.hero-card,
+.panel,
+.project-card,
+.writing-card,
+.timeline-item,
+.hero-summary-card,
+.metric-card {
+  animation: riseIn 560ms ease both;
+}
+
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .section {
-  padding: 42px 0;
+  padding: 52px 0;
 }
 
 .section-heading {
   display: grid;
   grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
   gap: 26px;
-  margin-bottom: 28px;
+  margin-bottom: 34px;
   align-items: start;
 }
 
 .section-title {
   font-size: clamp(2.1rem, 4vw, 3.25rem);
-  line-height: 0.99;
-  letter-spacing: -0.05em;
+  line-height: 1.03;
+  letter-spacing: -0.04em;
   max-width: 12ch;
 }
 
@@ -465,7 +508,7 @@ img {
 .flagship-stack,
 .timeline {
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 .about-grid {
@@ -499,7 +542,7 @@ img {
 .panel,
 .project-card,
 .writing-card {
-  padding: 28px;
+  padding: 30px;
 }
 
 .panel h3,
