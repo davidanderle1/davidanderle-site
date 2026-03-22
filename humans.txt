@@ -1,4 +1,0 @@
-Site: davidanderle.com
-Owner: David Anderle
-Purpose: Official website and public-profile hub
-Focus: Systems, risk, financial systems, decision-making under uncertainty
