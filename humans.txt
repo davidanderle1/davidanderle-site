@@ -1,0 +1,4 @@
+David Anderle
+Design and implementation: evidence-first static portfolio
+Built: 2026-07-29
+Technology: semantic HTML, CSS, SVG, no client JavaScript

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Selected Work — David Anderle</title>
+  <meta name="description" content="Case studies in quantitative research, financial modeling, market data, Python, Rust, and research software by David Anderle.">
+  <meta name="author" content="David Anderle">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="theme-color" content="#F7F4EC">
+  <link rel="canonical" href="https://davidanderle.com/work/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/assets/icons/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/assets/css/site.css">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="David Anderle">
+  <meta property="og:url" content="https://davidanderle.com/work/">
+  <meta property="og:title" content="Selected Work — David Anderle">
+  <meta property="og:description" content="Case studies in quantitative research, financial modeling, market data, Python, Rust, and research software by David Anderle.">
+  <meta property="og:image" content="https://davidanderle.com/assets/og/work.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="David Anderle — quantitative research and research software">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Selected Work — David Anderle">
+  <meta name="twitter:description" content="Case studies in quantitative research, financial modeling, market data, Python, Rust, and research software by David Anderle.">
+  <meta name="twitter:image" content="https://davidanderle.com/assets/og/work.png">
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"CollectionPage","@id":"https://davidanderle.com/work/#page","url":"https://davidanderle.com/work/","name":"Selected Work — David Anderle","dateModified":"2026-07-29","mainEntity":{"@type":"ItemList","itemListElement":[{"@type":"ListItem","position":1,"url":"https://davidanderle.com/work/volatility-cascade-engine/","name":"Volatility Cascade Engine"},{"@type":"ListItem","position":2,"url":"https://davidanderle.com/work/merkle-poseidon/","name":"Merkle Commitments with Poseidon in Rust"}]}},{"@type":"Person","@id":"https://davidanderle.com/#person","name":"David Anderle","url":"https://davidanderle.com/","image":"https://davidanderle.com/assets/images/portrait-1200.jpg","email":"mailto:david@davidanderle.com","description":"Czech informatics student building reproducible quantitative research and research software for markets, risk, and data-intensive decisions.","sameAs":["https://www.linkedin.com/in/david-anderle","https://github.com/davidanderle1"],"knowsAbout":["Quantitative finance","Market data","Financial modeling","Research software","Python","Rust","Volatility","Portfolio risk","Merkle trees"]},{"@type":"WebSite","@id":"https://davidanderle.com/#website","url":"https://davidanderle.com/","name":"David Anderle","publisher":{"@id":"https://davidanderle.com/#person"}}]}</script>
+</head>
+<body class="">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="brand" href="/" aria-label="David Anderle — home">
+        <span class="brand-mark" aria-hidden="true">DA</span>
+        <span class="brand-text"><strong>David Anderle</strong><span>Quantitative research · research software</span></span>
+      </a>
+      <nav class="desktop-nav" aria-label="Primary navigation"><a href="/work/" aria-current="page">Work</a><a href="/writing/">Writing</a><a href="/about/">About</a><a href="/cv/">CV</a><a href="/contact/">Contact</a></nav>
+      <details class="mobile-nav">
+        <summary aria-label="Open navigation"><span>Menu</span><span class="menu-lines" aria-hidden="true"></span></summary>
+        <nav aria-label="Mobile navigation"><a href="/work/" aria-current="page">Work</a><a href="/writing/">Writing</a><a href="/about/">About</a><a href="/cv/">CV</a><a href="/contact/">Contact</a></nav>
+      </details>
+    </div>
+  </header>
+  <main id="main-content">
+<section class="page-hero"><div class="shell"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a><span class="breadcrumb-sep" aria-hidden="true">/</span><span aria-current="page">Work</span></nav><span class="eyebrow">Selected work</span><h1>Selected quantitative and technical work.</h1><p class="page-deck">This is not a catalogue of everything I have considered building. It is a record of work with enough evidence to inspect. Status labels distinguish implemented prototypes, collaborative experiments, technical notes, and archived work.</p></div></section>
+<section class="section"><div class="shell">
+  <div class="notice"><strong>Publication standard.</strong> A featured project must state the precise problem, my exact role, dated status, data provenance, method, result, validation attempts, limitations, and a reproducible artifact or a documented reason for non-disclosure.</div>
+  <div class="project-list mt-40"><a class="project-card" href="/work/volatility-cascade-engine/">
+      <div class="project-copy">
+        <span class="status implemented">Implemented research prototype</span>
+        <h2>Volatility Cascade Engine</h2>
+        <p>A deterministic Python simulation of how leverage, margin pressure, forced liquidation, and endogenous price impact can amplify a shock across overlapping synthetic portfolios.</p>
+        <div class="evidence-line"><span>Python</span><span>6 synthetic funds</span><span>5 synthetic assets</span><span>Scenario sweep</span></div>
+        <span class="card-cta">Read the case study <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+      </div>
+      <div class="project-visual"><div class="visual-panel"><img src="/assets/images/vce-loss-curve.svg" alt="Line chart of initial shock versus final system equity loss in the synthetic model" width="920" height="520"></div></div>
+    </a><a class="project-card reverse" href="/work/merkle-poseidon/">
+      <div class="project-copy">
+        <span class="status experimental">Work in progress · collaborative repository</span>
+        <h2>Merkle Commitments with Poseidon in Rust</h2>
+        <p>A public Rust/arkworks prototype for commitments, Merkle roots, and membership proofs. The case study separates the repository’s capabilities, my documented contribution, and its non-production limitations.</p>
+        <div class="evidence-line"><span>Rust</span><span>arkworks</span><span>Merkle proofs</span><span>Explicit limitations</span></div>
+        <span class="card-cta">Inspect the implementation <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+      </div>
+      <div class="project-visual"><div class="visual-panel"><img src="/assets/images/merkle-flow.svg" alt="Diagram of values being hashed into commitments and a Merkle root" width="920" height="520"></div></div>
+    </a></div>
+  <div class="empty-rule mt-30"><strong>Public scope:</strong> private systems, concept-only projects, restricted research, and work without a clear authorship or release boundary are excluded.</div>
+</div></section>
+</main>
+  <footer class="site-footer">
+    <div class="shell footer-grid">
+      <div>
+        <a class="footer-brand" href="/">David Anderle</a>
+        <p>Personal research and technical work.</p>
+        <p class="footer-boundary">No investment advice. Project status and limitations are stated on each case-study page.</p>
+      </div>
+      <nav aria-label="Footer navigation">
+        <a href="/work/">Work</a><a href="/writing/">Writing</a><a href="/about/">About</a><a href="/cv/">CV</a><a href="/contact/">Contact</a><a href="/privacy/">Privacy</a>
+      </nav>
+      <div class="footer-social">
+        <a href="https://github.com/davidanderle1" rel="me noopener">GitHub <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6m0-6-9 9M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"/></svg></a>
+        <a href="https://www.linkedin.com/in/david-anderle" rel="me noopener">LinkedIn <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6m0-6-9 9M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"/></svg></a>
+        <a href="mailto:david@davidanderle.com">Email <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v14H4zM4 7l8 6 8-6"/></svg></a>
+      </div>
+    </div>
+    <div class="shell footer-meta"><span>© 2026 David Anderle</span><span>Last reviewed 29 July 2026</span></div>
+  </footer>
+</body>
+</html>

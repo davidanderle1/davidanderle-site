@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How to Read a Stylized Cascade Model — David Anderle</title>
+  <meta name="description" content="A mechanism-first guide to interpreting the Volatility Cascade Engine without turning a synthetic illustration into an empirical or predictive claim.">
+  <meta name="author" content="David Anderle">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="theme-color" content="#F7F4EC">
+  <link rel="canonical" href="https://davidanderle.com/writing/reading-a-stylized-cascade-model/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/assets/icons/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="stylesheet" href="/assets/css/site.css">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="David Anderle">
+  <meta property="og:url" content="https://davidanderle.com/writing/reading-a-stylized-cascade-model/">
+  <meta property="og:title" content="How to Read a Stylized Cascade Model — David Anderle">
+  <meta property="og:description" content="A mechanism-first guide to interpreting the Volatility Cascade Engine without turning a synthetic illustration into an empirical or predictive claim.">
+  <meta property="og:image" content="https://davidanderle.com/assets/og/vce.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="David Anderle — quantitative research and research software">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="How to Read a Stylized Cascade Model — David Anderle">
+  <meta name="twitter:description" content="A mechanism-first guide to interpreting the Volatility Cascade Engine without turning a synthetic illustration into an empirical or predictive claim.">
+  <meta name="twitter:image" content="https://davidanderle.com/assets/og/vce.png">
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"TechArticle","@id":"https://davidanderle.com/writing/reading-a-stylized-cascade-model/#page","url":"https://davidanderle.com/writing/reading-a-stylized-cascade-model/","name":"How to Read a Stylized Cascade Model","dateModified":"2026-07-29","mainEntity":{"@id":"https://davidanderle.com/#person"}},{"@type":"Person","@id":"https://davidanderle.com/#person","name":"David Anderle","url":"https://davidanderle.com/","image":"https://davidanderle.com/assets/images/portrait-1200.jpg","email":"mailto:david@davidanderle.com","description":"Czech informatics student building reproducible quantitative research and research software for markets, risk, and data-intensive decisions.","sameAs":["https://www.linkedin.com/in/david-anderle","https://github.com/davidanderle1"],"knowsAbout":["Quantitative finance","Market data","Financial modeling","Research software","Python","Rust","Volatility","Portfolio risk","Merkle trees"]},{"@type":"WebSite","@id":"https://davidanderle.com/#website","url":"https://davidanderle.com/","name":"David Anderle","publisher":{"@id":"https://davidanderle.com/#person"}}]}</script>
+</head>
+<body class="">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="brand" href="/" aria-label="David Anderle — home">
+        <span class="brand-mark" aria-hidden="true">DA</span>
+        <span class="brand-text"><strong>David Anderle</strong><span>Quantitative research · research software</span></span>
+      </a>
+      <nav class="desktop-nav" aria-label="Primary navigation"><a href="/work/">Work</a><a href="/writing/" aria-current="page">Writing</a><a href="/about/">About</a><a href="/cv/">CV</a><a href="/contact/">Contact</a></nav>
+      <details class="mobile-nav">
+        <summary aria-label="Open navigation"><span>Menu</span><span class="menu-lines" aria-hidden="true"></span></summary>
+        <nav aria-label="Mobile navigation"><a href="/work/">Work</a><a href="/writing/" aria-current="page">Writing</a><a href="/about/">About</a><a href="/cv/">CV</a><a href="/contact/">Contact</a></nav>
+      </details>
+    </div>
+  </header>
+  <main id="main-content">
+<section class="page-hero"><div class="shell"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a><span class="breadcrumb-sep" aria-hidden="true">/</span><a href="/writing/">Writing</a><span class="breadcrumb-sep" aria-hidden="true">/</span><span aria-current="page">Reading a stylized cascade model</span></nav><span class="status note">Technical note · 29 July 2026</span><h1 class="mt-22">How to read a stylized cascade model without overclaiming</h1><p class="page-deck">A mechanism-first guide to interpreting the Volatility Cascade Engine—and to identifying the claims the model does not support.</p><div class="page-meta"><span>Author: David Anderle</span><span>Reading time: 7 minutes</span><span>Related artifact: Volatility Cascade Engine</span></div></div></section>
+<section class="section"><div class="shell article-layout"><article class="article">
+<p>A stylized simulation can be useful before it is realistic, but only when the question is narrow. The Volatility Cascade Engine asks whether one specific feedback loop—losses, margin pressure, forced selling, and price impact—can amplify a shock in a synthetic system. It does not ask what the S&amp;P 500 will do, how a broker will calculate maintenance margin, or how likely a crisis is.</p>
+<h2 id="mechanism">Start with the mechanism</h2><p>The useful object is the causal sequence, not the visual drama of the chart. A shock reduces the marked value of a shared asset. Some portfolios’ leverage rises. A configured threshold triggers sales. Aggregate sales reduce prices further. The new prices are fed back into every portfolio.</p><div class="equation">shock → mark-to-market loss → leverage breach → forced sale → price impact → new loss</div><p>If that sequence is internally consistent, the model has demonstrated a mechanism. It has not demonstrated prevalence, calibration, or predictive power.</p>
+<h2 id="threshold">Do not promote a visual kink into a theorem</h2><p>In the baseline sweep, no fund is distressed through a 14% shock; the first appears at 16%. That is an interesting model transition. But the script’s own heuristic reports no obvious threshold. A defensible interpretation is therefore: “distress begins in this parameterization around the 16% scenario.” A weak interpretation would be: “financial systems have a 16% tipping point.”</p>
+<h2 id="sensitivity">Ask what parameter choices are doing the work</h2><p>Four choices dominate the result: margin thresholds, liquidation fractions, market depth, and the impact coefficient. A single curve hides that dependency. The next useful experiment is a sensitivity surface that varies at least two of these jointly and reports where the qualitative behavior changes.</p>
+<h2 id="validation">Validation is not one thing</h2><ul><li><strong>Implementation validation:</strong> does the code perform the stated algorithm?</li><li><strong>Numerical validation:</strong> are results deterministic and invariant to irrelevant implementation details?</li><li><strong>Mechanism validation:</strong> does the feedback loop behave in the direction theory predicts?</li><li><strong>Empirical validation:</strong> do inputs and outputs match observed data?</li><li><strong>Decision validation:</strong> would the model improve a real decision compared with a simpler baseline?</li></ul><p>The current artifact supports the first three only partially and does not claim the final two.</p>
+<h2 id="falsification">Retain negative results</h2><p>The baseline summary says “No obvious threshold detected.” Keeping that sentence is more valuable than replacing it with stronger marketing. It tells a reviewer that the output was not edited to fit the narrative. The model becomes more credible when it can fail to produce the expected story.</p>
+<h2 id="upgrade">A credible upgrade path</h2><p>A stronger version should define a preregistered set of mechanisms, compare each against a no-feedback baseline, report parameter sensitivity, separate exogenous from endogenous losses, and test whether the result survives changes in shock location and portfolio topology. Empirical interpretation should wait until a permitted, point-in-time dataset and realistic cost assumptions exist.</p>
+<div class="download-panel"><h3>Related work</h3><div class="download-links"><a href="/work/volatility-cascade-engine/"><svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg> Full case study</a><a href="/assets/data/vce-scenario-sweep.csv"><svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg> Scenario data</a></div></div>
+</article><aside class="toc"><strong>On this page</strong><nav><a href="#mechanism">Mechanism</a><a href="#threshold">Thresholds</a><a href="#sensitivity">Sensitivity</a><a href="#validation">Validation</a><a href="#falsification">Negative results</a><a href="#upgrade">Upgrade path</a></nav></aside></div></section>
+</main>
+  <footer class="site-footer">
+    <div class="shell footer-grid">
+      <div>
+        <a class="footer-brand" href="/">David Anderle</a>
+        <p>Personal research and technical work.</p>
+        <p class="footer-boundary">No investment advice. Project status and limitations are stated on each case-study page.</p>
+      </div>
+      <nav aria-label="Footer navigation">
+        <a href="/work/">Work</a><a href="/writing/">Writing</a><a href="/about/">About</a><a href="/cv/">CV</a><a href="/contact/">Contact</a><a href="/privacy/">Privacy</a>
+      </nav>
+      <div class="footer-social">
+        <a href="https://github.com/davidanderle1" rel="me noopener">GitHub <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6m0-6-9 9M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"/></svg></a>
+        <a href="https://www.linkedin.com/in/david-anderle" rel="me noopener">LinkedIn <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6m0-6-9 9M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"/></svg></a>
+        <a href="mailto:david@davidanderle.com">Email <svg class="icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v14H4zM4 7l8 6 8-6"/></svg></a>
+      </div>
+    </div>
+    <div class="shell footer-meta"><span>© 2026 David Anderle</span><span>Last reviewed 29 July 2026</span></div>
+  </footer>
+</body>
+</html>
