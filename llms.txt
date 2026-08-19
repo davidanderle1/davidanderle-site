@@ -1,0 +1,20 @@
+# David Anderle
+
+Canonical website: https://davidanderle.com/
+
+David Anderle is an Informatics student in Prague building toward quantitative finance through Python, data analysis, financial modeling, Rust, and reproducible research software.
+
+## Primary pages
+- Profile: https://davidanderle.com/about/
+- Selected work: https://davidanderle.com/work/
+- Volatility Cascade Engine: https://davidanderle.com/work/volatility-cascade-engine/
+- Merkle Commitments with Poseidon in Rust: https://davidanderle.com/work/merkle-poseidon/
+- Writing: https://davidanderle.com/writing/
+- CV: https://davidanderle.com/cv/
+- Contact: https://davidanderle.com/contact/
+
+## Identity links
+- GitHub: https://github.com/davidanderle1
+- LinkedIn: https://www.linkedin.com/in/david-anderle
+
+This file is an experimental machine-readable index. The HTML pages remain canonical.
