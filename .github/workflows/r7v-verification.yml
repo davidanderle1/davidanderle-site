@@ -1,0 +1,291 @@
+name: R7V empirical architecture verification
+
+on:
+  push:
+    branches:
+      - r7v-verification-20260828
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Clean-room build and verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      NODE_VERSION: 24.20.0
+      HUGO_VERSION: 0.165.0
+      LIGHTHOUSE_VERSION: 13.4.1
+      AXE_VERSION: 4.13.0
+      PLAYWRIGHT_VERSION: 1.58.2
+      WRANGLER_VERSION: 4.126.0
+      SOURCE_ARCHIVE_SHA256: 5b1c3bc4691345cbdb38ebb781b2069f54e647f3969348e360cd0c00ddb28c89
+    steps:
+      - name: Check out verification branch
+        uses: actions/checkout@v4
+
+      - name: Set up production Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Record runner environment
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$RUNNER_TEMP/r7v-evidence/environment" "$RUNNER_TEMP/r7v-evidence/logs"
+          {
+            echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "kernel=$(uname -a)"
+          } | tee "$RUNNER_TEMP/r7v-evidence/environment/versions.txt"
+          cp /etc/os-release "$RUNNER_TEMP/r7v-evidence/environment/os-release.txt"
+
+      - name: Reconstruct submitted source and create exact lockfile
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BOOT="$RUNNER_TEMP/r7v-bootstrap"
+          mkdir -p "$BOOT"
+          cat r7v-verification-v2/chunks/*.b64 | base64 --decode > "$RUNNER_TEMP/r7v-submitted-source.tar.gz"
+          sha256sum "$RUNNER_TEMP/r7v-submitted-source.tar.gz" | tee "$RUNNER_TEMP/r7v-evidence/environment/submitted-source.sha256.txt"
+          echo "$SOURCE_ARCHIVE_SHA256  $RUNNER_TEMP/r7v-submitted-source.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/r7v-submitted-source.tar.gz" -C "$BOOT"
+          cd "$BOOT"
+          /usr/bin/time -v -o "$RUNNER_TEMP/r7v-evidence/logs/bootstrap-lock.time.txt" \
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund \
+            > "$RUNNER_TEMP/r7v-evidence/logs/bootstrap-lock.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/bootstrap-lock.stderr.txt"
+          sha256sum package-lock.json | tee "$RUNNER_TEMP/r7v-evidence/environment/package-lock.sha256.txt"
+          tar --sort=name --mtime='UTC 2026-08-28' --owner=0 --group=0 --numeric-owner \
+            --exclude='./node_modules' --exclude='./dist' --exclude='./dist-stress' --exclude='./.astro' \
+            -czf "$RUNNER_TEMP/r7v-locked-source.tar.gz" .
+
+      - name: Run two independent clean npm ci and Astro builds
+        shell: bash
+        run: |
+          set -euxo pipefail
+          E="$RUNNER_TEMP/r7v-evidence"
+          for N in 1 2; do
+            RUN="$RUNNER_TEMP/r7v-run-$N"
+            mkdir -p "$RUN"
+            tar -xzf "$RUNNER_TEMP/r7v-locked-source.tar.gz" -C "$RUN"
+            cd "$RUN"
+            /usr/bin/time -v -o "$E/logs/run-$N-npm-ci.time.txt" \
+              npm ci --no-audit --no-fund \
+              > "$E/logs/run-$N-npm-ci.stdout.txt" \
+              2> "$E/logs/run-$N-npm-ci.stderr.txt"
+            echo 0 > "$E/logs/run-$N-npm-ci.exit-code.txt"
+            {
+              echo "node=$(node --version)"
+              echo "npm=$(npm --version)"
+              echo "astro=$(node -p \"require('./node_modules/astro/package.json').version\")"
+              echo "sharp=$(node -p \"require('./node_modules/sharp/package.json').version\")"
+              echo "yaml=$(node -p \"require('./node_modules/yaml/package.json').version\")"
+            } > "$E/environment/run-$N-tool-versions.txt"
+            npm ls --all --json --long > "$E/environment/run-$N-npm-ls-all.json" || true
+            /usr/bin/time -v -o "$E/logs/run-$N-build.time.txt" \
+              npm run build \
+              > "$E/logs/run-$N-build.stdout.txt" \
+              2> "$E/logs/run-$N-build.stderr.txt"
+            echo 0 > "$E/logs/run-$N-build.exit-code.txt"
+            node scripts/check-links.mjs --dir dist --output "$E/run-$N-link-check.json" \
+              > "$E/logs/run-$N-links.stdout.txt" 2> "$E/logs/run-$N-links.stderr.txt"
+            node scripts/build-manifest.mjs --dir dist --output "$E/run-$N-build-manifest.json" --label "run-$N" \
+              > "$E/logs/run-$N-manifest.stdout.txt" 2> "$E/logs/run-$N-manifest.stderr.txt"
+          done
+
+      - name: Compare clean build outputs byte for byte
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/r7v-run-1"
+          node scripts/compare-builds.mjs \
+            --first "$RUNNER_TEMP/r7v-evidence/run-1-build-manifest.json" \
+            --second "$RUNNER_TEMP/r7v-evidence/run-2-build-manifest.json" \
+            --output "$RUNNER_TEMP/r7v-evidence/reproducibility-comparison.json" \
+            > "$RUNNER_TEMP/r7v-evidence/logs/reproducibility.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/reproducibility.stderr.txt"
+
+      - name: Run invalid-content build-failure suite
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/r7v-run-1"
+          /usr/bin/time -v -o "$RUNNER_TEMP/r7v-evidence/logs/invalid-fixtures.time.txt" \
+            npm run invalid:test \
+            > "$RUNNER_TEMP/r7v-evidence/logs/invalid-fixtures.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/invalid-fixtures.stderr.txt"
+          cp -a evidence/generated/invalid-fixtures "$RUNNER_TEMP/r7v-evidence/"
+          cp evidence/generated/invalid-fixture-results.* "$RUNNER_TEMP/r7v-evidence/"
+
+      - name: Run actual 500-record static stress build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/r7v-run-1"
+          /usr/bin/time -v -o "$RUNNER_TEMP/r7v-evidence/logs/stress-build.time.txt" \
+            npm run stress:build \
+            > "$RUNNER_TEMP/r7v-evidence/logs/stress-build.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/stress-build.stderr.txt"
+          node scripts/check-links.mjs --dir dist-stress --output "$RUNNER_TEMP/r7v-evidence/stress-link-check.json" \
+            > "$RUNNER_TEMP/r7v-evidence/logs/stress-links.stdout.txt" 2> "$RUNNER_TEMP/r7v-evidence/logs/stress-links.stderr.txt"
+          node scripts/verify-stress.mjs \
+            > "$RUNNER_TEMP/r7v-evidence/logs/stress-verification.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/stress-verification.stderr.txt"
+          cp evidence/generated/stress-verification.json "$RUNNER_TEMP/r7v-evidence/"
+          cp evidence/generated/content-validation-stress.json "$RUNNER_TEMP/r7v-evidence/"
+          node scripts/build-manifest.mjs --dir dist-stress --output "$RUNNER_TEMP/r7v-evidence/stress-build-manifest.json" --label stress-500 \
+            > "$RUNNER_TEMP/r7v-evidence/logs/stress-manifest.stdout.txt" 2> "$RUNNER_TEMP/r7v-evidence/logs/stress-manifest.stderr.txt"
+
+      - name: Analyse output and dependency boundary
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/r7v-run-1"
+          node scripts/analyse-build.mjs --dir dist --output "$RUNNER_TEMP/r7v-evidence/build-analysis.json" \
+            > "$RUNNER_TEMP/r7v-evidence/logs/build-analysis.stdout.txt" 2> "$RUNNER_TEMP/r7v-evidence/logs/build-analysis.stderr.txt"
+          node scripts/dependency-report.mjs \
+            > "$RUNNER_TEMP/r7v-evidence/logs/dependency-report.stdout.txt" 2> "$RUNNER_TEMP/r7v-evidence/logs/dependency-report.stderr.txt"
+          cp evidence/generated/dependency-report.* "$RUNNER_TEMP/r7v-evidence/"
+          cp evidence/generated/npm-ls-all.json "$RUNNER_TEMP/r7v-evidence/npm-ls-all.json"
+          cp evidence/generated/content-validation-production.json "$RUNNER_TEMP/r7v-evidence/"
+          cp evidence/generated/image-output-manifest.json "$RUNNER_TEMP/r7v-evidence/"
+
+      - name: Install isolated browser and verification tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TOOLS="$RUNNER_TEMP/r7v-tools"
+          mkdir -p "$TOOLS"
+          cd "$TOOLS"
+          npm init -y >/dev/null
+          /usr/bin/time -v -o "$RUNNER_TEMP/r7v-evidence/logs/verification-tools-install.time.txt" \
+            npm install --no-save --no-audit --no-fund \
+              "lighthouse@$LIGHTHOUSE_VERSION" "axe-core@$AXE_VERSION" "playwright@$PLAYWRIGHT_VERSION" "wrangler@$WRANGLER_VERSION" \
+            > "$RUNNER_TEMP/r7v-evidence/logs/verification-tools-install.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/verification-tools-install.stderr.txt"
+          /usr/bin/time -v -o "$RUNNER_TEMP/r7v-evidence/logs/playwright-browser-install.time.txt" \
+            ./node_modules/.bin/playwright install --with-deps chromium \
+            > "$RUNNER_TEMP/r7v-evidence/logs/playwright-browser-install.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/playwright-browser-install.stderr.txt"
+          {
+            node -p "'lighthouse=' + require('./node_modules/lighthouse/package.json').version"
+            node -p "'axe-core=' + require('./node_modules/axe-core/package.json').version"
+            node -p "'playwright=' + require('./node_modules/playwright/package.json').version"
+            node -p "'wrangler=' + require('./node_modules/wrangler/package.json').version"
+          } > "$RUNNER_TEMP/r7v-evidence/environment/verification-tool-versions.txt"
+
+      - name: Run real browser matrix, axe, no-JS and alternate-state checks
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/r7v-run-1"
+          python3 -m http.server 4173 --directory dist > "$RUNNER_TEMP/r7v-evidence/logs/http-server.stdout.txt" 2> "$RUNNER_TEMP/r7v-evidence/logs/http-server.stderr.txt" &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          for I in $(seq 1 30); do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
+          R7V_BASE_URL="http://127.0.0.1:4173" \
+          R7V_BROWSER_OUTPUT="$RUNNER_TEMP/r7v-evidence/browser" \
+          R7V_PLAYWRIGHT_MODULE="$RUNNER_TEMP/r7v-tools/node_modules/playwright/index.mjs" \
+          R7V_AXE_SCRIPT="$RUNNER_TEMP/r7v-tools/node_modules/axe-core/axe.min.js" \
+          /usr/bin/time -v -o "$RUNNER_TEMP/r7v-evidence/logs/browser-verification.time.txt" \
+            node scripts/browser-verification.mjs \
+            > "$RUNNER_TEMP/r7v-evidence/logs/browser-verification.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/browser-verification.stderr.txt"
+
+      - name: Run Lighthouse against actual production artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/r7v-run-1"
+          python3 -m http.server 4174 --directory dist > "$RUNNER_TEMP/r7v-evidence/logs/lighthouse-server.stdout.txt" 2> "$RUNNER_TEMP/r7v-evidence/logs/lighthouse-server.stderr.txt" &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          for I in $(seq 1 30); do curl -fsS http://127.0.0.1:4174/ >/dev/null && break; sleep 1; done
+          export CHROME_PATH
+          CHROME_PATH=$(cd "$RUNNER_TEMP/r7v-tools" && node --input-type=module -e "import('./node_modules/playwright/index.mjs').then(({chromium})=>console.log(chromium.executablePath()))")
+          "$RUNNER_TEMP/r7v-tools/node_modules/.bin/lighthouse" http://127.0.0.1:4174/ \
+            --output=json --output-path="$RUNNER_TEMP/r7v-evidence/lighthouse-home.json" \
+            --only-categories=performance,accessibility,best-practices,seo \
+            --chrome-flags="--headless=new --no-sandbox --disable-dev-shm-usage" \
+            > "$RUNNER_TEMP/r7v-evidence/logs/lighthouse-home.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/lighthouse-home.stderr.txt"
+          "$RUNNER_TEMP/r7v-tools/node_modules/.bin/lighthouse" http://127.0.0.1:4174/work/volatility-cascade-engine/ \
+            --output=json --output-path="$RUNNER_TEMP/r7v-evidence/lighthouse-project.json" \
+            --only-categories=performance,accessibility,best-practices,seo \
+            --chrome-flags="--headless=new --no-sandbox --disable-dev-shm-usage" \
+            > "$RUNNER_TEMP/r7v-evidence/logs/lighthouse-project.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/lighthouse-project.stderr.txt"
+
+      - name: Prove assets-only Wrangler deployment configuration
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/r7v-run-1"
+          mkdir -p "$RUNNER_TEMP/r7v-evidence/wrangler-dry-run"
+          "$RUNNER_TEMP/r7v-tools/node_modules/.bin/wrangler" deploy --dry-run --outdir "$RUNNER_TEMP/r7v-evidence/wrangler-dry-run" \
+            > "$RUNNER_TEMP/r7v-evidence/logs/wrangler-dry-run.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/wrangler-dry-run.stderr.txt"
+
+      - name: Build Hugo runner-up natively
+        shell: bash
+        run: |
+          set -euxo pipefail
+          HUGO_ARCHIVE="hugo_${HUGO_VERSION}_linux-amd64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/${HUGO_ARCHIVE}"
+          curl -fsSLo hugo-checksums.txt "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_checksums.txt"
+          grep " ${HUGO_ARCHIVE}$" hugo-checksums.txt | sha256sum -c - | tee "$RUNNER_TEMP/r7v-evidence/logs/hugo-checksum.txt"
+          mkdir -p "$RUNNER_TEMP/hugo-bin" "$RUNNER_TEMP/r7v-evidence/runner-up/hugo-dist"
+          tar -xzf "$HUGO_ARCHIVE" -C "$RUNNER_TEMP/hugo-bin" hugo
+          "$RUNNER_TEMP/hugo-bin/hugo" version | tee "$RUNNER_TEMP/r7v-evidence/environment/hugo-version.txt"
+          /usr/bin/time -v -o "$RUNNER_TEMP/r7v-evidence/logs/hugo-build.time.txt" \
+            "$RUNNER_TEMP/hugo-bin/hugo" --source "$RUNNER_TEMP/r7v-run-1/tests/runner-up/hugo" --destination "$RUNNER_TEMP/r7v-evidence/runner-up/hugo-dist" --minify --logLevel info \
+            > "$RUNNER_TEMP/r7v-evidence/logs/hugo-build.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/hugo-build.stderr.txt"
+
+      - name: Build typed custom generator natively
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/r7v-run-1/tests/runner-up/custom-ts"
+          /usr/bin/time -v -o "$RUNNER_TEMP/r7v-evidence/logs/custom-ts-build.time.txt" \
+            node --experimental-strip-types src/build.ts \
+            > "$RUNNER_TEMP/r7v-evidence/logs/custom-ts-build.stdout.txt" \
+            2> "$RUNNER_TEMP/r7v-evidence/logs/custom-ts-build.stderr.txt"
+          mkdir -p "$RUNNER_TEMP/r7v-evidence/runner-up/custom-ts-dist"
+          cp -a dist/. "$RUNNER_TEMP/r7v-evidence/runner-up/custom-ts-dist/"
+
+      - name: Assemble raw CI artifact
+        if: always()
+        shell: bash
+        run: |
+          set -euxo pipefail
+          OUT="$RUNNER_TEMP/r7v-ci-output"
+          mkdir -p "$OUT"
+          cp -a "$RUNNER_TEMP/r7v-evidence" "$OUT/evidence"
+          if [ -d "$RUNNER_TEMP/r7v-run-1/dist" ]; then cp -a "$RUNNER_TEMP/r7v-run-1/dist" "$OUT/dist"; fi
+          if [ -d "$RUNNER_TEMP/r7v-run-1/dist-stress" ]; then cp -a "$RUNNER_TEMP/r7v-run-1/dist-stress" "$OUT/dist-stress"; fi
+          mkdir -p "$OUT/production-source"
+          if [ -f "$RUNNER_TEMP/r7v-locked-source.tar.gz" ]; then
+            tar -xzf "$RUNNER_TEMP/r7v-locked-source.tar.gz" -C "$OUT/production-source"
+            rm -rf "$OUT/production-source/node_modules" "$OUT/production-source/dist" "$OUT/production-source/dist-stress" "$OUT/production-source/.astro"
+            cp "$RUNNER_TEMP/r7v-locked-source.tar.gz" "$OUT/production-source-locked.tar.gz"
+          fi
+          find "$OUT" -type f -printf '%P\t%s\n' | sort > "$OUT/ci-artifact-file-list.tsv"
+          tar -czf "$RUNNER_TEMP/r7v-ci-output.tar.gz" -C "$RUNNER_TEMP" r7v-ci-output
+
+      - name: Upload all raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r7v-empirical-evidence
+          path: ${{ runner.temp }}/r7v-ci-output.tar.gz
+          if-no-files-found: error
+          retention-days: 30
