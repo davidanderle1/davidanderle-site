@@ -21,7 +21,7 @@ jobs:
       AXE_VERSION: 4.13.0
       PLAYWRIGHT_VERSION: 1.58.2
       WRANGLER_VERSION: 4.126.0
-      SOURCE_ARCHIVE_SHA256: 5b1c3bc4691345cbdb38ebb781b2069f54e647f3969348e360cd0c00ddb28c89
+      SOURCE_ARCHIVE_SHA256: 52144e627ed5287462725c5ca88e07b8ac89455fb5c65365dbbd7d9195266173
     steps:
       - name: Check out verification branch
         uses: actions/checkout@v4
