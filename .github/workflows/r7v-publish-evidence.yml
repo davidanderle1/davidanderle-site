@@ -1,0 +1,73 @@
+name: R7V publish empirical evidence
+
+on:
+  push:
+    branches:
+      - r7v-verification-20260828
+    paths:
+      - .github/workflows/r7v-publish-evidence.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out verification branch
+        uses: actions/checkout@v4
+        with:
+          ref: r7v-verification-20260828
+          fetch-depth: 0
+
+      - name: Wait for latest R7V verification run and download its artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID=$(gh run list --repo "$REPO" --workflow r7v-verification.yml --branch r7v-verification-20260828 --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "No R7V run found" >&2
+            exit 1
+          fi
+          for _ in $(seq 1 320); do
+            STATUS=$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq '.status')
+            if [ "$STATUS" = "completed" ]; then break; fi
+            sleep 15
+          done
+          STATUS=$(gh run view "$RUN_ID" --repo "$REPO" --json status --jq '.status')
+          CONCLUSION=$(gh run view "$RUN_ID" --repo "$REPO" --json conclusion --jq '.conclusion')
+          if [ "$STATUS" != "completed" ]; then
+            echo "R7V run did not complete within the polling window" >&2
+            exit 1
+          fi
+          rm -rf r7v-verification-results .r7v-artifact-download
+          mkdir -p r7v-verification-results .r7v-artifact-download
+          gh run download "$RUN_ID" --repo "$REPO" --name r7v-empirical-evidence --dir .r7v-artifact-download
+          cp .r7v-artifact-download/r7v-ci-output.tar.gz r7v-verification-results/r7v-ci-output.tar.gz
+          SHA=$(sha256sum r7v-verification-results/r7v-ci-output.tar.gz | awk '{print $1}')
+          BYTES=$(stat -c '%s' r7v-verification-results/r7v-ci-output.tar.gz)
+          cat > r7v-verification-results/run.json <<JSON
+          {
+            "run_id": $RUN_ID,
+            "status": "$STATUS",
+            "conclusion": "$CONCLUSION",
+            "artifact": "r7v-ci-output.tar.gz",
+            "artifact_bytes": $BYTES,
+            "artifact_sha256": "$SHA"
+          }
+          JSON
+
+      - name: Commit evidence pointer and raw artifact to isolated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add r7v-verification-results
+          git commit -m "R7V: publish empirical evidence artifact" || exit 0
+          git push origin HEAD:r7v-verification-20260828
