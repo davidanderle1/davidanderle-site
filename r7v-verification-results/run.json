@@ -1,0 +1,8 @@
+{
+  "run_id": 33213812039,
+  "status": "completed",
+  "conclusion": "failure",
+  "artifact": "r7v-ci-output.tar.gz",
+  "artifact_bytes": 836,
+  "artifact_sha256": "26fc81f25697b321d302f1f18ae0054a8f4d81f51d5aead805fd79695b88b59e"
+}
