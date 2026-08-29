@@ -1,0 +1,120 @@
+     "finalize:static": "node scripts/finalize-static.mjs",
+     "network:audit": "node scripts/network-audit.mjs",
+     "test:stress:lineage": "node scripts/verify-stress-lineage.mjs",
+-    "test:stress:links": "linkinator .r7e-tmp/stress/dist --recurse --skip 'https?://'"
++    "test:stress:links": "node scripts/validate-links.mjs .r7e-tmp/stress/dist .r7e-tmp/link-validation-stress.json",
++    "clean:generated": "node scripts/clean-generated.mjs",
++    "preflight:workspace": "node scripts/source-preflight.mjs --allow-node-modules"
+   },
+   "dependencies": {
+     "astro": "7.2.9",
+diff --git a/scripts/clean-generated.mjs b/scripts/clean-generated.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..cb755a726025c6b4caa14b022b7bcacdaec203db
+--- /dev/null
++++ b/scripts/clean-generated.mjs
+@@ -0,0 +1,20 @@
++import fs from 'node:fs';
++
++const generatedPaths = [
++  'dist',
++  '.astro',
++  '.r7e-tmp',
++  'public/assets/portrait',
++  'public/assets/js',
++  'public/artifacts',
++  'src/data/generated',
++];
++
++const removed = [];
++for (const target of generatedPaths) {
++  if (!fs.existsSync(target)) continue;
++  fs.rmSync(target, { recursive: true, force: true });
++  removed.push(target);
++}
++
++console.log(JSON.stringify({ removed, removedCount: removed.length }, null, 2));
+diff --git a/scripts/inspect-dist.mjs b/scripts/inspect-dist.mjs
+index a4552aa800b48f8c44aef2653f51003a0c8061cf..c2c72d0b4d637e637d7708108ea210a4df25797c 100644
+--- a/scripts/inspect-dist.mjs
++++ b/scripts/inspect-dist.mjs
+@@ -1,12 +1,22 @@
+ import fs from 'node:fs';
+ import path from 'node:path';
+ import crypto from 'node:crypto';
++
+ const root = path.resolve(process.argv[2] ?? 'dist');
+ if (!fs.existsSync(root)) { console.error(`dist not found: ${root}`); process.exit(2); }
+ const files = [];
+-function walk(dir) { for (const entry of fs.readdirSync(dir, {withFileTypes:true})) { const full=path.join(dir,entry.name); if (entry.isDirectory()) walk(full); else files.push(full); } }
++function walk(dir) {
++  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
++    const full = path.join(dir, entry.name);
++    if (entry.isDirectory()) walk(full);
++    else if (entry.isFile()) files.push(full);
++    else throw new Error(`Unsupported dist entry: ${full}`);
++  }
++}
+ walk(root);
++
+ const findings = [];
++const runtimeScripts = [];
+ const forbiddenText = [
+   ['LOCALHOST', /https?:\/\/(?:localhost|127\.0\.0\.1)/i],
+   ['PRIVATE_PATH', /\/(?:home|Users|mnt|private)\//],
+@@ -14,17 +24,71 @@ const forbiddenText = [
+   ['TEST_FIXTURE', /testFixture\s*[":=]+\s*true|Synthetic TEST WorkRecord/i],
+   ['DRAFT', /\bdraft\b/i]
+ ];
++
++function attribute(attributes, name) {
++  const match = attributes.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\\x60]+))`, 'i'));
++  return match ? (match[1] ?? match[2] ?? match[3] ?? '') : null;
++}
++
+ for (const file of files) {
+-  const rel = path.relative(root,file).replaceAll(path.sep,'/');
++  const rel = path.relative(root, file).replaceAll(path.sep, '/');
+   const bytes = fs.readFileSync(file);
+-  if (rel.endsWith('.map')) findings.push({code:'SOURCE_MAP',file:rel});
+-  if (/portrait-(?:640|960|1280)|portrait-[2-9]\d{2}x/i.test(rel)) findings.push({code:'PORTRAIT_DIMENSION',file:rel});
++  if (rel.endsWith('.map')) findings.push({ code: 'SOURCE_MAP', file: rel });
++  if (/portrait-(?:640|960|1280)|portrait-[2-9]\d{2}x/i.test(rel)) findings.push({ code: 'PORTRAIT_DIMENSION', file: rel });
+   if (/\.(html|css|js|json|txt|xml|svg)$/i.test(rel)) {
+     const text = bytes.toString('utf8');
+-    for (const [code,pattern] of forbiddenText) if (pattern.test(text)) findings.push({code,file:rel});
+-    if (/<script[^>]+src=["']https?:\/\//i.test(text) || /<link[^>]+rel=["']stylesheet["'][^>]+href=["']https?:\/\//i.test(text) || /<link[^>]+href=["']https?:\/\/[^"']+["'][^>]+rel=["']stylesheet["']/i.test(text)) findings.push({code:'EXTERNAL_RUNTIME_ASSET',file:rel});
++    for (const [code, pattern] of forbiddenText) if (pattern.test(text)) findings.push({ code, file: rel });
++    if (/<script[^>]+src=["']https?:\/\//i.test(text) || /<link[^>]+rel=["']stylesheet["'][^>]+href=["']https?:\/\//i.test(text) || /<link[^>]+href=["']https?:\/\/[^"']+["'][^>]+rel=["']stylesheet["']/i.test(text)) findings.push({ code: 'EXTERNAL_RUNTIME_ASSET', file: rel });
++
++    if (rel.endsWith('.html')) {
++      for (const match of text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
++        const attributes = match[1] ?? '';
++        const type = (attribute(attributes, 'type') ?? '').trim().toLowerCase();
++        const src = (attribute(attributes, 'src') ?? '').trim();
++        const executable = type === '' || type === 'module' || type === 'text/javascript' || type === 'application/javascript';
++        const row = { file: rel, type: type || 'classic', src: src || null, executable };
++        runtimeScripts.push(row);
++        if (!executable) {
++          if (type !== 'application/ld+json' || src) findings.push({ code: 'UNEXPECTED_NONEXECUTABLE_SCRIPT', ...row });
++          continue;
++        }
++        const allowed = rel === 'work/volatility-cascade-engine/index.html'
++          && type === 'module'
++          && /^\/assets\/js\/vce-sequence\.[a-f0-9]+\.js$/.test(src)
++          && match[2].trim() === '';
++        if (!allowed) findings.push({ code: 'EXECUTABLE_SCRIPT_SCOPE', ...row });
++      }
++    }
+   }
+ }
+-const manifest = files.sort().map((file) => { const bytes=fs.readFileSync(file); return {path:path.relative(root,file).replaceAll(path.sep,'/'),bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')}; });
+-const result = { root, fileCount: manifest.length, totalBytes: manifest.reduce((n,f)=>n+f.bytes,0), findings, manifest };
+-fs.mkdirSync('.r7e-tmp',{recursive:true}); fs.writeFileSync('.r7e-tmp/dist-inspection.json',JSON.stringify(result,null,2)); console.log(JSON.stringify({fileCount:result.fileCount,totalBytes:result.totalBytes,findings:findings.length},null,2)); process.exitCode=findings.length?1:0;
++
++const executableScripts = runtimeScripts.filter((row) => row.executable);
++const jsAssets = files
++  .map((file) => path.relative(root, file).replaceAll(path.sep, '/'))
++  .filter((rel) => rel.endsWith('.js'))
++  .sort();
++if (executableScripts.length !== 1) findings.push({ code: 'EXECUTABLE_SCRIPT_COUNT', count: executableScripts.length });
