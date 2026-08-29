@@ -17,3 +17,27 @@ diff --git a/scripts/generate-stress-fixtures.mjs b/scripts/generate-stress-fixt
  }
  fs.mkdirSync(path.join(root, 'profile'), { recursive: true });
  fs.mkdirSync(path.join(root, 'writing'), { recursive: true });
+diff --git a/scripts/verify-stress-lineage.mjs b/scripts/verify-stress-lineage.mjs
+--- a/scripts/verify-stress-lineage.mjs
++++ b/scripts/verify-stress-lineage.mjs
+@@ -57,7 +57,22 @@ for (const record of records) {
+     continue;
+   }
+   const html = fs.readFileSync(detail, 'utf8');
+-  if (!html.includes(`https://stress.invalid${expectedRoute}`)) add('CANONICAL_DETAIL', `${record.immutableId} missing canonical stress route`);
++  const canonicalMatch = html.match(/<link\s+rel=["']canonical["']\s+href=["']([^"']+)["']/i)
++    ?? html.match(/<link\s+href=["']([^"']+)["']\s+rel=["']canonical["']/i);
++  const canonicalPath = canonicalMatch ? new URL(canonicalMatch[1], 'https://invalid.example').pathname : null;
++  if (canonicalPath !== expectedRoute) add('CANONICAL_DETAIL', `${record.immutableId} canonical pathname ${canonicalPath} != ${expectedRoute}`);
++  const structuredRoutes = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)]
++    .map((match) => {
++      try {
++        const data = JSON.parse(match[1]);
++        return typeof data?.url === 'string' ? new URL(data.url, 'https://invalid.example').pathname : null;
++      } catch {
++        return null;
++      }
++    });
++  if (!structuredRoutes.includes(expectedRoute)) add('STRUCTURED_ROUTE', `${record.immutableId} structured-data route missing ${expectedRoute}`);
+   if (!html.includes(record.title)) add('DETAIL_TITLE', `${record.immutableId} title missing from detail output`);
+ }
