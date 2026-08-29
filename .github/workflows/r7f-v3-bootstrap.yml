@@ -1,0 +1,108 @@
+name: R7F v3 deterministic verifier bootstrap
+
+on:
+  push:
+    branches:
+      - r7f-hardened-independent-verification-v3-20260830
+    paths:
+      - '.github/bootstrap/r7f-v3-bundle.part*'
+      - '.github/workflows/r7f-v3-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: UTC
+  EXPECTED_BUNDLE_SHA256: a565c7137722b85f9ea9813d925bde73016c4e2a2b6a58f07c4d4f56f183b5fa
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout isolated verifier branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Reassemble and authenticate verifier bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find .github/bootstrap -maxdepth 1 -type f -name 'r7f-v3-bundle.part*' | wc -l)" -eq 9
+          cat .github/bootstrap/r7f-v3-bundle.part* | tr -d '\r\n' | base64 --decode > /tmp/r7f-v3-bundle.tgz
+          actual=$(sha256sum /tmp/r7f-v3-bundle.tgz | awk '{print $1}')
+          printf 'expected=%s\nactual=%s\n' "$EXPECTED_BUNDLE_SHA256" "$actual"
+          test "$actual" = "$EXPECTED_BUNDLE_SHA256"
+          rm -rf /tmp/r7f-v3-unpacked
+          mkdir -p /tmp/r7f-v3-unpacked
+          python3 - <<'PY'
+          import tarfile
+          from pathlib import Path, PurePosixPath
+          archive=Path('/tmp/r7f-v3-bundle.tgz')
+          target=Path('/tmp/r7f-v3-unpacked')
+          with tarfile.open(archive, 'r:gz') as tf:
+              members=tf.getmembers()
+              for member in members:
+                  path=PurePosixPath(member.name)
+                  if path.is_absolute() or '..' in path.parts:
+                      raise SystemExit(f'Unsafe archive path: {member.name}')
+                  if not (member.isfile() or member.isdir()):
+                      raise SystemExit(f'Unsupported archive entry: {member.name}')
+              tf.extractall(target, members=members, filter='data')
+          PY
+          (
+            cd /tmp/r7f-v3-unpacked
+            cat > /tmp/r7f-v3-expected.sha256 <<'EOF'
+          0770268aa515fdb13e55985e494d2aefffbbe8729ce94431fdc8943702c5ef50  ./.github/scripts/r7f-evidence-gates.py
+          bd0e90642d591f4762d0c426411c24d08542a3491b6d0035fec510a57704d693  ./.github/scripts/r7f-independent-dist-audit.py
+          6df075c5d9ad9d48383aebc66e94c8a5c33034cc76ed396dd09c3c2822dd6a73  ./.github/scripts/r7f-independent-link-audit.py
+          18360c951d9623c7f78290a9f095bcaa19fe0a35b2a22bc0a6a16ca2a87e74a3  ./.github/scripts/r7f-independent-source-audit.py
+          69f4247229eff785bc46209c93ccb98608edd44d8260103e286c7c2f0f22420f  ./.github/scripts/r7f-v3-tree-guard.py
+          ae152161598e4ec5a5eebda88654324fe8684667e977e704f5c57b210412f644  ./.github/scripts/r7f-v3.sh
+          63e2ee3e82c44219c63afd4d10d71af2b2393b9f53dee0ecaf52c58626035966  ./.github/workflows/r7f-hardened-independent-verification-v3.yml
+          EOF
+            sha256sum --check --strict /tmp/r7f-v3-expected.sha256
+          )
+
+      - name: Install authenticated readable verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a /tmp/r7f-v3-unpacked/.github/scripts/. .github/scripts/
+          cp /tmp/r7f-v3-unpacked/.github/workflows/r7f-hardened-independent-verification-v3.yml .github/workflows/
+          chmod 755 \
+            .github/scripts/r7f-v3-tree-guard.py \
+            .github/scripts/r7f-independent-link-audit.py \
+            .github/scripts/r7f-independent-dist-audit.py \
+            .github/scripts/r7f-independent-source-audit.py \
+            .github/scripts/r7f-evidence-gates.py \
+            .github/scripts/r7f-v3.sh
+          python3 -m py_compile \
+            .github/scripts/r7f-v3-tree-guard.py \
+            .github/scripts/r7f-independent-link-audit.py \
+            .github/scripts/r7f-independent-dist-audit.py \
+            .github/scripts/r7f-independent-source-audit.py \
+            .github/scripts/r7f-evidence-gates.py
+          bash -n .github/scripts/r7f-v3.sh
+          rm -rf .github/bootstrap .github/workflows/r7f-v3-bootstrap.yml
+          git add -A
+          git diff --cached --check
+
+      - name: Commit authenticated verifier source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git update-index --chmod=+x \
+            .github/scripts/r7f-v3-tree-guard.py \
+            .github/scripts/r7f-independent-link-audit.py \
+            .github/scripts/r7f-independent-dist-audit.py \
+            .github/scripts/r7f-independent-source-audit.py \
+            .github/scripts/r7f-evidence-gates.py \
+            .github/scripts/r7f-v3.sh
+          git commit -m 'R7F v3: install authenticated independent verifier'
+          git push origin HEAD:r7f-hardened-independent-verification-v3-20260830
