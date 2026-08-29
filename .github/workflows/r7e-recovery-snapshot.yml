@@ -1,0 +1,49 @@
+name: R7E source recovery snapshot
+
+on:
+  push:
+    branches:
+      - r7e-reference-build-20260829
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact R7E branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+      - name: Record immutable snapshot metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p R7E_RECOVERY_METADATA
+          {
+            echo "snapshot_start_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "repository=$GITHUB_REPOSITORY"
+            echo "ref=$GITHUB_REF"
+            echo "sha=$GITHUB_SHA"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+          } > R7E_RECOVERY_METADATA/snapshot.txt
+          git status --porcelain=v1 > R7E_RECOVERY_METADATA/git-status.txt
+          git ls-files > R7E_RECOVERY_METADATA/tracked-files.txt
+          git ls-files -s > R7E_RECOVERY_METADATA/git-index.txt
+          sha256sum $(git ls-files | sed 's/ /\\ /g') > R7E_RECOVERY_METADATA/tracked-files.sha256 || true
+          echo "snapshot_end_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> R7E_RECOVERY_METADATA/snapshot.txt
+      - name: Upload complete checked-out branch snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-complete-branch-source-snapshot
+          path: |
+            .github/workflows
+            r7e
+            R7E_RECOVERY_METADATA
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
