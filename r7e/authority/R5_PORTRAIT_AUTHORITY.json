@@ -1,0 +1,10 @@
+{
+  "schema": "davidanderle.r7e.r5-portrait-authority.v1",
+  "source": "DAVID_ANDERLE_R5_PHOTOGRAPHY_OMNIRESEARCH / R5_INPUT_FOR_R6_DESIGN_TOURNAMENT.json and R5_IMAGE_PROVENANCE.md",
+  "filename": "david-anderle-headshot-320.webp",
+  "sha256": "821af5978918ac642c339da72153a584e59a0e92d47eede87290a5025a1ddc51",
+  "dimensions": [320, 320],
+  "homepageCrop": {"left": 32, "top": 0, "width": 256, "height": 320},
+  "status": "approved for R6 testing; provisional primary; compact presentation only",
+  "r7eUse": "Exact source hash is accepted as the authority input for native crop-without-enlargement verification. This does not claim broader rights or a long-term medium/large portrait approval."
+}
