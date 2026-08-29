@@ -20,7 +20,7 @@ diff --git a/scripts/generate-stress-fixtures.mjs b/scripts/generate-stress-fixt
 diff --git a/scripts/verify-stress-lineage.mjs b/scripts/verify-stress-lineage.mjs
 --- a/scripts/verify-stress-lineage.mjs
 +++ b/scripts/verify-stress-lineage.mjs
-@@ -57,7 +57,22 @@ for (const record of records) {
+@@ -57,6 +57,19 @@ for (const record of records) {
      continue;
    }
    const html = fs.readFileSync(detail, 'utf8');
