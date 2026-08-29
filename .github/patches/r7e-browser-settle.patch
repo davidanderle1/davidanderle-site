@@ -1,0 +1,42 @@
+diff --git a/tests/browser.spec.ts b/tests/browser.spec.ts
+--- a/tests/browser.spec.ts
++++ b/tests/browser.spec.ts
+@@ -6,20 +6,33 @@ const widths = [1440,1280,768,430,390,360,320] as const;
+ const LONG_CZECH_TITLE = 'Dlouhý český titul: ověřování kryptografického závazku bez přetečení rozvržení';
+ 
+ async function settleLayout(page: Page): Promise<void> {
+   await page.evaluate(async () => {
+-    await document.fonts.ready;
+-    const images = Array.from(document.images);
++    const bounded = async <T>(promise: Promise<T>, timeoutMs = 2000): Promise<T | undefined> => {
++      return await Promise.race([
++        promise,
++        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), timeoutMs))
++      ]);
++    };
++
++    if (document.fonts?.ready) await bounded(document.fonts.ready, 2000);
++    const images = Array.from(document.images).filter((image) => {
++      const style = getComputedStyle(image);
++      return style.display !== 'none' && image.getClientRects().length > 0;
++    });
+     await Promise.all(images.map(async (image) => {
+-      if (image.complete) {
+-        try { await image.decode(); } catch {}
+-      } else {
+-        await new Promise<void>((resolve) => {
++      if (!image.complete) {
++        await bounded(new Promise<void>((resolve) => {
+           image.addEventListener('load', () => resolve(), { once: true });
+           image.addEventListener('error', () => resolve(), { once: true });
+-        });
+-        try { await image.decode(); } catch {}
++        }), 2000);
++      }
++      if (image.complete && image.naturalWidth > 0) {
++        try { await bounded(image.decode(), 2000); } catch {}
+       }
+     }));
+     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+   });
+ }
