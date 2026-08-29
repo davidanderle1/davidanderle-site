@@ -85,6 +85,7 @@ jobs:
           grep -q 'const stops = milestones.slice(0, 3)' canonical/src/pages/index.astro
           grep -q 'R7E_ALLOW_TEST_FIXTURES' canonical/src/lib/content.ts
           grep -q "fs.copyFileSync(path.join('src/content', name)" canonical/scripts/generate-stress-fixtures.mjs
+          grep -q 'const bounded = async' canonical/tests/browser.spec.ts
           node --check canonical/scripts/generate-stress-fixtures.mjs
           node --check canonical/scripts/verify-stress-lineage.mjs
           node --check canonical/scripts/network-audit.mjs
@@ -115,6 +116,9 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A .r7e-source
-          test -n "$(git status --porcelain -- .r7e-source)"
-          git commit -m 'R7E: freeze hardened canonical source after lineage correction'
+          if git diff --cached --quiet -- .r7e-source; then
+            echo 'SOURCE_TRANSPORT_ALREADY_CURRENT'
+            exit 0
+          fi
+          git commit -m 'R7E: freeze hardened canonical source'
           git push origin HEAD:r7e-hardened-verification-20260829
