@@ -46,18 +46,23 @@ OFFICIAL_SOURCES: list[dict[str, Any]] = [
     {"id": "wrangler-deploy", "topic": "Wrangler deploy dry run", "publisher": "Cloudflare", "url": "https://developers.cloudflare.com/workers/wrangler/commands/#deploy", "markers": ["dry-run", "deploy"]}
 ]
 
-PACKAGES = [
-    "astro",
-    "@astrojs/check",
-    "typescript",
-    "sharp",
-    "@playwright/test",
-    "@axe-core/playwright",
-    "lighthouse",
-    "wrangler",
-    "gray-matter",
-    "parse5"
-]
+# These are immutable production-reference pins, not moving dist-tags.  The
+# registry is consulted only to verify that the exact requested bytes/version
+# coordinate still exists.  TypeScript 6.0.3 is intentionally pinned because
+# @astrojs/check 0.9.10 declares support for TypeScript ^5 || ^6, not 7.x.
+EXACT_PACKAGE_VERSIONS: dict[str, str] = {
+    "astro": "7.2.9",
+    "@astrojs/check": "0.9.10",
+    "typescript": "6.0.3",
+    "sharp": "0.35.4",
+    "@playwright/test": "1.62.1",
+    "@axe-core/playwright": "4.13.0",
+    "lighthouse": "13.4.1",
+    "wrangler": "4.127.1",
+    "gray-matter": "4.0.3",
+    "parse5": "8.0.1",
+}
+PACKAGES = list(EXACT_PACKAGE_VERSIONS)
 
 
 def now() -> str:
@@ -158,7 +163,9 @@ def resolve_versions(output: Path) -> tuple[dict[str, str], dict[str, Any]]:
     rows = []
     versions: dict[str, str] = {}
     for index, package in enumerate(PACKAGES, start=1):
-        command = ["npm", "view", package, "version", "--json"]
+        required = EXACT_PACKAGE_VERSIONS[package]
+        coordinate = f"{package}@{required}"
+        command = ["npm", "view", coordinate, "version", "--json"]
         started = now()
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
         stdout_path = evidence_dir / f"{index:02d}-{package.replace('/', '__').replace('@', '')}.stdout.log"
@@ -172,11 +179,13 @@ def resolve_versions(output: Path) -> tuple[dict[str, str], dict[str, Any]]:
                 value = parsed[-1] if isinstance(parsed, list) else parsed
             except Exception:
                 value = result.stdout.strip().strip('"')
-        if not isinstance(value, str) or not value:
-            raise RuntimeError(f"Unable to resolve exact version for {package}; see {stderr_path}")
-        versions[package] = value
+        if value != required:
+            raise RuntimeError(f"Pinned version verification failed for {coordinate}: observed {value!r}; see {stderr_path}")
+        versions[package] = required
         rows.append({
             "package": package,
+            "requiredVersion": required,
+            "coordinate": coordinate,
             "command": command,
             "workingDirectory": str(Path.cwd()),
             "startTimestampUtc": started,
@@ -186,17 +195,17 @@ def resolve_versions(output: Path) -> tuple[dict[str, str], dict[str, Any]]:
             "stderrPath": str(stderr_path.relative_to(output)),
             "stdoutSha256": sha256_file(stdout_path),
             "stderrSha256": sha256_file(stderr_path),
-            "resolvedVersion": value
+            "registryVerifiedVersion": value
         })
     report = {
-        "schema": "davidanderle.r7e.toolchain-resolution.v1",
-        "resolvedAtUtc": now(),
+        "schema": "davidanderle.r7e.toolchain-resolution.v2",
+        "verifiedAtUtc": now(),
         "node": {"required": NODE_VERSION, "observed": subprocess.run(["node", "--version"], stdout=subprocess.PIPE, text=True, check=False).stdout.strip()},
         "npm": {"required": NPM_VERSION, "observed": subprocess.run(["npm", "--version"], stdout=subprocess.PIPE, text=True, check=False).stdout.strip()},
         "registry": subprocess.run(["npm", "config", "get", "registry"], stdout=subprocess.PIPE, text=True, check=False).stdout.strip(),
         "packages": rows,
         "exactVersions": versions,
-        "dependencyPolicy": "Resolved version strings are written as exact package.json values; no range and no latest tag is present in the generated production reference."
+        "dependencyPolicy": "Immutable exact production-reference pins are declared in reference_builder_v1.py. npm registry lookup verifies each exact coordinate; no moving range, latest tag or runtime-selected version is written to package.json."
     }
     write(output / "R7E_TOOLCHAIN_RESOLUTION.json", json.dumps(report, indent=2) + "\n")
     return versions, report
@@ -247,8 +256,6 @@ def main() -> int:
     shutil.rmtree(output, ignore_errors=True)
     output.mkdir(parents=True, exist_ok=True)
 
-    # Required chronology: current official sources and exact package versions are
-    # retrieved before the source repository is emitted.
     official_index = retrieve_official_sources(output)
     versions, _ = resolve_versions(output)
 
