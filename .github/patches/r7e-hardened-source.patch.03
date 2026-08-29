@@ -1,0 +1,194 @@
++      if (!(element instanceof HTMLElement)) return null;
++      const rect = element.getBoundingClientRect();
++      const style = getComputedStyle(element);
++      const before = getComputedStyle(element, '::before');
++      const after = getComputedStyle(element, '::after');
++      return {
++        tag: element.tagName.toLowerCase(),
++        id: element.id,
++        className: element.getAttribute('class') ?? '',
++        clientWidth: element.clientWidth,
++        scrollWidth: element.scrollWidth,
++        offsetWidth: element.offsetWidth,
++        rect: { left: rect.left, right: rect.right, width: rect.width },
++        computed: {
++          display: style.display,
++          width: style.width,
++          inlineSize: style.inlineSize,
++          minWidth: style.minWidth,
++          maxWidth: style.maxWidth,
++          minInlineSize: style.minInlineSize,
++          maxInlineSize: style.maxInlineSize,
++          whiteSpace: style.whiteSpace,
++          overflowWrap: style.overflowWrap,
++          wordBreak: style.wordBreak,
++          textWrap: style.textWrap,
++          overflowX: style.overflowX,
++          marginInline: [style.marginInlineStart, style.marginInlineEnd],
++          paddingInline: [style.paddingInlineStart, style.paddingInlineEnd],
++          borderInline: [style.borderInlineStartWidth, style.borderInlineEndWidth],
++          position: style.position,
++          transform: style.transform,
++          fontFamily: style.fontFamily,
++          fontSize: style.fontSize,
++          lineHeight: style.lineHeight,
++          letterSpacing: style.letterSpacing,
++          gridTemplateColumns: style.gridTemplateColumns,
++          flex: style.flex
++        },
++        pseudo: {
++          before: { content: before.content, display: before.display, width: before.width, position: before.position, transform: before.transform },
++          after: { content: after.content, display: after.display, width: after.width, position: after.position, transform: after.transform }
++        }
++      };
++    };
++
++    const title = document.querySelector<HTMLElement>('.project-hero h1');
++    const textRanges: Array<{ text: string; left: number; right: number; width: number; rootRightExceedance: number }> = [];
++    if (title) {
++      const walker = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
++      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
++        const value = node.nodeValue ?? '';
++        for (const match of value.matchAll(/\S+/gu)) {
++          const start = match.index ?? 0;
++          const range = document.createRange();
++          range.setStart(node, start);
++          range.setEnd(node, start + match[0].length);
++          const rect = range.getBoundingClientRect();
++          textRanges.push({
++            text: match[0],
++            left: rect.left,
++            right: rect.right,
++            width: rect.width,
++            rootRightExceedance: Math.max(0, rect.right - root.clientWidth)
++          });
++        }
++      }
++    }
++    textRanges.sort((a, b) => Math.max(b.rootRightExceedance, b.width) - Math.max(a.rootRightExceedance, a.width));
++
++    const ancestorChain = [];
++    for (let element: HTMLElement | null = title; element; element = element.parentElement) {
++      ancestorChain.push(box(element));
++      if (element === root) break;
++    }
++
++    const offenders = Array.from(document.querySelectorAll<HTMLElement>('body *'))
++      .map((element) => {
++        const rect = element.getBoundingClientRect();
++        const style = getComputedStyle(element);
++        return {
++          tag: element.tagName.toLowerCase(),
++          id: element.id,
++          className: element.getAttribute('class') ?? '',
++          clientWidth: element.clientWidth,
++          scrollWidth: element.scrollWidth,
++          left: rect.left,
++          right: rect.right,
++          width: rect.width,
++          rootRightExceedance: Math.max(0, rect.right - root.clientWidth),
++          overflowX: style.overflowX,
++          position: style.position,
++          transform: style.transform
++        };
++      })
++      .filter((row) => row.scrollWidth > row.clientWidth || row.rootRightExceedance > 0.5)
++      .sort((a, b) => Math.max(b.scrollWidth - b.clientWidth, b.rootRightExceedance) - Math.max(a.scrollWidth - a.clientWidth, a.rootRightExceedance))
++      .slice(0, 40);
++
++    return {
++      viewport: { innerWidth, innerHeight, devicePixelRatio },
++      root: { clientWidth: root.clientWidth, scrollWidth: root.scrollWidth, overflow: root.scrollWidth - root.clientWidth },
++      title: box(title),
++      facts: box(document.querySelector('.project-facts')),
++      widestTitleTokens: textRanges.slice(0, 20),
++      ancestorChain,
++      offenders
++    };
++  });
++}
++
++async function attachSnapshot(testInfo: TestInfo, name: string, value: unknown): Promise<void> {
++  await testInfo.attach(name, { body: Buffer.from(JSON.stringify(value, null, 2)), contentType: 'application/json' });
++}
+ 
+ for (const [name,url] of pages) for (const width of widths) test(`${name} ${width}`, async ({ page }) => {
+   await page.setViewportSize({ width, height: width <= 430 ? 844 : 900 });
+   await page.goto(url, { waitUntil: 'networkidle' });
+   await expect(page.locator('main')).toBeVisible();
++  await settleLayout(page);
+   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+   expect(overflow).toBeLessThanOrEqual(0);
+   await page.screenshot({ path: `.r7e-tmp/screenshots/${name}-${width}.png`, fullPage: true });
+@@ -52,6 +191,7 @@ test('reduced motion and no-photo state', async ({ page }) => {
+   await page.setViewportSize({ width: 390, height: 844 });
+   await page.goto('/about/no-photo/');
+   await expect(page.locator('main')).toBeVisible();
++  await settleLayout(page);
+   await page.screenshot({ path: '.r7e-tmp/screenshots/alternate-no-photo-reduced-motion-390.png', fullPage: true });
+ });
+ 
+@@ -60,23 +200,56 @@ test('forced colors source state', async ({ page }) => {
+   await page.setViewportSize({ width: 390, height: 844 });
+   await page.goto('/');
+   await expect(page.locator('main')).toBeVisible();
++  await settleLayout(page);
+   await page.screenshot({ path: '.r7e-tmp/screenshots/alternate-forced-colors-home-390.png', fullPage: true });
+ });
+ 
+-test('long Czech title and metadata reflow without fixture route', async ({ page }) => {
++test('long Czech title and metadata reflow without fixture route', async ({ page }, testInfo) => {
+   await page.setViewportSize({ width: 320, height: 844 });
+-  await page.goto('/work/merkle-poseidon/');
+-  await page.locator('h1').evaluate((el) => { el.textContent = 'Dlouhý český titul: ověřování kryptografického závazku bez přetečení rozvržení'; });
+-  const firstMeta = page.locator('.record-meta, .project-meta, dl').first();
+-  if (await firstMeta.count()) await firstMeta.evaluate((el) => { el.insertAdjacentHTML('beforeend', '<div><dt>Přesnost ověření</dt><dd>Příspěvek zůstává omezený, experimentální a nezávisle neauditovaný.</dd></div>'); });
+-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+-  expect(overflow).toBeLessThanOrEqual(0);
++  await page.goto('/work/merkle-poseidon/', { waitUntil: 'networkidle' });
++  const title = page.locator('.project-hero h1');
++  const facts = page.locator('.project-facts');
++  await expect(title).toHaveCount(1);
++  await expect(facts).toHaveCount(1);
++  await settleLayout(page);
++
++  const originalTitle = (await title.textContent()) ?? '';
++  const baseline = await overflowSnapshot(page);
++
++  await title.evaluate((element, value) => { element.textContent = value; }, LONG_CZECH_TITLE);
++  await settleLayout(page);
++  const titleOnly = await overflowSnapshot(page);
++
++  await title.evaluate((element, value) => { element.textContent = value; }, originalTitle);
++  await facts.evaluate((element) => {
++    const row = document.createElement('div');
++    const term = document.createElement('dt');
++    const description = document.createElement('dd');
++    term.textContent = 'Přesnost ověření';
++    description.textContent = 'Příspěvek zůstává omezený, experimentální a nezávisle neauditovaný.';
++    row.append(term, description);
++    element.append(row);
++  });
++  await settleLayout(page);
++  const metadataOnly = await overflowSnapshot(page);
++
++  await title.evaluate((element, value) => { element.textContent = value; }, LONG_CZECH_TITLE);
++  await settleLayout(page);
++  const combined = await overflowSnapshot(page);
++
+   await page.screenshot({ path: '.r7e-tmp/screenshots/alternate-long-czech-320.png', fullPage: true });
++  await attachSnapshot(testInfo, 'overflow-dom-trace', { baseline, titleOnly, metadataOnly, combined });
++
++  expect(baseline.root.overflow).toBeLessThanOrEqual(0);
++  expect(titleOnly.root.overflow).toBeLessThanOrEqual(0);
++  expect(metadataOnly.root.overflow).toBeLessThanOrEqual(0);
++  expect(combined.root.overflow).toBeLessThanOrEqual(0);
+ });
+ 
+ test('missing optional image remains complete', async ({ page }) => {
+   await page.setViewportSize({ width: 390, height: 844 });
+   await page.goto('/work/merkle-poseidon/');
+   await expect(page.locator('main')).toContainText(/Merkle|Poseidon/i);
++  await settleLayout(page);
+   await page.screenshot({ path: '.r7e-tmp/screenshots/alternate-missing-optional-image-390.png', fullPage: true });
+ });

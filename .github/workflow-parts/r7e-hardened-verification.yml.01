@@ -1,0 +1,157 @@
+          python3 .github/scripts/r7e-tree-guard.py compare run1-dist-baseline run1/dist evidence/run1-dist-post-reproducibility.json
+
+      - name: Invalid fixture gate
+        working-directory: run1
+        shell: bash
+        run: npm run validate:fixtures > ../evidence/invalid-fixtures.stdout.txt 2> ../evidence/invalid-fixtures.stderr.txt
+
+      - name: 500-record native Astro lineage gate
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v -o ../evidence/stress.time.txt npm run test:stress > ../evidence/stress.stdout.txt 2> ../evidence/stress.stderr.txt
+          node - <<'NODE' | tee ../evidence/stress-summary.txt
+          const fs=require('fs');
+          const x=JSON.parse(fs.readFileSync('.r7e-tmp/stress/lineage.json','utf8'));
+          console.log(`passed=${x.passed}`);
+          console.log(`inputRecordCount=${x.inputRecordCount}`);
+          console.log(`normalizedUniqueIds=${x.normalizedUniqueIds}`);
+          console.log(`normalizedUniqueSlugs=${x.normalizedUniqueSlugs}`);
+          console.log(`normalizedUniqueRoutes=${x.normalizedUniqueRoutes}`);
+          console.log(`emittedDetailPageCount=${x.emittedDetailPageCount}`);
+          console.log(`workIndexCoverage=${x.workIndexCoverage}`);
+          console.log(`archiveCoverage=${x.archiveCoverage}`);
+          if(!x.passed || x.inputRecordCount!==500 || x.normalizedUniqueIds!==500 || x.normalizedUniqueSlugs!==500 || x.normalizedUniqueRoutes!==500 || x.emittedDetailPageCount!==500 || x.workIndexCoverage!==500 || x.archiveCoverage!==500) process.exit(1);
+          NODE
+          cd ..
+          python3 .github/scripts/r7e-tree-guard.py manifest run1/.r7e-tmp/stress/dist evidence/stress-dist-tree.json
+          mkdir stress-dist-baseline
+          cp -a run1/.r7e-tmp/stress/dist/. stress-dist-baseline/
+          cp run1/.r7e-tmp/stress/input-manifest.json evidence/stress-input-manifest.json
+          cp run1/.r7e-tmp/stress/lineage.json evidence/stress-lineage.json
+          printf 'TEST_ONLY — DO NOT DEPLOY\n' > evidence/STRESS_SITE_TEST_ONLY.txt
+
+      - name: Install Chromium for browser gates
+        working-directory: run1
+        shell: bash
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser matrix and no-JS gates
+        working-directory: run1
+        shell: bash
+        run: |
+          set -u
+          set +e
+          R7E_PLAYWRIGHT_SUITE=browser npm run test:browser > ../evidence/browser.stdout.txt 2> ../evidence/browser.stderr.txt
+          status=$?
+          set -e
+          count=$(find .r7e-tmp/screenshots -type f -name '*.png' | wc -l)
+          { echo "exit_status=$status"; echo "screenshot_count=$count"; } | tee ../evidence/browser-summary.txt
+          if [ -f .r7e-tmp/playwright/browser-results.json ]; then cp .r7e-tmp/playwright/browser-results.json ../evidence/browser-playwright-results.json; fi
+          if [ "$count" -lt 40 ]; then status=1; fi
+          exit "$status"
+
+      - name: axe-core accessibility automation
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          R7E_PLAYWRIGHT_SUITE=axe npm run test:axe > ../evidence/axe.stdout.txt 2> ../evidence/axe.stderr.txt
+          test "$(find .r7e-tmp/axe -type f -name '*.json' | wc -l)" -eq 10
+          cp .r7e-tmp/playwright/axe-results.json ../evidence/axe-playwright-results.json
+          cp -a .r7e-tmp/axe ../evidence/axe-raw
+
+      - name: Lighthouse measurements
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:lighthouse > ../evidence/lighthouse.stdout.txt 2> ../evidence/lighthouse.stderr.txt
+          cp .r7e-tmp/lighthouse/summary.json ../evidence/lighthouse-summary.json
+          node -e "const x=require('./.r7e-tmp/lighthouse/summary.json'); if(!x.pass || x.reports.length!==4) process.exit(1)"
+
+      - name: Runtime network audit
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run network:audit > ../evidence/network.stdout.txt 2> ../evidence/network.stderr.txt
+          cp .r7e-tmp/network/audit.json ../evidence/network-audit.json
+          node -e "const x=require('./.r7e-tmp/network/audit.json'); if(x.genuineThirdPartyRuntimeRequestCount!==0 || x.firstPartyHttpErrorCount!==0 || x.requestFailureCount!==0 || x.auditError) process.exit(1)"
+
+      - name: Wrangler assets-only dry run
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run wrangler:validate > ../evidence/wrangler.stdout.txt 2> ../evidence/wrangler.stderr.txt
+          test -d .r7e-tmp/wrangler
+          find .r7e-tmp/wrangler -type f -print | sort > ../evidence/wrangler-files.txt
+
+      - name: Pre-assembly immutability and chain-of-custody gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run1 evidence/run1-source-final.json --source
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run2 evidence/run2-source-final.json --source
+          python3 .github/scripts/r7e-tree-guard.py compare run1-dist-baseline run1/dist evidence/run1-dist-final.json
+          python3 .github/scripts/r7e-tree-guard.py compare stress-dist-baseline run1/.r7e-tmp/stress/dist evidence/stress-dist-final.json
+
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          def sha(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          frozen=json.loads(Path('evidence/frozen-source-tree.json').read_text())
+          run1=json.loads(Path('evidence/run1-dist-tree.json').read_text())
+          stress=json.loads(Path('evidence/stress-dist-tree.json').read_text())
+          identity={
+            'repository':os.environ['GITHUB_REPOSITORY'],
+            'workflowCommit':os.environ['GITHUB_SHA'],
+            'runId':os.environ['GITHUB_RUN_ID'],
+            'runAttempt':os.environ['GITHUB_RUN_ATTEMPT'],
+            'sourceArchiveSha256':Path('.r7e-source/ARCHIVE_SHA256').read_text().strip(),
+            'packerSha256':sha('.github/scripts/r7e-pack-source.py'),
+            'treeGuardSha256':sha('.github/scripts/r7e-tree-guard.py'),
+            'packageJsonSha256':sha('frozen/package.json'),
+            'packageLockSha256':sha('frozen/package-lock.json'),
+            'frozenSourceTreeSha256':frozen['treeSha256'],
+            'frozenSourceTarSha256':sha('BEARING_FROZEN_SOURCE.tar'),
+            'verifiedDistTreeSha256':run1['treeSha256'],
+            'stressDistTreeSha256':stress['treeSha256'],
+            'stressInputManifestSha256':sha('evidence/stress-input-manifest.json'),
+            'stressLineageSha256':sha('evidence/stress-lineage.json'),
+            'sourceCorrectionLayer':'NONE — corrections folded into canonical packed source'
+          }
+          Path('evidence/R7E_CANDIDATE_IDENTITY.json').write_text(json.dumps(identity,indent=2)+'\n')
+          print(json.dumps(identity,indent=2))
+          PY
+
+      - name: Assemble successful evidence artifact
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/BEARING_PRODUCTION_SOURCE artifact/BEARING_VERIFIED_DIST artifact/BEARING_SCALE_SITE_500 artifact/R7E_EVIDENCE
+          cp -a frozen/. artifact/BEARING_PRODUCTION_SOURCE/
+          cp BEARING_FROZEN_SOURCE.tar artifact/BEARING_FROZEN_SOURCE.tar
+          cp -a run1/dist/. artifact/BEARING_VERIFIED_DIST/
+          cp -a run1/.r7e-tmp/stress/dist/. artifact/BEARING_SCALE_SITE_500/
+          cp -a evidence/. artifact/R7E_EVIDENCE/
+          cp -a run1/.r7e-tmp artifact/R7E_RUN1_TMP
+          printf 'TEST_ONLY — DO NOT DEPLOY\n' > artifact/BEARING_SCALE_SITE_500/TEST_ONLY_DO_NOT_DEPLOY.txt
+          printf 'R7E BUILD EVIDENCE COMPLETE — READY FOR HARDENED INDEPENDENT R7F AUDIT\n' > artifact/R7E_GATE_DECISION.txt
+
+          python3 .github/scripts/r7e-tree-guard.py compare frozen artifact/BEARING_PRODUCTION_SOURCE artifact/R7E_EVIDENCE/staged-source-parity.json --source
+          python3 .github/scripts/r7e-tree-guard.py compare run1-dist-baseline artifact/BEARING_VERIFIED_DIST artifact/R7E_EVIDENCE/staged-dist-parity.json
+          # Marker is added only after the stress build; compare the tested scale tree before validating marker separately.
+          rm artifact/BEARING_SCALE_SITE_500/TEST_ONLY_DO_NOT_DEPLOY.txt
+          python3 .github/scripts/r7e-tree-guard.py compare stress-dist-baseline artifact/BEARING_SCALE_SITE_500 artifact/R7E_EVIDENCE/staged-stress-parity.json
+          printf 'TEST_ONLY — DO NOT DEPLOY\n' > artifact/BEARING_SCALE_SITE_500/TEST_ONLY_DO_NOT_DEPLOY.txt
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('artifact')
+          index={
+            'gate':'R7E_GATE_DECISION.txt',

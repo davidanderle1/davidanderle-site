@@ -1,0 +1,332 @@
+ let serverOut=''; let serverErr='';
+ server.stdout.on('data', d => { serverOut += d; });
+ server.stderr.on('data', d => { serverErr += d; });
+ const sleep = ms => new Promise(r => setTimeout(r, ms));
++
++async function stopServer() {
++  if (server.exitCode !== null || server.signalCode !== null) return;
++  let exited = once(server, 'exit');
++  server.kill('SIGTERM');
++  await Promise.race([exited, sleep(2000)]);
++  if (server.exitCode === null && server.signalCode === null) {
++    exited = once(server, 'exit');
++    server.kill('SIGKILL');
++    await exited;
++  }
++}
++
+ let ready=false;
++let servedHomeSha256=null;
+ for (let i=0;i<100;i++) {
+-  try { const r=await fetch(urls[0]); if (r.ok) { ready=true; break; } } catch {}
++  try {
++    const response=await fetch(urls[0]);
++    if (response.ok) {
++      const text=await response.text();
++      servedHomeSha256=sha(text);
++      if (servedHomeSha256 !== expectedHomeSha256) throw new Error('Server is not serving the current dist/index.html');
++      ready=true;
++      break;
++    }
++  } catch {}
+   await sleep(100);
+ }
+-if (!ready) { server.kill('SIGTERM'); console.error('Static server did not become ready'); console.error(serverOut); console.error(serverErr); process.exit(2); }
++if (!ready) {
++  await stopServer();
++  fs.writeFileSync('.r7e-tmp/lighthouse/server.stdout.txt', serverOut);
++  fs.writeFileSync('.r7e-tmp/lighthouse/server.stderr.txt', serverErr);
++  console.error('Static server did not become ready with current dist identity');
++  console.error(serverOut);
++  console.error(serverErr);
++  process.exit(2);
++}
+ 
++let exitCode = 0;
++const reports = [];
+ try {
+   const chromePath = chromium.executablePath();
+   for (const [index,url] of urls.entries()) {
+-    const output = `.r7e-tmp/lighthouse/page-${index+1}.json`;
+-    const run = spawnSync(process.execPath, [lighthouseBin, url, '--quiet', `--chrome-path=${chromePath}`, '--chrome-flags=--headless=new --no-sandbox --disable-dev-shm-usage', '--output=json', `--output-path=${output}`, '--only-categories=performance,accessibility'], { encoding:'utf8' });
+-    process.stdout.write(run.stdout); process.stderr.write(run.stderr);
+-    if (run.status !== 0) process.exitCode = run.status ?? 1;
+-    if (process.exitCode) break;
++    for (let runIndex = 1; runIndex <= runsPerUrl; runIndex++) {
++      const output = `.r7e-tmp/lighthouse/page-${index+1}-run-${runIndex}.json`;
++      const run = spawnSync(process.execPath, [
++        lighthouseBin,
++        url,
++        '--quiet',
++        `--chrome-path=${chromePath}`,
++        '--chrome-flags=--headless=new --no-sandbox --disable-dev-shm-usage',
++        '--output=json',
++        `--output-path=${output}`,
++        '--only-categories=performance,accessibility'
++      ], { encoding:'utf8', timeout:120_000, maxBuffer:10*1024*1024 });
++      process.stdout.write(run.stdout ?? '');
++      process.stderr.write(run.stderr ?? '');
++      if (run.error || run.status !== 0) {
++        console.error(run.error ?? `Lighthouse exited ${run.status}`);
++        exitCode = run.status ?? 1;
++        break;
++      }
++      try {
++        const report = JSON.parse(fs.readFileSync(output, 'utf8'));
++        const numeric = (id) => report.audits?.[id]?.numericValue ?? null;
++        const scores = Object.fromEntries(Object.keys(thresholds).map((name) => [name, report.categories?.[name]?.score ?? 0]));
++        reports.push({
++          url,
++          run: runIndex,
++          output,
++          scores,
++          lcpMs: numeric('largest-contentful-paint'),
++          cls: numeric('cumulative-layout-shift'),
++          tbtMs: numeric('total-blocking-time'),
++          totalByteWeight: numeric('total-byte-weight')
++        });
++        for (const [name, minimum] of Object.entries(thresholds)) {
++          if (scores[name] < minimum) {
++            console.error(`${url} run ${runIndex}: ${name} ${scores[name]} < ${minimum}`);
++            exitCode = 1;
++          }
++        }
++      } catch (error) {
++        console.error(`Unable to parse ${output}:`, error);
++        exitCode = 1;
++      }
++    }
++    if (exitCode) break;
+   }
+ } finally {
+-  server.kill('SIGTERM');
++  await stopServer();
++  fs.writeFileSync('.r7e-tmp/lighthouse/server.stdout.txt', serverOut);
++  fs.writeFileSync('.r7e-tmp/lighthouse/server.stderr.txt', serverErr);
+ }
+-if (process.exitCode) process.exit(process.exitCode);
+-console.log(JSON.stringify({ reports: urls.length }, null, 2));
++
++const summary = {
++  thresholds,
++  runsPerUrl,
++  expectedReports: urls.length * runsPerUrl,
++  reports,
++  server: { port, expectedHomeSha256, servedHomeSha256 },
++  pass: exitCode === 0 && reports.length === urls.length * runsPerUrl
++};
++if (reports.length !== urls.length * runsPerUrl) exitCode = 1;
++fs.writeFileSync('.r7e-tmp/lighthouse/summary.json', JSON.stringify(summary, null, 2));
++console.log(JSON.stringify(summary, null, 2));
++if (exitCode) process.exit(exitCode);
+diff --git a/scripts/verify-stress-lineage.mjs b/scripts/verify-stress-lineage.mjs
+new file mode 100644
+index 0000000..fd98714
+--- /dev/null
++++ b/scripts/verify-stress-lineage.mjs
+@@ -0,0 +1,124 @@
++import fs from 'node:fs';
++import path from 'node:path';
++import { parseMarkdownFile } from './lib/frontmatter.mjs';
++
++const stressRoot = path.resolve('.r7e-tmp/stress');
++const contentRoot = path.join(stressRoot, 'content', 'work');
++const distRoot = path.join(stressRoot, 'dist');
++const productionDist = path.resolve('dist');
++const inputManifestPath = path.join(stressRoot, 'input-manifest.json');
++
++const normalize = (value) => String(value).normalize('NFC').toLocaleLowerCase('en-US');
++const errors = [];
++const add = (code, message) => errors.push({ code, message });
++
++if (!fs.existsSync(inputManifestPath)) add('INPUT_MANIFEST', 'Missing stress input manifest');
++const manifest = fs.existsSync(inputManifestPath) ? JSON.parse(fs.readFileSync(inputManifestPath, 'utf8')) : { records: [] };
++const files = fs.existsSync(contentRoot)
++  ? fs.readdirSync(contentRoot).filter((name) => name.endsWith('.md')).sort()
++  : [];
++const allRecords = files.map((name) => ({ file: name, ...parseMarkdownFile(path.join(contentRoot, name)).data }));
++const records = allRecords.filter((record) => record.testFixture === true);
++const canonicalRecords = allRecords.filter((record) => record.testFixture !== true);
++
++if (manifest.designation !== 'TEST_ONLY_DO_NOT_DEPLOY') add('DESIGNATION', 'Stress input is not explicitly marked test-only');
++if (records.length !== 500) add('INPUT_COUNT', `Expected 500 synthetic test records, found ${records.length}`);
++if (canonicalRecords.length < 2) add('CANONICAL_BASELINE', `Expected canonical production work records to remain present in stress build, found ${canonicalRecords.length}`);
++
++const manifestRecords = Array.isArray(manifest.records) ? manifest.records : [];
++if (manifestRecords.length !== 500) add('MANIFEST_COUNT', `Expected 500 manifest records, found ${manifestRecords.length}`);
++const manifestById = new Map(manifestRecords.map((record) => [normalize(record.immutableId), record]));
++for (const record of records) {
++  const manifestRecord = manifestById.get(normalize(record.immutableId));
++  if (!manifestRecord) {
++    add('MANIFEST_BINDING', `${record.immutableId} missing from input manifest`);
++    continue;
++  }
++  if (manifestRecord.canonicalSlug !== record.canonicalSlug || manifestRecord.route !== record.route) {
++    add('MANIFEST_BINDING', `${record.immutableId} manifest slug/route mismatch`);
++  }
++}
++
++for (const [field, values] of [
++  ['immutableId', records.map((r) => r.immutableId)],
++  ['canonicalSlug', records.map((r) => r.canonicalSlug)],
++  ['route', records.map((r) => r.route)]
++]) {
++  const normalized = values.map(normalize);
++  if (new Set(normalized).size !== 500) add('NORMALIZED_UNIQUENESS', `${field} is not unique after NFC/case folding`);
++}
++
++for (const record of records) {
++  if (record.testFixture !== true) add('FIXTURE_FLAG', `${record.file} is not testFixture=true`);
++  const expectedRoute = `/work/${record.canonicalSlug}/`;
++  if (record.route !== expectedRoute) add('ROUTE_MAPPING', `${record.immutableId} route ${record.route} != ${expectedRoute}`);
++  const detail = path.join(distRoot, 'work', record.canonicalSlug, 'index.html');
++  if (!fs.existsSync(detail)) {
++    add('MISSING_DETAIL', `${record.immutableId} missing ${detail}`);
++    continue;
++  }
++  const html = fs.readFileSync(detail, 'utf8');
++  if (!html.includes(`https://stress.invalid${expectedRoute}`)) add('CANONICAL_DETAIL', `${record.immutableId} missing canonical stress route`);
++  if (!html.includes(record.title)) add('DETAIL_TITLE', `${record.immutableId} title missing from detail output`);
++}
++
++const details = fs.existsSync(path.join(distRoot, 'work'))
++  ? fs.readdirSync(path.join(distRoot, 'work'), { withFileTypes: true })
++      .filter((entry) => entry.isDirectory() && entry.name.startsWith('synthetic-test-record-'))
++      .map((entry) => entry.name)
++  : [];
++if (details.length !== 500 || new Set(details.map(normalize)).size !== 500) {
++  add('OUTPUT_BIJECTION', `Expected exactly 500 unique synthetic detail directories, found ${details.length}`);
++}
++
++for (const rel of ['work/index.html', 'archive/index.html']) {
++  const target = path.join(distRoot, rel);
++  if (!fs.existsSync(target)) {
++    add('COVERAGE_PAGE', `Missing ${rel}`);
++    continue;
++  }
++  const html = fs.readFileSync(target, 'utf8');
++  const linked = records.filter((record) => html.includes(`href="${record.route}"`)).length;
++  if (linked !== 500) add('COVERAGE_LINKS', `${rel} links ${linked}/500 synthetic records`);
++}
++
++const walkFiles = (dir) => fs.existsSync(dir)
++  ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => entry.isDirectory()
++      ? walkFiles(path.join(dir, entry.name))
++      : [path.join(dir, entry.name)])
++  : [];
++const productionText = walkFiles(productionDist)
++  .filter((file) => /\.(?:html|xml|json|txt)$/i.test(file))
++  .map((file) => {
++    try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
++  }).join('\n');
++if (/synthetic-test-record-|Synthetic TEST WorkRecord|TEST fixture/i.test(productionText)) {
++  add('PRODUCTION_CONTAMINATION', 'Synthetic stress identity appears in production dist');
++}
++
++const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
++if (!String(packageJson.scripts?.['test:stress:build'] ?? '').includes('astro build')) add('ASTRO_BUILD_PATH', 'Stress build command is not Astro build');
++const directWriters = fs.readdirSync('scripts').filter((name) => /stress/i.test(name)).filter((name) => {
++  const text = fs.readFileSync(path.join('scripts', name), 'utf8');
++  return /writeFileSync\([^\n]*\.html|writeFile\([^\n]*\.html/i.test(text);
++});
++if (directWriters.length) add('DIRECT_HTML_WRITER', `Stress scripts directly write HTML: ${directWriters.join(', ')}`);
++
++const result = {
++  designation: 'TEST_ONLY_DO_NOT_DEPLOY',
++  passed: errors.length === 0,
++  inputRecordCount: records.length,
++  totalWorkRecordCount: allRecords.length,
++  canonicalBaselineWorkRecords: canonicalRecords.length,
++  normalizedUniqueIds: new Set(records.map((r) => normalize(r.immutableId))).size,
++  normalizedUniqueSlugs: new Set(records.map((r) => normalize(r.canonicalSlug))).size,
++  normalizedUniqueRoutes: new Set(records.map((r) => normalize(r.route))).size,
++  emittedDetailPageCount: details.length,
++  workIndexCoverage: fs.existsSync(path.join(distRoot, 'work/index.html')) ? records.filter((r) => fs.readFileSync(path.join(distRoot, 'work/index.html'), 'utf8').includes(`href="${r.route}"`)).length : 0,
++  archiveCoverage: fs.existsSync(path.join(distRoot, 'archive/index.html')) ? records.filter((r) => fs.readFileSync(path.join(distRoot, 'archive/index.html'), 'utf8').includes(`href="${r.route}"`)).length : 0,
++  directHtmlWriters: directWriters,
++  errors
++};
++fs.writeFileSync(path.join(stressRoot, 'lineage.json'), JSON.stringify(result, null, 2) + '\n');
++console.log(JSON.stringify(result, null, 2));
++if (!result.passed) process.exitCode = 1;
+diff --git a/src/components/BearingRoute.astro b/src/components/BearingRoute.astro
+index c90ee0c..bcc353e 100644
+--- a/src/components/BearingRoute.astro
++++ b/src/components/BearingRoute.astro
+@@ -4,7 +4,7 @@ interface Props { stops: Stop[]; }
+ const { stops } = Astro.props;
+ ---
+ <section class="bearing-route" aria-labelledby="bearing-title">
+-  <div class="section-heading"><p class="eyebrow">Orientation</p><h2 id="bearing-title">A restrained public route.</h2><p>The ordered list is the factual baseline. The line is only a signature.</p></div>
++  <div class="section-heading"><p class="eyebrow">Orientation</p><h2 id="bearing-title">Dated context.</h2><p>Study, exchange and project milestones. Open a linked record for role, method and limitations.</p></div>
+   <ol class="bearing-list">
+     {stops.map((stop, index) => <li>
+       <span class="stop-index">{String(index + 1).padStart(2, '0')}</span>
+@@ -14,6 +14,6 @@ const { stops } = Astro.props;
+   <svg class="bearing-signature" viewBox="0 0 1200 250" width="1200" height="250" aria-hidden="true" focusable="false">
+     <path class="route-shadow" d="M20 170 C140 60 255 65 360 165 S570 230 690 120 S880 38 980 120 S1110 190 1180 62" />
+     <path class="route-line" d="M20 170 C140 60 255 65 360 165 S570 230 690 120 S880 38 980 120 S1110 190 1180 62" />
+-    <g class="route-nodes"><circle cx="20" cy="170" r="8"/><circle cx="360" cy="165" r="8"/><circle cx="690" cy="120" r="8"/><circle cx="980" cy="120" r="8"/><circle cx="1180" cy="62" r="8"/></g>
++    <g class="route-nodes"><circle cx="20" cy="170" r="8"/><circle cx="690" cy="120" r="8"/><circle cx="1180" cy="62" r="8"/></g>
+   </svg>
+ </section>
+diff --git a/src/components/SiteFooter.astro b/src/components/SiteFooter.astro
+index 7c014c1..05b8d0a 100644
+--- a/src/components/SiteFooter.astro
++++ b/src/components/SiteFooter.astro
+@@ -2,6 +2,6 @@
+ import { site } from '../lib/site';
+ ---
+ <footer class="site-footer">
+-  <p>David Anderle. Public evidence, contribution boundaries and current status.</p>
++  <p>David Anderle. Technical systems, financial data and research software.</p>
+   <nav aria-label="Footer navigation"><a href={`mailto:${site.email}`}>{site.email}</a><a href="/privacy/">Privacy</a><a href="/security/">Security</a></nav>
+ </footer>
+diff --git a/src/components/VceSequence.astro b/src/components/VceSequence.astro
+index d2d908e..2dca95e 100644
+--- a/src/components/VceSequence.astro
++++ b/src/components/VceSequence.astro
+@@ -8,7 +8,7 @@ const steps = [
+ ];
+ ---
+ <section class="vce-sequence" aria-labelledby="sequence-title">
+-  <div class="section-heading"><p class="eyebrow">Bounded enhancement</p><h2 id="sequence-title">Static mechanism, optional step focus.</h2><p>All four steps are present in the HTML. JavaScript only focuses one explanation at a time.</p></div>
++  <div class="section-heading"><p class="eyebrow">Mechanism sequence</p><h2 id="sequence-title">Four-step feedback mechanism.</h2><p>Follow the synthetic loss, constraint, forced-sale and price-impact sequence.</p></div>
+   <vce-sequence data-enhancement="optional">
+     <div class="sequence-controls" role="group" aria-label="Mechanism steps">
+       {steps.map((step, index) => <button type="button" aria-pressed={index === 0 ? 'true' : 'false'} data-step={index}>{index + 1}. {step[0]}</button>)}
+diff --git a/src/lib/content.ts b/src/lib/content.ts
+index abb64af..2fcc8eb 100644
+--- a/src/lib/content.ts
++++ b/src/lib/content.ts
+@@ -1,12 +1,18 @@
+ import { getCollection } from 'astro:content';
+ 
++const allowTestFixtures = process.env.R7E_ALLOW_TEST_FIXTURES === '1';
++const visibleRecord = (data: { visibility: string; indexability?: string; testFixture: boolean }) =>
++  data.visibility === 'public'
++  && (data.indexability === undefined || data.indexability === 'index')
++  && (!data.testFixture || allowTestFixtures);
++
+ export async function getPublicWork() {
+-  return (await getCollection('work', ({ data }) => data.visibility === 'public' && data.indexability === 'index' && !data.testFixture))
++  return (await getCollection('work', ({ data }) => visibleRecord(data)))
+     .sort((a, b) => a.data.title.localeCompare(b.data.title, 'en'));
+ }
+ 
+ export async function getPublicWriting() {
+-  return (await getCollection('writing', ({ data }) => data.visibility === 'public' && data.indexability === 'index' && !data.testFixture))
++  return (await getCollection('writing', ({ data }) => visibleRecord(data)))
+     .sort((a, b) => b.data.startDate.localeCompare(a.data.startDate));
+ }
+ 
+diff --git a/src/pages/about/index.astro b/src/pages/about/index.astro
+index 936617a..2aa06aa 100644
+--- a/src/pages/about/index.astro
++++ b/src/pages/about/index.astro
+@@ -5,8 +5,8 @@ import CurrentStage from '../../components/CurrentStage.astro';
+ import ResponsiveMedia from '../../components/ResponsiveMedia.astro';
+ ---
+ <BaseLayout title="About" canonicalPath="/about/" description="David Anderle's current stage, method and factual background.">
+-  <PageOrientation eyebrow="About" title="A person in motion." summary="David is the stable identity. Institutions, projects and future directions remain dated context." coordinate="BEARING / ABOUT / PRAGUE" />
+-  <section class="boundary-grid"><div><ResponsiveMedia alt="David Anderle" /></div><div><p>I am completing a bachelor's in Informatics at the Czech University of Life Sciences Prague, expected June 2027, and I am based in Prague.</p><p>I tend to work by narrowing a question, building an inspectable artifact, testing what can be tested and stating what the result does not show.</p><p><a href="/about/no-photo/">Open the complete no-photo composition</a>.</p></div></section>

@@ -1,0 +1,227 @@
++  <PageOrientation eyebrow="About" title="Current context." summary="I am an Informatics bachelor's student based in Prague, building technical systems and investigating data, uncertainty and computation." coordinate="BEARING / ABOUT / PRAGUE" />
++  <section class="boundary-grid"><div><ResponsiveMedia alt="David Anderle" /></div><div><p>I am completing a bachelor's in Informatics at the Czech University of Life Sciences Prague, expected June 2027, and I am based in Prague.</p><p>I tend to work by narrowing a question, building an inspectable artifact, testing what can be tested and stating what the result does not show.</p></div></section>
+   <CurrentStage />
+   <div class="prose"><h2>Education context</h2><p>I completed a non-degree exchange at the University of Wisconsin-Madison from September 2025 to May 2026. It is a dated educational context, not a degree or current affiliation.</p><h2>Earlier experience</h2><p>I completed two short school IT training placements at Hewlett Packard Enterprise in Prague, in May 2022 and May 2023. They are not presented as employment or internships.</p><h2>Outside the record</h2><p>I am interested in aviation, mountains, travel and systems where technical decisions meet real constraints. These are interests, not credentials.</p></div>
+ </BaseLayout>
+diff --git a/src/pages/about/no-photo/index.astro b/src/pages/about/no-photo/index.astro
+index 5cbc8d6..d13ee0e 100644
+--- a/src/pages/about/no-photo/index.astro
++++ b/src/pages/about/no-photo/index.astro
+@@ -3,7 +3,7 @@ import BaseLayout from '../../../layouts/BaseLayout.astro';
+ import PageOrientation from '../../../components/PageOrientation.astro';
+ import CurrentStage from '../../../components/CurrentStage.astro';
+ ---
+-<BaseLayout title="About, no photo" canonicalPath="/about/no-photo/" description="Complete no-photo About composition for David Anderle.">
+-  <PageOrientation eyebrow="About / no photo" title="David Anderle." summary="The hierarchy, evidence and meaning remain complete when no portrait is published." coordinate="BEARING / NO-PHOTO STATE" />
+-  <section class="boundary-grid"><div><p class="eyebrow">Method</p><h2>Question. Artifact. Test. Boundary.</h2></div><div><p>I am completing a bachelor's in Informatics in Prague, expected June 2027. This composition deliberately does not reserve an empty portrait panel.</p><p><a href="/work/">Inspect selected work</a> or return to the <a href="/about/">compact-photo About page</a>.</p></div></section><CurrentStage />
++<BaseLayout title="About" canonicalPath="/about/no-photo/" description="David Anderle's current stage, method and factual background.">
++  <PageOrientation eyebrow="About" title="David Anderle." summary="I am an Informatics bachelor's student based in Prague, building technical systems and investigating data, uncertainty and computation." coordinate="BEARING / ABOUT / PRAGUE" />
++  <section class="boundary-grid"><div><p class="eyebrow">Method</p><h2>Question. Build. Test. Limit. Preserve.</h2></div><div><p>I am completing a bachelor's in Informatics at the Czech University of Life Sciences Prague, expected June 2027. I work by narrowing questions, building inspectable artifacts, testing what can be tested and stating the limits.</p><p><a href="/work/">Inspect selected work</a> or return to <a href="/about/">About</a>.</p></div></section><CurrentStage />
+ </BaseLayout>
+diff --git a/src/pages/archive/index.astro b/src/pages/archive/index.astro
+index a30353e..30266a0 100644
+--- a/src/pages/archive/index.astro
++++ b/src/pages/archive/index.astro
+@@ -2,7 +2,8 @@
+ import { getCollection } from 'astro:content';
+ import BaseLayout from '../../layouts/BaseLayout.astro';
+ import PageOrientation from '../../components/PageOrientation.astro';
+-const work = await getCollection('work', ({ data }) => data.visibility === 'public' && !data.testFixture);
++const allowTestFixtures = process.env.R7E_ALLOW_TEST_FIXTURES === '1';
++const work = await getCollection('work', ({ data }) => data.visibility === 'public' && (!data.testFixture || allowTestFixtures));
+ const writing = await getCollection('writing', ({ data }) => data.visibility === 'public' && !data.testFixture);
+ const milestones = await getCollection('milestones', ({ data }) => data.visibility === 'public' && !data.testFixture);
+ const rows = [
+@@ -12,6 +13,6 @@ const rows = [
+ ].sort((a,b) => b.date.localeCompare(a.date));
+ ---
+ <BaseLayout title="Archive" canonicalPath="/archive/" description="Chronological public record of work, writing, education and experience.">
+-  <PageOrientation eyebrow="Chronology" title="Record." summary="A factual chronology. Milestones are selected events, not automatic copies of every work record." coordinate="BEARING / ARCHIVE" />
++  <PageOrientation eyebrow="Chronology" title="Record." summary="Work, writing, education and selected experience ordered by date, with current status kept visible." coordinate="BEARING / ARCHIVE" />
+   <div class="archive-wrap" tabindex="0" aria-label="Chronological record table, horizontally scrollable on narrow screens"><table class="archive-table"><thead><tr><th>Date</th><th>Type</th><th>Record</th><th>Status</th></tr></thead><tbody>{rows.map((row) => <tr><td>{row.date}</td><td>{row.type}</td><td>{row.href ? <a href={row.href}>{row.title}</a> : row.title}</td><td>{row.status}</td></tr>)}</tbody></table></div>
+ </BaseLayout>
+diff --git a/src/pages/index.astro b/src/pages/index.astro
+index f7fed49..353ad73 100644
+--- a/src/pages/index.astro
++++ b/src/pages/index.astro
+@@ -12,18 +12,19 @@ import { personJsonLd } from '../lib/structured-data';
+ const profile = await getProfile();
+ const work = (await getPublicWork()).filter((entry) => entry.data.featured);
+ const milestones = (await getCollection('milestones', ({ data }) => data.visibility === 'public' && data.visibleOnBearing && !data.testFixture)).sort((a,b) => a.data.date.localeCompare(b.data.date));
+-const stops = [
+-  { date: 'Now', title: 'Selected technical work', context: 'Inspect role, method and limitations.', href: '/work/' },
+-  ...milestones.slice(0, 3).map((item) => ({ date: item.data.date, title: item.data.title, context: item.data.description, ...(item.data.workRecordId ? { href: '/work/volatility-cascade-engine/' } : {}) })),
+-  { date: 'Next', title: 'Deeper quantitative and research training', context: 'A direction, not a claimed destination.' }
+-];
++const stops = milestones.slice(0, 3).map((item) => ({
++  date: item.data.date,
++  title: item.data.title,
++  context: item.data.description,
++  ...(item.data.workRecordId ? { href: '/work/volatility-cascade-engine/' } : {})
++}));
+ ---
+ <BaseLayout canonicalPath="/" description={profile.data.summary}>
+   <StructuredData data={personJsonLd(profile)} />
+   <section class="home-hero" aria-labelledby="home-name">
+     <h1 class="home-name" id="home-name">David Anderle</h1>
+     <div class="home-intro">
+-      <ResponsiveMedia alt="David Anderle" priority={true} />
++      <ResponsiveMedia alt="" priority={true} />
+       <div class="home-intro-copy"><p>I build technical systems and investigate how data, uncertainty and computation shape decisions.</p><p class="home-location">Based in Prague, Czechia</p></div>
+     </div>
+     <SelectedWorkSignal />
+diff --git a/src/pages/work/index.astro b/src/pages/work/index.astro
+index ba39b11..0ace3ba 100644
+--- a/src/pages/work/index.astro
++++ b/src/pages/work/index.astro
+@@ -6,6 +6,6 @@ import { getPublicWork } from '../../lib/content';
+ const records = await getPublicWork();
+ ---
+ <BaseLayout title="Work" canonicalPath="/work/" description="Selected technical work with status, contribution, evidence and limitations.">
+-  <PageOrientation eyebrow="Public work" title="Work." summary="Projects are records, not identity claims. Each page states exactly what exists, who did what and what remains unverified." coordinate="BEARING / WORK / CURRENT" />
++  <PageOrientation eyebrow="Public work" title="Work." summary="Selected technical work with current status, contribution boundaries, evidence and unresolved verification gaps." coordinate="BEARING / WORK / CURRENT" />
+   <div class="work-list">{records.map((record) => <WorkRecordPreview record={record} />)}</div>
+ </BaseLayout>
+diff --git a/src/styles/bearing.css b/src/styles/bearing.css
+index f0dcd88..5ec3eac 100644
+--- a/src/styles/bearing.css
++++ b/src/styles/bearing.css
+@@ -8,7 +8,7 @@
+ .home-hero .selected-signal { grid-column: 1 / -1; }
+ .home-hero .current-stage { grid-column: 1 / -1; }
+ .bearing-route { position: relative; padding: var(--space-7) 0; overflow: clip; }
+-.bearing-list { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; list-style: none; padding: 7rem 0 0; margin: 0; }
++.bearing-list { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; list-style: none; padding: 7rem 0 0; margin: 0; }
+ .bearing-list li { display: grid; grid-template-columns: 2rem 1fr; gap: .75rem; align-items: start; }
+ .bearing-list li:nth-child(2), .bearing-list li:nth-child(4) { transform: translateY(2.8rem); }
+ .stop-index { color: var(--accent); font: 700 .67rem/1.4 var(--mono); }
+diff --git a/src/styles/global.css b/src/styles/global.css
+index 12bc95e..49d6f82 100644
+--- a/src/styles/global.css
++++ b/src/styles/global.css
+@@ -21,6 +21,7 @@ main { min-height: 60vh; }
+ .eyebrow { margin: 0 0 .7rem; color: var(--accent); font: 700 .72rem/1.2 var(--mono); text-transform: uppercase; letter-spacing: .13em; }
+ .page-orientation { padding: var(--space-7) 0 var(--space-6); display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(18rem, .75fr); gap: var(--space-6); align-items: end; border-bottom: var(--hairline) solid var(--line); }
+ .page-orientation h1 { margin: 0; font-size: var(--page-title); line-height: .88; letter-spacing: -.065em; max-width: 10ch; text-wrap: balance; }
++.page-orientation h1, .record-meta span, .work-preview h2, .selected-signal strong, .selected-signal small, .prose a, .prose :not(pre) > code { overflow-wrap: anywhere; }
+ .orientation-summary { max-width: 33rem; justify-self: end; }
+ .orientation-summary p { color: var(--ink-soft); font-size: 1.1rem; }
+ .orientation-summary span { color: var(--muted); font: 600 .69rem/1.3 var(--mono); letter-spacing: .1em; }
+@@ -33,13 +34,14 @@ main { min-height: 60vh; }
+ .record-meta { display: flex; flex-wrap: wrap; gap: .4rem; }
+ .record-meta span { border: 1px solid var(--line); border-radius: 999px; padding: .38rem .6rem; color: var(--muted); font: 650 .68rem/1 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+ .work-list { display: grid; gap: 0; margin-top: var(--space-5); border-top: 1px solid var(--line); }
+-.work-preview { position: relative; display: grid; grid-template-columns: 1.3fr .7fr; gap: 1.5rem 3rem; padding: 2.3rem 0; border-bottom: 1px solid var(--line); }
++.work-preview { position: relative; display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,.7fr); gap: 1.5rem 3rem; padding: 2.3rem 0; border-bottom: 1px solid var(--line); }
++.work-preview > *, .selected-signal > * { min-inline-size: 0; }
+ .work-preview .record-meta { grid-column: 1 / -1; }
+ .work-preview h2 { font-size: clamp(2rem,4vw,4rem); line-height: .95; letter-spacing: -.045em; margin: .3rem 0; }
+ .work-preview h2 a { text-decoration: none; }
+ .work-preview > p { color: var(--ink-soft); margin: .5rem 0 0; max-width: 48rem; }
+ .work-preview dl { margin: .5rem 0 0; display: grid; gap: .8rem; }
+-.work-preview dl div { display: grid; grid-template-columns: 5rem 1fr; gap: 1rem; }
++.work-preview dl div { display: grid; grid-template-columns: 5rem minmax(0,1fr); gap: 1rem; }
+ dt { color: var(--muted); font: 650 .7rem/1.4 var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+ dd { margin: 0; color: var(--ink-soft); }
+ .record-link { grid-column: 1 / -1; justify-self: start; min-height: 2.75rem; display: inline-flex; align-items: center; gap: .5rem; font-weight: 700; }
+@@ -51,11 +53,13 @@ dd { margin: 0; color: var(--ink-soft); }
+ .current-stage p { margin: 0; }
+ .current-stage strong { color: var(--accent); display: block; font: 700 .68rem/1.4 var(--mono); text-transform: uppercase; letter-spacing: .08em; margin-bottom: .35rem; }
+ .current-stage.compact { font-size: .92rem; }
+-.selected-signal { position: relative; display: grid; grid-template-columns: 9rem 1fr auto; gap: .55rem 1.5rem; align-items: baseline; padding: 1.15rem 0; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line); text-decoration: none; }
++.selected-signal { position: relative; display: grid; grid-template-columns: 9rem minmax(0,1fr) auto; gap: .55rem 1.5rem; align-items: baseline; padding: 1.15rem 0; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line); text-decoration: none; }
+ .selected-signal > span { color: var(--accent); font: 700 .7rem/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+ .selected-signal strong { font-size: 1.05rem; }
+ .selected-signal small { grid-column: 2; color: var(--muted); }
+ .selected-signal b { grid-column: 3; grid-row: 1 / 3; align-self: center; font-size: 1.4rem; color: var(--accent); }
++.prose pre { max-inline-size: 100%; overflow-x: auto; }
++.prose table { display: block; max-inline-size: 100%; overflow-x: auto; }
+ @media (max-width: 48rem) {
+   .site-header { align-items: flex-start; padding: 1.1rem 0; min-height: auto; flex-direction: column; gap: .8rem; }
+   .nav-list { flex-wrap: nowrap; overflow-x: auto; max-width: calc(100vw - 2 * var(--gutter)); padding: 0 .2rem .3rem; justify-content: flex-start; scrollbar-width: thin; }
+@@ -63,7 +67,7 @@ dd { margin: 0; color: var(--ink-soft); }
+   .page-orientation { grid-template-columns: 1fr; gap: 2rem; padding-top: 4.5rem; }
+   .orientation-summary { justify-self: start; }
+   .section-heading { grid-template-columns: 1fr; gap: 1rem; }
+-  .work-preview { grid-template-columns: 1fr; }
++  .work-preview { grid-template-columns: minmax(0,1fr); }
+   .current-stage { grid-template-columns: 1fr; }
+   .site-footer { flex-direction: column; }
+   .site-footer nav { justify-content: flex-start; }
+@@ -74,8 +78,9 @@ dd { margin: 0; color: var(--ink-soft); }
+   :root { --gutter: 1.15rem; --page-title: clamp(2.9rem, 15vw, 4rem); }
+   body { min-width: 20rem; }
+   .site-mark { font-size: 1.05rem; }
++  .nav-list { flex-wrap: wrap; overflow-x: visible; max-width: none; padding: 0; }
+   .page-orientation { padding-top: 3.6rem; }
+-  .selected-signal { grid-template-columns: 1fr auto; gap: .5rem 1rem; }
++  .selected-signal { grid-template-columns: minmax(0,1fr) auto; gap: .5rem 1rem; }
+   .selected-signal > span, .selected-signal strong, .selected-signal small { grid-column: 1; }
+   .selected-signal b { grid-column: 2; grid-row: 1 / 4; }
+ }
+diff --git a/tests/accessibility.spec.ts b/tests/accessibility.spec.ts
+index 6265608..c097c67 100644
+--- a/tests/accessibility.spec.ts
++++ b/tests/accessibility.spec.ts
+@@ -1,9 +1,22 @@
++import fs from 'node:fs';
+ import { test, expect } from '@playwright/test';
+ import axe from 'axe-core';
++
++fs.mkdirSync('.r7e-tmp/axe', { recursive: true });
+ const pages = ['/', '/work/', '/archive/', '/work/volatility-cascade-engine/', '/about/'];
++
+ for (const width of [1280,390]) for (const url of pages) test(`axe ${url} ${width}`, async ({ page }) => {
+-  await page.setViewportSize({width,height:width===390?844:900}); await page.goto(url);
++  await page.setViewportSize({width,height:width===390?844:900});
++  await page.goto(url, { waitUntil: 'networkidle' });
++  await page.evaluate(async () => {
++    await document.fonts.ready;
++    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
++  });
+   await page.addScriptTag({ content: axe.source });
+-  const results = await page.evaluate(async () => await (window as any).axe.run(document, { runOnly: { type:'tag', values:['wcag2a','wcag2aa','wcag21aa','wcag22aa'] } }));
++  const results = await page.evaluate(async () => await (window as any).axe.run(document, {
++    runOnly: { type:'tag', values:['wcag2a','wcag2aa','wcag21aa','wcag22aa'] }
++  }));
++  const routeName = url === '/' ? 'home' : url.replace(/^\//, '').replace(/\/$/, '').replaceAll('/', '-');
++  fs.writeFileSync(`.r7e-tmp/axe/${routeName}-${width}.json`, JSON.stringify(results, null, 2));
+   expect(results.violations, JSON.stringify(results.violations,null,2)).toEqual([]);
+ });
+diff --git a/tests/browser.spec.ts b/tests/browser.spec.ts
+index 038f2eb..f289f34 100644
+--- a/tests/browser.spec.ts
++++ b/tests/browser.spec.ts
+@@ -1,14 +1,153 @@
+-import { test, expect } from '@playwright/test';
++import { test, expect, type Page, type TestInfo } from '@playwright/test';
+ 
+ const pages = [
+   ['home','/'], ['work','/work/'], ['archive','/archive/'], ['vce','/work/volatility-cascade-engine/'], ['about','/about/']
+ ] as const;
+ const widths = [1440,1280,768,430,390,360,320] as const;
++const LONG_CZECH_TITLE = 'Dlouhý český titul: ověřování kryptografického závazku bez přetečení rozvržení';
++
++async function settleLayout(page: Page): Promise<void> {
++  await page.evaluate(async () => {
++    await document.fonts.ready;
++    const images = Array.from(document.images);
++    await Promise.all(images.map(async (image) => {
++      if (image.complete) {
++        try { await image.decode(); } catch {}
++      } else {
++        await new Promise<void>((resolve) => {
++          image.addEventListener('load', () => resolve(), { once: true });
++          image.addEventListener('error', () => resolve(), { once: true });
++        });
++        try { await image.decode(); } catch {}
++      }
++    }));
++    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
++  });
++}
++
++async function overflowSnapshot(page: Page) {
++  return page.evaluate(() => {
++    const root = document.documentElement;
++    const box = (element: Element | null) => {

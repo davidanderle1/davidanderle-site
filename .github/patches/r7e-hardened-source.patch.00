@@ -1,0 +1,362 @@
+diff --git a/package.json b/package.json
+index b0a5fcf..804a382 100644
+--- a/package.json
++++ b/package.json
+@@ -30,12 +30,14 @@
+     "test:stress:validate": "node scripts/validate-content.mjs --mode stress --content-root .r7e-tmp/stress/content",
+     "test:stress:production-gate": "node scripts/validate-content.mjs --mode production --content-root .r7e-tmp/stress/content",
+     "test:stress:build": "R7E_CONTENT_ROOT=.r7e-tmp/stress/content R7E_ALLOW_TEST_FIXTURES=1 astro build --config astro.stress.config.mjs",
+-    "test:stress": "npm run test:stress:generate && npm run test:stress:validate && npm run test:stress:build",
+-    "wrangler:validate": "wrangler deploy --dry-run --config wrangler.jsonc",
+-    "verify:all": "npm run preflight:source && npm run check && npm run build && npm run html:validate && npm run links:validate && npm run validate:fixtures && npm run test:browser && npm run test:axe && npm run test:lighthouse && npm run wrangler:validate",
++    "test:stress": "npm run test:stress:generate && npm run test:stress:validate && npm run test:stress:build && npm run test:stress:lineage && npm run test:stress:links",
++    "wrangler:validate": "wrangler deploy --dry-run --outdir .r7e-tmp/wrangler --config wrangler.jsonc",
++    "verify:all": "npm run preflight:source && npm run check && npm run build && npm run html:validate && npm run links:validate && npm run validate:fixtures && npm run test:browser && npm run test:axe && npm run test:lighthouse && npm run network:audit && npm run wrangler:validate",
+     "preflight:source": "node scripts/source-preflight.mjs",
+     "finalize:static": "node scripts/finalize-static.mjs",
+-    "network:audit": "node scripts/network-audit.mjs"
++    "network:audit": "node scripts/network-audit.mjs",
++    "test:stress:lineage": "node scripts/verify-stress-lineage.mjs",
++    "test:stress:links": "linkinator .r7e-tmp/stress/dist --recurse --skip 'https?://'"
+   },
+   "dependencies": {
+     "astro": "7.2.9",
+diff --git a/playwright.config.ts b/playwright.config.ts
+index 260dd92..36b2fa7 100644
+--- a/playwright.config.ts
++++ b/playwright.config.ts
+@@ -1,8 +1,13 @@
+ import fs from 'node:fs';
+ import { defineConfig, devices } from '@playwright/test';
+ 
++const args = process.argv.join(' ');
++const suite = process.env.R7E_PLAYWRIGHT_SUITE
++  ?? (args.includes('accessibility.spec.ts') ? 'axe' : args.includes('browser.spec.ts') ? 'browser' : 'playwright');
++
+ fs.mkdirSync('.r7e-tmp/screenshots', { recursive: true });
+ fs.mkdirSync('.r7e-tmp/playwright', { recursive: true });
++fs.mkdirSync(`.r7e-tmp/playwright/${suite}-artifacts`, { recursive: true });
+ 
+ export default defineConfig({
+   testDir: './tests',
+@@ -10,7 +15,8 @@ export default defineConfig({
+   forbidOnly: true,
+   retries: 0,
+   workers: 1,
+-  reporter: [['line'], ['json', { outputFile: '.r7e-tmp/playwright/results.json' }]],
++  outputDir: `.r7e-tmp/playwright/${suite}-artifacts`,
++  reporter: [['line'], ['json', { outputFile: `.r7e-tmp/playwright/${suite}-results.json` }]],
+   use: {
+     baseURL: 'http://127.0.0.1:4173',
+     browserName: 'chromium',
+diff --git a/scripts/generate-stress-fixtures.mjs b/scripts/generate-stress-fixtures.mjs
+index 92ef3a9..231ae22 100644
+--- a/scripts/generate-stress-fixtures.mjs
++++ b/scripts/generate-stress-fixtures.mjs
+@@ -1,22 +1,95 @@
++import crypto from 'node:crypto';
+ import fs from 'node:fs';
+ import path from 'node:path';
+-const root = path.resolve('.r7e-tmp/stress/content');
+-fs.rmSync(path.dirname(root), { recursive: true, force: true });
++
++const stressRoot = path.resolve('.r7e-tmp/stress');
++const root = path.join(stressRoot, 'content');
++fs.rmSync(stressRoot, { recursive: true, force: true });
+ fs.mkdirSync(path.join(root, 'work'), { recursive: true });
++for (const name of fs.readdirSync('src/content/work').filter((name) => name.endsWith('.md')).sort()) {
++  fs.copyFileSync(path.join('src/content/work', name), path.join(root, 'work', name));
++}
+ const q = JSON.stringify;
++const records = [];
++
+ for (let i = 1; i <= 500; i++) {
+   const n = String(i).padStart(3, '0');
+   const id = `test-work-${n}`;
++  const slug = `synthetic-test-record-${n}`;
++  const route = `/work/${slug}/`;
+   const next = `test-work-${String(i === 500 ? 1 : i + 1).padStart(3, '0')}`;
+   const data = {
+-    immutableId: id, canonicalSlug: `synthetic-test-record-${n}`, recordType: 'technical-research', title: `Synthetic TEST WorkRecord ${n}`,
+-    summary: 'Deterministic synthetic fixture used only to exercise the Astro static content pipeline.', startDate: `2026-${String(((i-1)%12)+1).padStart(2,'0')}`, endDate: null,
+-    datePrecision: 'month', lifecycleStatus: 'active', artifactMaturity: 'prototype', verificationStrength: 'self-described', role: 'Synthetic fixture', contribution: 'Generated deterministically for build scale testing only.', collaborators: [], context: 'TEST FIXTURE: no claim about David Anderle.', technologies: ['fixture'], methods: ['deterministic generation'], themes: ['scale test'], outputs: ['synthetic route'], evidenceLinks: [{label:'Fixture marker',href:`/stress/${n}/`,kind:'artifact'}], repositoryReferences: [], publicationReferences: [], limitations: ['Synthetic only; must never enter production.'], provenance: {source:'R7E deterministic fixture generator',reviewedOn:'2026-08-29',confidence:'unverified'}, relationships: [next], featured: false, visibility: 'public', indexability: 'index', lastReviewed: '2026-08-29', lastModified: '2026-08-29', testFixture: true, structuredDataClassification: 'CreativeWork', route: `/work/synthetic-test-record-${n}/`
++    immutableId: id,
++    canonicalSlug: slug,
++    recordType: 'technical-research',
++    title: `Synthetic TEST WorkRecord ${n}`,
++    summary: 'Deterministic synthetic fixture used only to exercise the Astro static content pipeline.',
++    startDate: `2026-${String(((i - 1) % 12) + 1).padStart(2, '0')}`,
++    endDate: null,
++    datePrecision: 'month',
++    lifecycleStatus: 'active',
++    artifactMaturity: 'prototype',
++    verificationStrength: 'self-described',
++    role: 'Synthetic fixture',
++    contribution: 'Generated deterministically for build scale testing only.',
++    collaborators: [],
++    context: 'TEST FIXTURE: no claim about David Anderle.',
++    technologies: ['fixture'],
++    methods: ['deterministic generation'],
++    themes: ['scale test'],
++    outputs: ['synthetic route'],
++    evidenceLinks: [{ label: 'Fixture route', href: route, kind: 'artifact' }],
++    repositoryReferences: [],
++    publicationReferences: [],
++    limitations: ['Synthetic only; must never enter production.'],
++    provenance: { source: 'R7E deterministic fixture generator', reviewedOn: '2026-08-29', confidence: 'unverified' },
++    relationships: [next],
++    featured: false,
++    visibility: 'public',
++    indexability: 'index',
++    lastReviewed: '2026-08-29',
++    lastModified: '2026-08-29',
++    testFixture: true,
++    structuredDataClassification: 'CreativeWork',
++    route
+   };
+-  const lines = ['---', ...Object.entries(data).map(([key,value]) => `${key}: ${q(value)}`), '---', '', `# TEST fixture ${n}`, '', 'This body is intentionally synthetic and carries no real-world claim.', ''];
+-  fs.writeFileSync(path.join(root, 'work', `${id}.md`), lines.join('\n'));
++  const lines = [
++    '---',
++    ...Object.entries(data).map(([key, value]) => `${key}: ${q(value)}`),
++    '---',
++    '',
++    `# TEST fixture ${n}`,
++    '',
++    'This body is intentionally synthetic and carries no real-world claim.',
++    ''
++  ];
++  const target = path.join(root, 'work', `${id}.md`);
++  const text = lines.join('\n');
++  fs.writeFileSync(target, text);
++  records.push({
++    immutableId: id,
++    canonicalSlug: slug,
++    route,
++    source: path.relative(stressRoot, target).replaceAll('\\', '/'),
++    sha256: crypto.createHash('sha256').update(text).digest('hex')
++  });
++}
++
++for (const [name, value] of [
++  ['milestones.json', []],
++  ['public-documents.json', []],
++  ['redirects.json', []],
++  ['tombstones.json', []]
++]) {
++  fs.writeFileSync(path.join(root, name), JSON.stringify(value));
+ }
+-for (const [name,value] of [['milestones.json',[]],['public-documents.json',[]],['redirects.json',[]],['tombstones.json',[]]]) fs.writeFileSync(path.join(root,name), JSON.stringify(value));
+-fs.mkdirSync(path.join(root,'profile'), { recursive: true });
+-fs.mkdirSync(path.join(root,'writing'), { recursive: true });
+-console.log(JSON.stringify({ generatedWorkRecords: 500, root }, null, 2));
++fs.mkdirSync(path.join(root, 'profile'), { recursive: true });
++fs.mkdirSync(path.join(root, 'writing'), { recursive: true });
++
++const inputManifest = {
++  designation: 'TEST_ONLY_DO_NOT_DEPLOY',
++  generatedWorkRecords: records.length,
++  records
++};
++fs.writeFileSync(path.join(stressRoot, 'input-manifest.json'), JSON.stringify(inputManifest, null, 2) + '\n');
++console.log(JSON.stringify({ generatedWorkRecords: records.length, root, manifest: path.join(stressRoot, 'input-manifest.json') }, null, 2));
+diff --git a/scripts/network-audit.mjs b/scripts/network-audit.mjs
+index 8e5431c..56a2d17 100644
+--- a/scripts/network-audit.mjs
++++ b/scripts/network-audit.mjs
+@@ -1,43 +1,138 @@
++import crypto from 'node:crypto';
+ import fs from 'node:fs';
++import net from 'node:net';
++import { once } from 'node:events';
+ import { spawn } from 'node:child_process';
+ import { chromium } from '@playwright/test';
+ 
+ fs.mkdirSync('.r7e-tmp/network', { recursive: true });
+-const server = spawn(process.execPath, ['scripts/serve-dist.mjs'], { stdio: ['ignore','pipe','pipe'] });
++const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
++async function freePort() {
++  const probe = net.createServer();
++  probe.listen(0, '127.0.0.1');
++  await once(probe, 'listening');
++  const address = probe.address();
++  if (!address || typeof address === 'string') throw new Error('Unable to reserve ephemeral port');
++  const port = address.port;
++  probe.close();
++  await once(probe, 'close');
++  return port;
++}
++const port = await freePort();
++const origin = `http://127.0.0.1:${port}`;
++const expectedHomeSha256 = sha(fs.readFileSync('dist/index.html', 'utf8'));
++const server = spawn(process.execPath, ['scripts/serve-dist.mjs'], {
++  stdio: ['ignore','pipe','pipe'],
++  env: { ...process.env, PORT: String(port), HOST: '127.0.0.1' }
++});
+ let serverOut=''; let serverErr='';
+ server.stdout.on('data', d => serverOut += d);
+ server.stderr.on('data', d => serverErr += d);
+ const sleep = ms => new Promise(r => setTimeout(r, ms));
++
++async function stopServer() {
++  if (server.exitCode !== null || server.signalCode !== null) return;
++  let exited = once(server, 'exit');
++  server.kill('SIGTERM');
++  await Promise.race([exited, sleep(2000)]);
++  if (server.exitCode === null && server.signalCode === null) {
++    exited = once(server, 'exit');
++    server.kill('SIGKILL');
++    await exited;
++  }
++}
++
+ let ready=false;
++let servedHomeSha256=null;
+ for (let i=0;i<100;i++) {
+-  try { const r=await fetch('http://127.0.0.1:4173/'); if (r.ok) { ready=true; break; } } catch {}
++  try {
++    const response=await fetch(`${origin}/`);
++    if (response.ok) {
++      const text=await response.text();
++      servedHomeSha256=sha(text);
++      if (servedHomeSha256 !== expectedHomeSha256) throw new Error('Server is not serving the current dist/index.html');
++      ready=true;
++      break;
++    }
++  } catch {}
+   await sleep(100);
+ }
+-if (!ready) { server.kill('SIGTERM'); console.error(serverOut); console.error(serverErr); throw new Error('Server not ready'); }
++if (!ready) {
++  await stopServer();
++  fs.writeFileSync('.r7e-tmp/network/server.stdout.txt', serverOut);
++  fs.writeFileSync('.r7e-tmp/network/server.stderr.txt', serverErr);
++  console.error(serverOut);
++  console.error(serverErr);
++  throw new Error('Server not ready with current dist identity');
++}
++
+ const routes=['/','/work/','/archive/','/work/volatility-cascade-engine/','/about/'];
+-const browser=await chromium.launch({headless:true});
++let browser = null;
+ const rows=[];
++let auditError = null;
+ try {
++  browser=await chromium.launch({headless:true});
+   const context=await browser.newContext();
+   for (const route of routes) {
+     const page=await context.newPage();
+     const requests=[];
+-    page.on('request', req => requests.push({url:req.url(), resourceType:req.resourceType(), method:req.method()}));
+-    await page.goto(`http://127.0.0.1:4173${route}`, {waitUntil:'networkidle'});
+-    const classified=requests.map(r => {
+-      const u=new URL(r.url);
+-      const firstParty=(u.hostname==='127.0.0.1' || u.hostname==='localhost');
+-      return {...r, origin:u.origin, firstParty};
++    const responses=[];
++    const requestFailures=[];
++    page.on('request', request => requests.push({url:request.url(), resourceType:request.resourceType(), method:request.method()}));
++    page.on('response', response => responses.push({url:response.url(), status:response.status()}));
++    page.on('requestfailed', request => requestFailures.push({url:request.url(), errorText:request.failure()?.errorText ?? 'unknown'}));
++    try {
++      await page.goto(`${origin}${route}`, {waitUntil:'networkidle'});
++    } catch (error) {
++      requestFailures.push({url:`${origin}${route}`, errorText:error instanceof Error ? error.message : String(error)});
++    }
++    const classified=requests.map(request => {
++      const url=new URL(request.url);
++      const firstParty=(url.hostname==='127.0.0.1' || url.hostname==='localhost');
++      return {...request, origin:url.origin, firstParty};
++    });
++    const classifiedResponses=responses.map(response => {
++      const url=new URL(response.url);
++      return {...response, firstParty:(url.hostname==='127.0.0.1' || url.hostname==='localhost')};
++    });
++    rows.push({
++      route,
++      requests:classified,
++      responses:classifiedResponses,
++      requestFailures,
++      thirdParty:classified.filter(request=>!request.firstParty),
++      firstPartyHttpErrors:classifiedResponses.filter(response=>response.firstParty && response.status>=400)
+     });
+-    rows.push({route, requests:classified, thirdParty:classified.filter(r=>!r.firstParty)});
+     await page.close();
+   }
++  await context.close();
++} catch (error) {
++  auditError = error instanceof Error ? { name:error.name, message:error.message, stack:error.stack } : { message:String(error) };
+ } finally {
+-  await browser.close();
+-  server.kill('SIGTERM');
++  try {
++    if (browser) await browser.close();
++  } finally {
++    await stopServer();
++    fs.writeFileSync('.r7e-tmp/network/server.stdout.txt', serverOut);
++    fs.writeFileSync('.r7e-tmp/network/server.stderr.txt', serverErr);
++  }
+ }
+-const thirdParty=rows.flatMap(r=>r.thirdParty.map(x=>({...x,route:r.route})));
+-const result={routes:rows.map(r=>({route:r.route,requestCount:r.requests.length,thirdPartyCount:r.thirdParty.length})),genuineThirdPartyRuntimeRequestCount:thirdParty.length,thirdParty};
++const thirdParty=rows.flatMap(row=>row.thirdParty.map(request=>({...request,route:row.route})));
++const firstPartyHttpErrors=rows.flatMap(row=>row.firstPartyHttpErrors.map(response=>({...response,route:row.route})));
++const requestFailures=rows.flatMap(row=>row.requestFailures.map(request=>({...request,route:row.route})));
++const result={
++  server: { port, expectedHomeSha256, servedHomeSha256 },
++  routes:rows.map(row=>({route:row.route,requestCount:row.requests.length,responseCount:row.responses.length,thirdPartyCount:row.thirdParty.length,firstPartyHttpErrorCount:row.firstPartyHttpErrors.length,requestFailureCount:row.requestFailures.length})),
++  expectedRoutes:routes.length,
++  auditedRoutes:rows.length,
++  genuineThirdPartyRuntimeRequestCount:thirdParty.length,
++  firstPartyHttpErrorCount:firstPartyHttpErrors.length,
++  requestFailureCount:requestFailures.length,
++  auditError,
++  thirdParty,
++  firstPartyHttpErrors,
++  requestFailures
++};
+ fs.writeFileSync('.r7e-tmp/network/audit.json',JSON.stringify(result,null,2));
+ console.log(JSON.stringify(result,null,2));
+-if (thirdParty.length) process.exitCode=1;
++if (rows.length !== routes.length || auditError || thirdParty.length || firstPartyHttpErrors.length || requestFailures.length) process.exitCode=1;
+diff --git a/scripts/run-lighthouse.mjs b/scripts/run-lighthouse.mjs
+index 0df56f5..2879305 100644
+--- a/scripts/run-lighthouse.mjs
++++ b/scripts/run-lighthouse.mjs
+@@ -1,35 +1,145 @@
++import crypto from 'node:crypto';
+ import fs from 'node:fs';
++import net from 'node:net';
+ import path from 'node:path';
++import { once } from 'node:events';
+ import { spawn, spawnSync } from 'node:child_process';
+ import { chromium } from '@playwright/test';
+ 
+ const lighthouseBin = path.resolve('node_modules/lighthouse/cli/index.js');
+-const urls = ['http://127.0.0.1:4173/', 'http://127.0.0.1:4173/work/volatility-cascade-engine/'];
++const runsPerUrl = 2;
++const thresholds = { performance: 0.90, accessibility: 0.95 };
+ fs.mkdirSync('.r7e-tmp/lighthouse', { recursive: true });
+ 
+-const server = spawn(process.execPath, ['scripts/serve-dist.mjs'], { stdio: ['ignore','pipe','pipe'] });
++const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
++async function freePort() {
++  const probe = net.createServer();
++  probe.listen(0, '127.0.0.1');
++  await once(probe, 'listening');
++  const address = probe.address();
++  if (!address || typeof address === 'string') throw new Error('Unable to reserve ephemeral port');
++  const port = address.port;
++  probe.close();
++  await once(probe, 'close');
++  return port;
++}
++
++const port = await freePort();
++const origin = `http://127.0.0.1:${port}`;
++const urls = [`${origin}/`, `${origin}/work/volatility-cascade-engine/`];
++const expectedHomeSha256 = sha(fs.readFileSync('dist/index.html', 'utf8'));
++const server = spawn(process.execPath, ['scripts/serve-dist.mjs'], {
++  stdio: ['ignore','pipe','pipe'],
++  env: { ...process.env, PORT: String(port), HOST: '127.0.0.1' }
++});

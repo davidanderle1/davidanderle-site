@@ -1,0 +1,104 @@
+name: R7E hardened canonical source bootstrap
+
+on:
+  push:
+    branches:
+      - r7e-hardened-verification-20260829
+    paths:
+      - '.github/workflows/r7e-source-bootstrap.yml'
+      - '.github/scripts/r7e-pack-source.py'
+      - '.github/patches/**'
+      - '.github/workflow-parts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  BUILDER_RUN_ID: '33262427626'
+  BUILDER_ARTIFACT_ID: '9717669245'
+  BUILDER_ARTIFACT_NAME: r7e-native-evidence-7347b3e1fe1514b66f4ee79db3bb44a14a13e47b
+  BUILDER_ARTIFACT_DIGEST: sha256:38ab3826d520c9049cf3d50762b54ed62a7846569f00c505faf96f0f9a029f2e
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated hardened branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Verify immutable prior R7E builder artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p builder canonical
+          actual_digest=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${BUILDER_ARTIFACT_ID}" --jq '.digest')
+          printf 'expected=%s\nactual=%s\n' "$BUILDER_ARTIFACT_DIGEST" "$actual_digest"
+          test "$actual_digest" = "$BUILDER_ARTIFACT_DIGEST"
+          gh run download "$BUILDER_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$BUILDER_ARTIFACT_NAME" --dir builder
+          if [ -d "builder/$BUILDER_ARTIFACT_NAME" ] && [ ! -f builder/R7E_GATE_DECISION.txt ]; then
+            cp -a "builder/$BUILDER_ARTIFACT_NAME/." builder/
+            rm -rf "builder/$BUILDER_ARTIFACT_NAME"
+          fi
+          test "$(cat builder/R7E_GATE_DECISION.txt)" = 'R7E BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F AUDIT'
+          test -f builder/R7E_ARTIFACT_SHA256SUMS.txt
+          (cd builder && sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt)
+          cp -a builder/BEARING_PRODUCTION_SOURCE/. canonical/
+          test -f canonical/package-lock.json
+          test -f canonical/.node-version
+
+      - name: Apply consolidated audited source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/patches/r7e-hardened-source.patch.* > /tmp/r7e-hardened-source.patch
+          git apply --check --directory=canonical /tmp/r7e-hardened-source.patch
+          git apply --directory=canonical /tmp/r7e-hardened-source.patch
+          test -f canonical/scripts/verify-stress-lineage.mjs
+          grep -q 'overflow-wrap: anywhere' canonical/src/styles/project.css
+          grep -q 'const stops = milestones.slice(0, 3)' canonical/src/pages/index.astro
+          grep -q 'R7E_ALLOW_TEST_FIXTURES' canonical/src/lib/content.ts
+          node --check canonical/scripts/generate-stress-fixtures.mjs
+          node --check canonical/scripts/verify-stress-lineage.mjs
+          node --check canonical/scripts/network-audit.mjs
+          node --check canonical/scripts/run-lighthouse.mjs
+          node -e "const p=require('./canonical/package.json'); const l=require('./canonical/package-lock.json'); if(p.packageManager!=='npm@11.19.0'||l.lockfileVersion!==3||Object.keys(l.packages||{}).length<500) process.exit(1)"
+
+      - name: Deterministically repack canonical source twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/pack1 /tmp/pack2 /tmp/source1.zip /tmp/source2.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/pack1 --archive /tmp/source1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/pack2 --archive /tmp/source2.zip
+          cmp /tmp/source1.zip /tmp/source2.zip
+          diff -ru /tmp/pack1 /tmp/pack2
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/pack1/. .r7e-source/
+          archive_sha=$(cat .r7e-source/ARCHIVE_SHA256)
+          printf '%s\n' "$archive_sha" > .r7e-source/HARDENED_SOURCE_READY
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          printf 'archive_sha256=%s\n' "$archive_sha"
+          cat .github/workflow-parts/r7e-hardened-verification.yml.* > .github/workflows/r7e-hardened-verification.yml
+          test -s .github/workflows/r7e-hardened-verification.yml
+
+      - name: Commit immutable canonical source transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .r7e-source .github/workflows/r7e-hardened-verification.yml
+          test -n "$(git status --porcelain -- .r7e-source .github/workflows/r7e-hardened-verification.yml)"
+          git commit -m 'R7E: freeze hardened canonical source after independent audits'
+          git push origin HEAD:r7e-hardened-verification-20260829

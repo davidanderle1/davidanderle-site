@@ -1,0 +1,168 @@
+name: R7E hardened native Astro verification
+
+on:
+  push:
+    branches:
+      - r7e-hardened-verification-20260829
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r7e-hardened-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout hardened verification branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Record runner environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence artifact
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "workflow_commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            uname -a
+          } | tee evidence/environment.txt
+          test "$(node --version)" = 'v24.20.0'
+          test "$(npm --version)" = '11.19.0'
+
+      - name: Materialize immutable canonical Astro source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidate
+          sha256sum --check --strict .r7e-source/SHA256SUMS | tee evidence/source-chunk-check.txt
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > r7e-native-source.zip
+          actual_archive_sha=$(sha256sum r7e-native-source.zip | awk '{print $1}')
+          expected_archive_sha=$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)
+          printf 'expected=%s\nactual=%s\n' "$expected_archive_sha" "$actual_archive_sha" | tee evidence/source-archive-identity.txt
+          test "$actual_archive_sha" = "$expected_archive_sha"
+          unzip -q r7e-native-source.zip -d candidate
+          test -f candidate/package.json
+          test -f candidate/package-lock.json
+          test -f candidate/.node-version
+          test -f candidate/.nvmrc
+          test -f candidate/src/content.config.ts
+          test -f candidate/astro.config.mjs
+          test -f candidate/src/assets/portrait/david-anderle-headshot-320.webp
+          printf '%s  %s\n' '821af5978918ac642c339da72153a584e59a0e92d47eede87290a5025a1ddc51' 'candidate/src/assets/portrait/david-anderle-headshot-320.webp' | sha256sum --check --strict | tee evidence/portrait-check.txt
+          rm -rf candidate/node_modules candidate/dist candidate/.astro candidate/.r7e-tmp candidate/public/assets/portrait candidate/public/assets/js candidate/public/artifacts candidate/src/data/generated
+          python3 .github/scripts/r7e-tree-guard.py manifest candidate evidence/materialized-source-tree.json --source
+
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          expected=json.loads(Path('.r7e-source/SOURCE_TREE.json').read_text())
+          actual={}
+          for p in Path('candidate').rglob('*'):
+              if not p.is_file() or p.is_symlink():
+                  continue
+              rel=p.relative_to('candidate').as_posix()
+              h=hashlib.sha256(p.read_bytes()).hexdigest()
+              actual[rel]={'sha256':h,'size':p.stat().st_size,'mode':oct(p.stat().st_mode & 0o777)}
+          exp={row['path']:{'sha256':row['sha256'],'size':row['size'],'mode':row['mode']} for row in expected['files']}
+          if actual != exp:
+              print(json.dumps({'onlyExpected':sorted(set(exp)-set(actual)),'onlyActual':sorted(set(actual)-set(exp)),'changed':sorted(k for k in set(exp)&set(actual) if exp[k]!=actual[k])},indent=2))
+              raise SystemExit(1)
+          print(json.dumps({'passed':True,'fileCount':len(actual)},indent=2))
+          PY
+
+      - name: Verify committed complete lockfile
+        working-directory: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE' | tee ../evidence/lock-summary.txt
+          const p=require('./package.json');
+          const l=require('./package-lock.json');
+          const count=Object.keys(l.packages||{}).length;
+          const ok=p.packageManager==='npm@11.19.0' && p.engines?.node==='24.20.0' && p.engines?.npm==='11.19.0' && l.lockfileVersion===3 && count>=500 && !l.r7eBootstrapStatus;
+          console.log(`packageManager=${p.packageManager}`);
+          console.log(`lockVersion=${l.lockfileVersion}`);
+          console.log(`lockPackages=${count}`);
+          if(!ok) process.exit(2);
+          NODE
+          sha256sum package.json package-lock.json | tee ../evidence/package-lock.sha256
+
+      - name: Freeze candidate source and deterministic transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf frozen run1 run2 run1-dist-baseline stress-dist-baseline
+          mkdir frozen
+          cp -a candidate/. frozen/
+          rm -rf frozen/node_modules frozen/dist frozen/.astro frozen/.r7e-tmp frozen/public/assets/portrait frozen/public/assets/js frozen/public/artifacts frozen/src/data/generated
+          python3 .github/scripts/r7e-tree-guard.py manifest frozen evidence/frozen-source-tree.json --source
+          tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner -C frozen -cf BEARING_FROZEN_SOURCE.tar .
+          sha256sum BEARING_FROZEN_SOURCE.tar | tee evidence/frozen-source-tar.sha256
+          sha256sum .github/scripts/r7e-pack-source.py .github/scripts/r7e-tree-guard.py | tee evidence/verifier-infrastructure.sha256
+
+      - name: Clean Run 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir run1
+          cp -a frozen/. run1/
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run1 evidence/run1-source-before.json --source
+          cd run1
+          npm run preflight:source > ../evidence/run1-preflight.stdout.txt 2> ../evidence/run1-preflight.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-npm-ci.time.txt npm ci --audit=false --fund=false > ../evidence/run1-npm-ci.stdout.txt 2> ../evidence/run1-npm-ci.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-check.time.txt npm run check > ../evidence/run1-check.stdout.txt 2> ../evidence/run1-check.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-build.time.txt npm run build > ../evidence/run1-build.stdout.txt 2> ../evidence/run1-build.stderr.txt
+          npm run html:validate > ../evidence/run1-html.stdout.txt 2> ../evidence/run1-html.stderr.txt
+          npm run links:validate > ../evidence/run1-links.stdout.txt 2> ../evidence/run1-links.stderr.txt
+          cd ..
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run1 evidence/run1-source-after-build.json --source
+          python3 .github/scripts/r7e-tree-guard.py manifest run1/dist evidence/run1-dist-tree.json
+          mkdir run1-dist-baseline
+          cp -a run1/dist/. run1-dist-baseline/
+          { printf 'files='; find run1/dist -type f | wc -l; printf 'bytes='; du -sb run1/dist | cut -f1; } | tee evidence/run1-dist-summary.txt
+
+      - name: Clean Run 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir run2
+          cp -a frozen/. run2/
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run2 evidence/run2-source-before.json --source
+          cd run2
+          npm run preflight:source > ../evidence/run2-preflight.stdout.txt 2> ../evidence/run2-preflight.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-npm-ci.time.txt npm ci --audit=false --fund=false > ../evidence/run2-npm-ci.stdout.txt 2> ../evidence/run2-npm-ci.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-check.time.txt npm run check > ../evidence/run2-check.stdout.txt 2> ../evidence/run2-check.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-build.time.txt npm run build > ../evidence/run2-build.stdout.txt 2> ../evidence/run2-build.stderr.txt
+          npm run html:validate > ../evidence/run2-html.stdout.txt 2> ../evidence/run2-html.stderr.txt
+          npm run links:validate > ../evidence/run2-links.stdout.txt 2> ../evidence/run2-links.stderr.txt
+          cd ..
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run2 evidence/run2-source-after-build.json --source
+          python3 .github/scripts/r7e-tree-guard.py manifest run2/dist evidence/run2-dist-tree.json
+          { printf 'files='; find run2/dist -type f | wc -l; printf 'bytes='; du -sb run2/dist | cut -f1; } | tee evidence/run2-dist-summary.txt
+
+      - name: Reproducibility gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/r7e-tree-guard.py compare run1/dist run2/dist evidence/reproducibility.json

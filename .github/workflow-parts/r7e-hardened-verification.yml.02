@@ -1,0 +1,94 @@
+            'candidateIdentity':'R7E_EVIDENCE/R7E_CANDIDATE_IDENTITY.json',
+            'frozenSourceDirectory':'BEARING_PRODUCTION_SOURCE/',
+            'frozenSourceTar':'BEARING_FROZEN_SOURCE.tar',
+            'verifiedDist':'BEARING_VERIFIED_DIST/',
+            'scale500':'BEARING_SCALE_SITE_500/',
+            'frozenSourceTree':'R7E_EVIDENCE/frozen-source-tree.json',
+            'run1SourceMutation':'R7E_EVIDENCE/run1-source-final.json',
+            'run2SourceMutation':'R7E_EVIDENCE/run2-source-final.json',
+            'reproducibility':'R7E_EVIDENCE/reproducibility.json',
+            'stressInput':'R7E_EVIDENCE/stress-input-manifest.json',
+            'stressLineage':'R7E_EVIDENCE/stress-lineage.json',
+            'browser':'R7E_EVIDENCE/browser-playwright-results.json',
+            'axe':'R7E_EVIDENCE/axe-playwright-results.json',
+            'axeRaw':'R7E_EVIDENCE/axe-raw/',
+            'lighthouse':'R7E_EVIDENCE/lighthouse-summary.json',
+            'network':'R7E_EVIDENCE/network-audit.json',
+            'wrangler':'R7E_EVIDENCE/wrangler-files.txt'
+          }
+          missing=[v for v in index.values() if not (root/v).exists()]
+          if missing: raise SystemExit(f'Missing evidence paths: {missing}')
+          (root/'R7E_EVIDENCE_INDEX.json').write_text(json.dumps(index,indent=2)+'\n')
+          PY
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('artifact')
+          lineage=json.loads((root/'R7E_EVIDENCE/stress-lineage.json').read_text())
+          identity=json.loads((root/'R7E_EVIDENCE/R7E_CANDIDATE_IDENTITY.json').read_text())
+          checks={
+            'gateReady':(root/'R7E_GATE_DECISION.txt').read_text().strip()=='R7E BUILD EVIDENCE COMPLETE — READY FOR HARDENED INDEPENDENT R7F AUDIT',
+            'sourcePresent':(root/'BEARING_PRODUCTION_SOURCE/package.json').is_file(),
+            'lockfilePresent':(root/'BEARING_PRODUCTION_SOURCE/package-lock.json').is_file(),
+            'nodeVersionPresent':(root/'BEARING_PRODUCTION_SOURCE/.node-version').is_file(),
+            'nvmrcPresent':(root/'BEARING_PRODUCTION_SOURCE/.nvmrc').is_file(),
+            'sourceWorkflowPresent':(root/'BEARING_PRODUCTION_SOURCE/.github/workflows/production-reference.yml').is_file(),
+            'securityTxtPresent':(root/'BEARING_PRODUCTION_SOURCE/public/.well-known/security.txt').is_file(),
+            'sourceTarPresent':(root/'BEARING_FROZEN_SOURCE.tar').is_file(),
+            'verifiedDistPresent':(root/'BEARING_VERIFIED_DIST/index.html').is_file(),
+            'scaleSitePresent':(root/'BEARING_SCALE_SITE_500/index.html').is_file(),
+            'scaleTestMarker':(root/'BEARING_SCALE_SITE_500/TEST_ONLY_DO_NOT_DEPLOY.txt').is_file(),
+            'lineage500':lineage.get('passed') is True and lineage.get('inputRecordCount')==500 and lineage.get('emittedDetailPageCount')==500 and lineage.get('workIndexCoverage')==500 and lineage.get('archiveCoverage')==500,
+            'candidateIdentityBound':bool(identity.get('workflowCommit') and identity.get('sourceArchiveSha256') and identity.get('frozenSourceTarSha256')),
+            'screenshotMinimum':len(list((root/'R7E_RUN1_TMP/screenshots').glob('*.png')))>=40,
+            'axeRawCount':len(list((root/'R7E_EVIDENCE/axe-raw').glob('*.json')))==10,
+            'lighthouseRawCount':len(list((root/'R7E_RUN1_TMP/lighthouse').glob('page-*-run-*.json')))==4,
+            'networkRawPresent':(root/'R7E_RUN1_TMP/network/audit.json').is_file(),
+            'wranglerOutputPresent':(root/'R7E_RUN1_TMP/wrangler').is_dir(),
+            'noNodeModules':not any(p.name=='node_modules' for p in root.rglob('node_modules')),
+            'productionNoSynthetic':not any((root/'BEARING_VERIFIED_DIST/work').glob('synthetic-test-record-*'))
+          }
+          result={'passed':all(checks.values()),'checks':checks}
+          (root/'R7E_PACKAGE_VALIDATION.json').write_text(json.dumps(result,indent=2)+'\n')
+          if not result['passed']: raise SystemExit(json.dumps(result,indent=2))
+          PY
+
+          (
+            cd artifact
+            find . -type f ! -name 'R7E_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > /tmp/R7E_ARTIFACT_SHA256SUMS.txt
+            mv /tmp/R7E_ARTIFACT_SHA256SUMS.txt R7E_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Assemble diagnostic artifact on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf artifact
+          mkdir -p artifact/BEARING_PRODUCTION_SOURCE artifact/R7E_EVIDENCE
+          if [ -d frozen ]; then cp -a frozen/. artifact/BEARING_PRODUCTION_SOURCE/; elif [ -d candidate ]; then cp -a candidate/. artifact/BEARING_PRODUCTION_SOURCE/; fi
+          if [ -f BEARING_FROZEN_SOURCE.tar ]; then cp BEARING_FROZEN_SOURCE.tar artifact/BEARING_FROZEN_SOURCE.tar; fi
+          cp -a evidence/. artifact/R7E_EVIDENCE/ 2>/dev/null || true
+          if [ -d run1/dist ]; then mkdir -p artifact/BEARING_PARTIAL_RUN1_DIST && cp -a run1/dist/. artifact/BEARING_PARTIAL_RUN1_DIST/; fi
+          if [ -d run2/dist ]; then mkdir -p artifact/BEARING_PARTIAL_RUN2_DIST && cp -a run2/dist/. artifact/BEARING_PARTIAL_RUN2_DIST/; fi
+          if [ -d run1/.r7e-tmp ]; then cp -a run1/.r7e-tmp artifact/R7E_RUN1_TMP; fi
+          printf 'R7E BUILD EVIDENCE INCOMPLETE — DO NOT START R7F\n' > artifact/R7E_GATE_DECISION.txt
+          (
+            cd artifact
+            find . -type f ! -name 'R7E_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > /tmp/R7E_ARTIFACT_SHA256SUMS.txt
+            mv /tmp/R7E_ARTIFACT_SHA256SUMS.txt R7E_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload hardened R7E evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-hardened-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
