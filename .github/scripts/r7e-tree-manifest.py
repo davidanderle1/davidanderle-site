@@ -8,7 +8,7 @@ import os
 import stat
 from pathlib import Path
 
-SOURCE_EXCLUDED_TOP = {'.git', 'node_modules', 'dist', '.astro', '.r7e-tmp'}
+SOURCE_EXCLUDED_TOP = {'.git', 'node_modules', 'dist', '.astro', '.r7e-tmp', '.wrangler'}
 SOURCE_EXCLUDED_PREFIXES = (
     'public/assets/portrait/',
     'public/assets/js/',
@@ -29,7 +29,7 @@ def excluded_source(rel: str) -> bool:
     parts = rel.split('/')
     if parts and parts[0] in SOURCE_EXCLUDED_TOP:
         return True
-    return any(rel == prefix.rstrip('/') or rel.startswith(prefix) for prefix in SOURCE_EXCLUDED_PREFIXES)
+    return rel.startswith(SOURCE_EXCLUDED_PREFIXES)
 
 
 def entries(root: Path, profile: str) -> list[dict]:
@@ -95,7 +95,6 @@ def main() -> None:
         write_manifest(args.root, args.output, args.profile)
     else:
         compare(args.left, args.right)
-
 
 if __name__ == '__main__':
     main()
