@@ -38,6 +38,11 @@ jobs:
         with:
           node-version: '24.20.0'
 
+      - name: Normalize embedded template escape semantics
+        run: |
+          python3 r7e/normalize_template_literals.py
+          python3 -m py_compile r7e/template_verification.py r7e/template_evidence.py
+
       - name: Materialize exact R5-authorized portrait source
         run: |
           mkdir -p r7e/authority/input
@@ -91,6 +96,7 @@ jobs:
           path: |
             BEARING_PRODUCTION_SOURCE
             R7E_BOOTSTRAP_EVIDENCE
+            R7E_TEMPLATE_NORMALIZATION.json
             r7e/authority/R5_PORTRAIT_AUTHORITY.json
           if-no-files-found: warn
           retention-days: 7
