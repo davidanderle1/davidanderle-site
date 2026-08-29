@@ -15,6 +15,17 @@ from template_evidence import evidence_files
 from template_patch_v6 import apply_v6_patches
 
 
+def update_current_authority_sources() -> None:
+    """Keep the V6 authority set on current official documentation endpoints."""
+    for source in base.OFFICIAL_SOURCES:
+        if source.get("id") == "cloudflare-static-configuration":
+            source["topic"] = "Static Assets HTML and not-found handling"
+            source["url"] = "https://developers.cloudflare.com/workers/static-assets/routing/advanced/html-handling/"
+            source["markers"] = ["html_handling", "not_found_handling"]
+            return
+    raise RuntimeError("cloudflare-static-configuration authority record missing")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
@@ -25,6 +36,7 @@ def main() -> int:
     shutil.rmtree(output, ignore_errors=True)
     output.mkdir(parents=True, exist_ok=True)
 
+    update_current_authority_sources()
     official_index = base.retrieve_official_sources(output)
     versions, _ = base.resolve_versions(output)
 
@@ -67,6 +79,7 @@ def main() -> int:
         "portraitRequiresExplicitR5Authorization": True,
         "reproducibilityWorkspacesOutsideSourceTree": True,
         "clientEnhancementStrictTypeChecked": True,
+        "currentCloudflareStaticAssetsAuthority": True,
     }
     base.write(
         output / "evidence" / "reports" / "source-generation.json",
