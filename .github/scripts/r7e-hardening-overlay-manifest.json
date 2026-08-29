@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "archiveSha256": "3b0cb0d823df274d5808f7ae55a19b30b909c81c7b9f19e20fb014a6014e8a4d",
+  "files": [
+    {
+      "path": "package.json",
+      "bytes": 2920,
+      "sha256": "6f641292fc45722bc0eaa8bc3d084e64fb8d93793df9ac39cdec54b8b7bcc1f8",
+      "mode": "0o644"
+    },
+    {
+      "path": "playwright.config.ts",
+      "bytes": 888,
+      "sha256": "2c29ca315c909b83b9b6662427dfa57ffef50b57d555c08008fa8893a8c33c99",
+      "mode": "0o644"
+    },
+    {
+      "path": "scripts/network-audit.mjs",
+      "bytes": 3860,
+      "sha256": "691e0680f9ce23ddec4b666b7b3c59f7ccf8098f74fbd609f2d103215ce7c6df",
+      "mode": "0o644"
+    },
+    {
+      "path": "scripts/run-lighthouse.mjs",
+      "bytes": 3967,
+      "sha256": "428e05ac72952f5e15ad6d59719334a3beb01849c59c3c7223e59165a2f46ddd",
+      "mode": "0o644"
+    },
+    {
+      "path": "scripts/verify-stress-lineage.mjs",
+      "bytes": 5329,
+      "sha256": "c51de974872d39c180d25a8d1f5f21c4643ba1ab292a9c509953ab417c92bf25",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/components/BearingRoute.astro",
+      "bytes": 1247,
+      "sha256": "13f7779f6d65caac84ec78571ac6e7ba996616e5fcbd76fc719a3082d2245472",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/components/SiteFooter.astro",
+      "bytes": 322,
+      "sha256": "02dabd7d6dbf56e7143dd026380f7ed9960bf1eb1b0749131ca47e8bffc493ef",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/components/VceSequence.astro",
+      "bytes": 1317,
+      "sha256": "22fc7da60d3f8934d014af28f45d8083584f0cabc7c9971e37c5cfaed7c1effc",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/lib/content.ts",
+      "bytes": 958,
+      "sha256": "245f0b3b3fd2f2a1b49da16594bc1901bcfd84a5fdcd200d6f241a6899ec7418",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/pages/about/index.astro",
+      "bytes": 1700,
+      "sha256": "f2cd37cb8b7616adc11b619d01b5a9e03a58a166fb5a1c80bea171df805971c0",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/pages/about/no-photo/index.astro",
+      "bytes": 1091,
+      "sha256": "dff3cd30b687b7e9375aaa5512045ea05bdaf13ab80443d0d2fa6d474b8c1a25",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/pages/archive/index.astro",
+      "bytes": 1968,
+      "sha256": "87b81656e1948709a39590124e35d0df83242ab1b6fa29604bd3feb2012b8d53",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/pages/index.astro",
+      "bytes": 2183,
+      "sha256": "7acb1ca9869142dc5f46d9b6560f1134a00fc497944e1ca35460dabeeb0f097d",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/pages/work/index.astro",
+      "bytes": 768,
+      "sha256": "96406bddb8c02ba2c729783032829f4dd99929320b9d36d9941dd2044ab5b35d",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/styles/bearing.css",
+      "bytes": 3566,
+      "sha256": "e688f4c9134e24d92ce6aa28d5c829f4d9d7acdfd0928aba8bcbb9dce6fa202c",
+      "mode": "0o644"
+    },
+    {
+      "path": "src/styles/global.css",
+      "bytes": 8298,
+      "sha256": "1d4fd0eb76e3498936db6a219606005dd74e2552b5141b17b7538ea57bff04b0",
+      "mode": "0o644"
+    },
+    {
+      "path": "tests/accessibility.spec.ts",
+      "bytes": 1114,
+      "sha256": "cb5b4941b4bf0b7ee72a4dad8473fef9fe7eba8fab982a695e8c54b251567ba0",
+      "mode": "0o644"
+    },
+    {
+      "path": "tests/browser.spec.ts",
+      "bytes": 6855,
+      "sha256": "450bf14b44a631e551937ce46c00fc45a3effe476631fc1436ca0013d612f3ae",
+      "mode": "0o644"
+    },
+    {
+      "path": "verification/clean-run.sh",
+      "bytes": 1019,
+      "sha256": "74a4c5559b3e327b840580f9762317a18b68221549919c684a93e2de66f69506",
+      "mode": "0o755"
+    }
+  ]
+}
