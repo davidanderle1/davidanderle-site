@@ -5,8 +5,7 @@ on:
     branches:
       - r7e-reference-build-20260829
     paths:
-      - r7e/reference_builder_v6.py
-      - r7e/template_patch_v6.py
+      - 'r7e/**'
       - .github/workflows/r7e-production-reference-v6.yml
   workflow_dispatch:
 
@@ -26,6 +25,7 @@ jobs:
       TZ: UTC
       SOURCE_DATE_EPOCH: '1787961600'
       NODE_OPTIONS: '--max-old-space-size=4096'
+      R7E_APPROVED_PORTRAIT_SHA256: '821af5978918ac642c339da72153a584e59a0e92d47eede87290a5025a1ddc51'
     steps:
       - name: Checkout isolated R7E branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -37,6 +37,12 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24.20.0'
+
+      - name: Materialize exact R5-authorized portrait source
+        run: |
+          mkdir -p r7e/authority/input
+          base64 --decode r7e/authority/david-anderle-headshot-320.webp.b64 > r7e/authority/input/david-anderle-headshot-320.webp
+          printf '%s  %s\n' "$R7E_APPROVED_PORTRAIT_SHA256" 'r7e/authority/input/david-anderle-headshot-320.webp' | sha256sum --check --strict
 
       - name: Execute native R7E v6 programme
         run: |
@@ -85,5 +91,6 @@ jobs:
           path: |
             BEARING_PRODUCTION_SOURCE
             R7E_BOOTSTRAP_EVIDENCE
+            r7e/authority/R5_PORTRAIT_AUTHORITY.json
           if-no-files-found: warn
           retention-days: 7
