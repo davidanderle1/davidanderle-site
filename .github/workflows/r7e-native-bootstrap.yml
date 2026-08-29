@@ -39,7 +39,7 @@ jobs:
             uname -a
           } | tee evidence/environment.txt
 
-      - name: Materialize genuine Astro source
+      - name: Materialize and sanitize genuine Astro source
         shell: bash
         run: |
           set -euo pipefail
@@ -54,6 +54,8 @@ jobs:
           test -f candidate/astro.config.mjs
           test -f candidate/src/assets/portrait/david-anderle-headshot-320.webp
           printf '%s  %s\n' '821af5978918ac642c339da72153a584e59a0e92d47eede87290a5025a1ddc51' 'candidate/src/assets/portrait/david-anderle-headshot-320.webp' | sha256sum --check --strict | tee evidence/portrait-check.txt
+          rm -rf candidate/node_modules candidate/dist candidate/.astro candidate/.r7e-tmp \
+            candidate/public/assets/portrait candidate/public/assets/js candidate/public/artifacts candidate/src/data/generated
           find candidate -type f -print0 | sort -z | xargs -0 sha256sum > evidence/source-before-lock.sha256
 
       - name: Resolve complete transitive lockfile once
@@ -74,7 +76,8 @@ jobs:
           rm -rf frozen run1 run2
           mkdir frozen
           cp -a candidate/. frozen/
-          rm -rf frozen/node_modules frozen/dist frozen/.astro frozen/.r7e-tmp
+          rm -rf frozen/node_modules frozen/dist frozen/.astro frozen/.r7e-tmp \
+            frozen/public/assets/portrait frozen/public/assets/js frozen/public/artifacts frozen/src/data/generated
           find frozen -type f -print0 | sort -z | xargs -0 sha256sum > evidence/frozen-source.sha256
           tar -C frozen -cf - . | sha256sum | tee evidence/frozen-source-tar.sha256
 
@@ -85,9 +88,9 @@ jobs:
           mkdir run1
           cp -a frozen/. run1/
           cd run1
+          npm run preflight:source > ../evidence/run1-preflight.stdout.txt 2> ../evidence/run1-preflight.stderr.txt
           /usr/bin/time -v -o ../evidence/run1-npm-ci.time.txt npm ci --audit=false --fund=false \
             > ../evidence/run1-npm-ci.stdout.txt 2> ../evidence/run1-npm-ci.stderr.txt
-          npm run preflight:source > ../evidence/run1-preflight.stdout.txt 2> ../evidence/run1-preflight.stderr.txt
           /usr/bin/time -v -o ../evidence/run1-check.time.txt npm run check \
             > ../evidence/run1-check.stdout.txt 2> ../evidence/run1-check.stderr.txt
           /usr/bin/time -v -o ../evidence/run1-build.time.txt npm run build \
@@ -95,11 +98,7 @@ jobs:
           npm run html:validate > ../evidence/run1-html.stdout.txt 2> ../evidence/run1-html.stderr.txt
           npm run links:validate > ../evidence/run1-links.stdout.txt 2> ../evidence/run1-links.stderr.txt
           find dist -type f -print0 | sort -z | xargs -0 sha256sum > ../evidence/run1-dist.sha256
-          printf 'files=' > ../evidence/run1-dist-summary.txt
-          find dist -type f | wc -l >> ../evidence/run1-dist-summary.txt
-          printf 'bytes=' >> ../evidence/run1-dist-summary.txt
-          du -sb dist | cut -f1 >> ../evidence/run1-dist-summary.txt
-          cat ../evidence/run1-dist-summary.txt
+          { printf 'files='; find dist -type f | wc -l; printf 'bytes='; du -sb dist | cut -f1; } | tee ../evidence/run1-dist-summary.txt
 
       - name: Clean Run 2
         shell: bash
@@ -108,19 +107,15 @@ jobs:
           mkdir run2
           cp -a frozen/. run2/
           cd run2
+          npm run preflight:source > ../evidence/run2-preflight.stdout.txt 2> ../evidence/run2-preflight.stderr.txt
           /usr/bin/time -v -o ../evidence/run2-npm-ci.time.txt npm ci --audit=false --fund=false \
             > ../evidence/run2-npm-ci.stdout.txt 2> ../evidence/run2-npm-ci.stderr.txt
-          npm run preflight:source > ../evidence/run2-preflight.stdout.txt 2> ../evidence/run2-preflight.stderr.txt
           /usr/bin/time -v -o ../evidence/run2-check.time.txt npm run check \
             > ../evidence/run2-check.stdout.txt 2> ../evidence/run2-check.stderr.txt
           /usr/bin/time -v -o ../evidence/run2-build.time.txt npm run build \
             > ../evidence/run2-build.stdout.txt 2> ../evidence/run2-build.stderr.txt
           find dist -type f -print0 | sort -z | xargs -0 sha256sum > ../evidence/run2-dist.sha256
-          printf 'files=' > ../evidence/run2-dist-summary.txt
-          find dist -type f | wc -l >> ../evidence/run2-dist-summary.txt
-          printf 'bytes=' >> ../evidence/run2-dist-summary.txt
-          du -sb dist | cut -f1 >> ../evidence/run2-dist-summary.txt
-          cat ../evidence/run2-dist-summary.txt
+          { printf 'files='; find dist -type f | wc -l; printf 'bytes='; du -sb dist | cut -f1; } | tee ../evidence/run2-dist-summary.txt
 
       - name: Compare native outputs
         shell: bash
