@@ -1,0 +1,232 @@
+name: R7E Bearing production reference evidence
+
+on:
+  push:
+    branches:
+      - r7e-reference-build-20260829
+    paths:
+      - r7e/**
+      - .github/workflows/r7e-production-reference-v1.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-bearing-production-reference
+  cancel-in-progress: false
+
+jobs:
+  build-and-measure:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      TZ: UTC
+      SOURCE_DATE_EPOCH: '1787961600'
+      NODE_OPTIONS: '--max-old-space-size=4096'
+    steps:
+      - name: Checkout isolated R7E branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.20.0'
+
+      - name: Prepare bootstrap evidence directory
+        run: mkdir -p R7E_BOOTSTRAP_EVIDENCE
+
+      - name: Record Node runtime
+        run: python3 r7e/run_command.py --evidence R7E_BOOTSTRAP_EVIDENCE --id 000-node-version --artifact . -- node --version
+
+      - name: Install exact npm runtime
+        run: python3 r7e/run_command.py --evidence R7E_BOOTSTRAP_EVIDENCE --id 001-npm-upgrade -- npm install --global npm@11.19.0
+
+      - name: Build repository only after official-source and version research
+        run: python3 r7e/run_command.py --evidence R7E_BOOTSTRAP_EVIDENCE --id 002-reference-builder --artifact BEARING_PRODUCTION_SOURCE -- python3 r7e/reference_builder_v1.py --output BEARING_PRODUCTION_SOURCE --workspace "$GITHUB_WORKSPACE"
+
+      - name: Attach host bootstrap evidence to reference source
+        run: |
+          mkdir -p BEARING_PRODUCTION_SOURCE/evidence/bootstrap-host
+          cp -a R7E_BOOTSTRAP_EVIDENCE/. BEARING_PRODUCTION_SOURCE/evidence/bootstrap-host/
+
+      - name: Resolve deterministic package lock
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 010-lockfile --artifact package-lock.json -- npm install --package-lock-only --ignore-scripts
+
+      - name: Native clean install
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 020-npm-ci --artifact node_modules/.package-lock.json -- npm ci
+
+      - name: Capture exact toolchain and runner
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 030-toolchain-environment --artifact evidence/reports/toolchain-environment.json -- node scripts/capture-toolchain.mjs
+
+      - name: Verify preserved official sources
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 040-official-sources --soft --artifact evidence/reports/official-source-verification.json -- node scripts/verify-official-sources.mjs
+
+      - name: Verify source architecture and design invariants
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 050-source-verification --artifact evidence/reports/source-verification.json -- node scripts/verify-source.mjs
+
+      - name: Astro type and content check
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 060-astro-check -- npx astro check
+
+      - name: Explicit canonical cross-record validation
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 070-content-validation --artifact evidence/reports/content-validation.json -- node scripts/validate-content.mjs
+
+      - name: Select incumbent 320 by 320 portrait candidate when present
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 080-portrait-selection --soft --artifact evidence/reports/portrait-source-selection.json -- node scripts/select-portrait-source.mjs ..
+
+      - name: Process portrait locally without enlargement
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 090-image-processing --artifact public/media/portrait-manifest.json --artifact evidence/reports/image-processing.json -- node scripts/process-images.mjs
+
+      - name: Native Astro production build with resource measurement
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 100-base-build --artifact dist -- bash -lc '/usr/bin/time -v npm run build'
+
+      - name: Verify generated static output and ordinary-route JavaScript boundary
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 110-dist-verification --artifact evidence/reports/dist-verification.json -- node scripts/verify-dist.mjs dist
+
+      - name: Install pinned Chromium for native browser evidence
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 120-playwright-install --soft -- npx playwright install --with-deps chromium
+
+      - name: Render and test desktop, 390 px, 320 px and no-JavaScript output
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 130-browser-tests --soft --artifact evidence/browser -- npx playwright test
+
+      - name: Produce Lighthouse raw reports and measurements
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 140-lighthouse --soft --artifact evidence/lighthouse -- node scripts/run-lighthouse.mjs
+
+      - name: Validate assets-only Cloudflare deployment by dry run
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 150-wrangler-dry-run --soft --artifact evidence/wrangler-dry-run -- npx wrangler deploy --dry-run --outdir evidence/wrangler-dry-run
+
+      - name: Query local Wrangler headers redirects and custom 404
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 160-wrangler-preview --soft --artifact evidence/wrangler-preview -- node scripts/test-wrangler-preview.mjs
+
+      - name: Generate exactly 500 deterministic validated records
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 170-scale-generate --artifact evidence/scale/generated-records-manifest.json -- node scripts/generate-scale-fixtures.mjs 500
+
+      - name: Validate all 500 records through the canonical cross-record gate
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 180-scale-content-validation --env R7E_SCALE=1 --artifact evidence/reports/content-validation.json -- node scripts/validate-content.mjs
+
+      - name: Native 500-record Astro scale build with resource measurement
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 190-scale-build --env R7E_SCALE=1 --env R7E_OUT_DIR=dist-scale --artifact dist-scale -- bash -lc '/usr/bin/time -v npx astro build'
+
+      - name: Verify 500 detail pages and bounded year archives
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 200-scale-verification --artifact evidence/reports/scale-verification.json -- node scripts/verify-scale.mjs
+
+      - name: Remove generated records from canonical production collection
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 210-scale-clean -- node scripts/clear-scale-fixtures.mjs
+
+      - name: Prepare invalid Astro schema fixture
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 220-neg-schema-prepare -- node scripts/prepare-negative-fixture.mjs schema ../r7e-negative-schema
+
+      - name: Observe native rejection of invalid schema
+        working-directory: r7e-negative-schema
+        run: python3 ../BEARING_PRODUCTION_SOURCE/scripts/run_evidence.py --evidence ../BEARING_PRODUCTION_SOURCE/evidence --id 221-neg-schema-astro --expect nonzero -- npx astro build
+
+      - name: Prepare invalid cross-reference fixture
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 230-neg-crossref-prepare -- node scripts/prepare-negative-fixture.mjs crossref ../r7e-negative-crossref
+
+      - name: Observe rejection of invalid cross-reference
+        working-directory: r7e-negative-crossref
+        run: python3 ../BEARING_PRODUCTION_SOURCE/scripts/run_evidence.py --evidence ../BEARING_PRODUCTION_SOURCE/evidence --id 231-neg-crossref-validation --expect nonzero -- node scripts/validate-content.mjs
+
+      - name: Prepare duplicate slug fixture
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 240-neg-duplicate-prepare -- node scripts/prepare-negative-fixture.mjs duplicate ../r7e-negative-duplicate
+
+      - name: Observe rejection of duplicate slug
+        working-directory: r7e-negative-duplicate
+        run: python3 ../BEARING_PRODUCTION_SOURCE/scripts/run_evidence.py --evidence ../BEARING_PRODUCTION_SOURCE/evidence --id 241-neg-duplicate-validation --expect nonzero -- node scripts/validate-content.mjs
+
+      - name: Prepare prohibited portrait enlargement fixture
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 250-neg-photo-prepare -- node scripts/prepare-negative-fixture.mjs photo-upscale ../r7e-negative-photo
+
+      - name: Observe rejection of prohibited portrait enlargement
+        working-directory: r7e-negative-photo
+        run: python3 ../BEARING_PRODUCTION_SOURCE/scripts/run_evidence.py --evidence ../BEARING_PRODUCTION_SOURCE/evidence --id 251-neg-photo-process --expect nonzero -- node scripts/process-images.mjs
+
+      - name: Prepare ordinary-route JavaScript injection fixture
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 260-neg-js-prepare -- node scripts/prepare-negative-fixture.mjs ordinary-js ../r7e-negative-js
+
+      - name: Observe rejection of ordinary-route JavaScript
+        working-directory: r7e-negative-js
+        run: python3 ../BEARING_PRODUCTION_SOURCE/scripts/run_evidence.py --evidence ../BEARING_PRODUCTION_SOURCE/evidence --id 261-neg-js-dist --expect nonzero -- node scripts/verify-dist.mjs dist
+
+      - name: Build twice from fresh npm ci workspaces and compare trees
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 270-reproducibility --soft --artifact evidence/reproducibility/report.json -- node scripts/verify-reproducibility.mjs
+
+      - name: Preserve npm audit observation
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 280-npm-audit --soft --expect any -- npm audit --json
+
+      - name: Generate CycloneDX SBOM
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: |
+          mkdir -p evidence/supply-chain
+          python3 scripts/run_evidence.py --evidence evidence --id 290-sbom --soft -- bash -lc 'npm sbom --sbom-format=cyclonedx > evidence/supply-chain/sbom.cdx.json'
+
+      - name: Preserve dependency tree
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/run_evidence.py --evidence evidence --id 300-npm-ls --soft -- npm ls --all --json
+
+      - name: Remove temporary negative workspaces
+        run: rm -rf r7e-negative-schema r7e-negative-crossref r7e-negative-duplicate r7e-negative-photo r7e-negative-js
+
+      - name: Build release-gate evidence index without certification
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: node scripts/finalize-evidence.mjs
+
+      - name: Package source generated sites and all raw evidence
+        working-directory: BEARING_PRODUCTION_SOURCE
+        run: python3 scripts/package_r7e.py
+
+      - name: Commit audit artifact only to isolated branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f R7E_OUTPUT/DAVID_ANDERLE_R7E_PRODUCTION_REFERENCE_COMPLETE.zip
+          git add -f R7E_OUTPUT/DAVID_ANDERLE_R7E_PRODUCTION_REFERENCE_COMPLETE.zip.sha256
+          git add -f R7E_OUTPUT/R7E_OUTPUT_SUMMARY.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore(r7e): publish raw audit artifact [skip ci]'
+            git push origin HEAD:r7e-reference-build-20260829
+          fi
+
+      - name: Upload immutable workflow artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: david-anderle-r7e-production-reference
+          path: |
+            R7E_OUTPUT/DAVID_ANDERLE_R7E_PRODUCTION_REFERENCE_COMPLETE.zip
+            R7E_OUTPUT/DAVID_ANDERLE_R7E_PRODUCTION_REFERENCE_COMPLETE.zip.sha256
+            R7E_OUTPUT/R7E_OUTPUT_SUMMARY.json
+          if-no-files-found: error
+          retention-days: 30
