@@ -44,8 +44,7 @@ diff --git a/scripts/verify-stress-lineage.mjs b/scripts/verify-stress-lineage.m
 diff --git a/tests/browser.spec.ts b/tests/browser.spec.ts
 --- a/tests/browser.spec.ts
 +++ b/tests/browser.spec.ts
-@@ -6,20 +6,33 @@ const widths = [1440,1280,768,430,390,360,320] as const;
- const LONG_CZECH_TITLE = 'Dlouhý český titul: ověřování kryptografického závazku bez přetečení rozvržení';
+@@ -8,17 +8,27 @@ const LONG_CZECH_TITLE = 'Dlouhý český titul: ověřování kryptografického
  
  async function settleLayout(page: Page): Promise<void> {
    await page.evaluate(async () => {
@@ -81,5 +80,3 @@ diff --git a/tests/browser.spec.ts b/tests/browser.spec.ts
        }
      }));
      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-   });
- }
