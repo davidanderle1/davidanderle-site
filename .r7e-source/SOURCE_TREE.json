@@ -219,9 +219,9 @@
     },
     {
       "path": "scripts/verify-stress-lineage.mjs",
-      "sha256": "9a9650f3b098ce038487af30d5f508a26e4f558143c8646e94b3d409bc3cb62d",
+      "sha256": "6bd0dab5d51930ce0acb2ee0972bc80d1c183ad2435f6b5bb18e967ed02d7a6c",
       "mode": "0o644",
-      "size": 6825
+      "size": 7617
     },
     {
       "path": "src/assets/portrait/david-anderle-headshot-320.webp",
