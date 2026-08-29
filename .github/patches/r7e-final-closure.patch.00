@@ -1,0 +1,123 @@
+diff --git a/.github/workflows/production-reference.yml b/.github/workflows/production-reference.yml
+index 738724b0250f664a585411cd7228760f281cf13f..7a6a2b908a8b38cd6571713dea7abaa883fc6fc9 100644
+--- a/.github/workflows/production-reference.yml
++++ b/.github/workflows/production-reference.yml
+@@ -1,36 +1,41 @@
+ name: Production reference gates
++
+ on:
+   pull_request:
+   push:
+     branches: [main]
+   workflow_dispatch:
++
+ permissions:
+   contents: read
++
+ concurrency:
+   group: bearing-${{ github.ref }}
+   cancel-in-progress: true
++
++env:
++  TZ: UTC
++  SOURCE_DATE_EPOCH: '1787961600'
++  NODE_OPTIONS: --max-old-space-size=4096
++
+ jobs:
+   verify:
+     runs-on: ubuntu-24.04
+-    timeout-minutes: 30
++    timeout-minutes: 45
+     steps:
+       - uses: actions/checkout@v5
+       - uses: actions/setup-node@v5
+         with:
+           node-version-file: .node-version
+           cache: npm
+-      - run: npm ci
+-      - run: npm run validate:content
+-      - run: npm run check:astro
+-      - run: npm run build
+-      - run: npm run html:validate
+-      - run: npm run links:validate
+-      - run: npm run validate:fixtures
+-      - run: npx playwright install --with-deps chromium
+-      - run: npm run test:browser
+-      - run: npm run test:axe
+-      - run: npm run test:lighthouse
+-      - run: npm run wrangler:validate
++      - name: Verify frozen source before dependency installation
++        run: npm run preflight:source
++      - name: Install exact dependency graph
++        run: npm ci --audit=false --fund=false
++      - name: Install Chromium for browser gates
++        run: npx playwright install --with-deps chromium
++      - name: Execute canonical production-reference gate
++        run: npm run verify:all
+       - name: Generate tested dist SHA-256 manifest
+         run: node scripts/hash-tree.mjs dist > dist-sha256.json
+       - uses: actions/upload-artifact@v4
+@@ -42,6 +47,7 @@ jobs:
+             .r7e-tmp/
+           if-no-files-found: error
+           retention-days: 30
++
+   deploy-production:
+     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+     needs: verify
+@@ -56,7 +62,7 @@ jobs:
+         with:
+           node-version-file: .node-version
+           cache: npm
+-      - run: npm ci
++      - run: npm ci --audit=false --fund=false
+       - uses: actions/download-artifact@v4
+         with:
+           name: bearing-tested-dist-${{ github.sha }}
+diff --git a/README.md b/README.md
+index 6f74eedb5bb1368c581bf0cfcc3d9b402d5ed7b7..2eb470558de094eff802440603368f120df7cc1f 100644
+--- a/README.md
++++ b/README.md
+@@ -1,12 +1,15 @@
+ # David Anderle Bearing production reference
+ 
+-This repository is a production-reference implementation of the locked Bearing identity in Astro static output. It is deliberately static-first, content-driven and progressively enhanced.
++This repository is the production-reference implementation of the locked Bearing identity in Astro static output. It is deliberately static-first, content-driven and progressively enhanced.
+ 
+-## Local verification
++## Clean local verification
+ 
+-1. Use Node 24.20.0 and npm 11.19.0.
+-2. Run `npm ci` after a registry-generated lockfile has been frozen.
+-3. Run `npm run verify:all`.
+-4. Run `npm run serve` in a second terminal for browser audits when needed.
++1. Use exactly Node 24.20.0 and npm 11.19.0.
++2. In the untouched source tree, run `npm run preflight:source` before dependency installation.
++3. Run `npm ci --audit=false --fund=false`.
++4. Install the pinned browser runtime with `npx playwright install --with-deps chromium`.
++5. Run `npm run verify:all`.
+ 
+-The R7E package records that dependency installation and native Astro execution were not available in the original evidence environment. See `EXTERNAL_VERIFICATION_BUNDLE/` in the parent package. The source itself must not be treated as independently certified until those clean-room commands pass.
++`verify:all` removes only generated verification output, validates the installed workspace, checks the typed content model, builds the real Astro site, validates every generated HTML document, performs a non-vacuous same-site link and fragment audit, rejects invalid fixtures, generates and validates the 500-record stress site, runs browser/no-JavaScript/accessibility/Lighthouse/network gates and performs a Workers Static Assets dry run.
++
++The production workflow deploys the exact tested `dist/` artifact after verifying its SHA-256 tree manifest. Any source change invalidates earlier release evidence and requires fresh builder and independent-verifier runs.
+diff --git a/package.json b/package.json
+index 804a382e56df0e705df385efe182add0abe71d55..c2638432be3a8040f834d21a72cce625d1205d8c 100644
+--- a/package.json
++++ b/package.json
+@@ -20,7 +20,7 @@
+     "build:astro": "astro build",
+     "dist:inspect": "node scripts/inspect-dist.mjs dist",
+     "html:validate": "html-validate \"dist/**/*.html\"",
+-    "links:validate": "linkinator dist --recurse --skip 'https?://'",
++    "links:validate": "node scripts/validate-links.mjs dist .r7e-tmp/link-validation-production.json",
+     "build": "npm run prepare && npm run validate:content && npm run build:astro && npm run finalize:static && npm run dist:inspect",
+     "serve": "node scripts/serve-dist.mjs",
+     "test:browser": "playwright test tests/browser.spec.ts",
+@@ -32,12 +32,14 @@
+     "test:stress:build": "R7E_CONTENT_ROOT=.r7e-tmp/stress/content R7E_ALLOW_TEST_FIXTURES=1 astro build --config astro.stress.config.mjs",
+     "test:stress": "npm run test:stress:generate && npm run test:stress:validate && npm run test:stress:build && npm run test:stress:lineage && npm run test:stress:links",
+     "wrangler:validate": "wrangler deploy --dry-run --outdir .r7e-tmp/wrangler --config wrangler.jsonc",
+-    "verify:all": "npm run preflight:source && npm run check && npm run build && npm run html:validate && npm run links:validate && npm run validate:fixtures && npm run test:browser && npm run test:axe && npm run test:lighthouse && npm run network:audit && npm run wrangler:validate",
++    "verify:all": "npm run clean:generated && npm run preflight:workspace && npm run check && npm run build && npm run html:validate && npm run links:validate && npm run validate:fixtures && npm run test:stress && npm run test:browser && npm run test:axe && npm run test:lighthouse && npm run network:audit && npm run wrangler:validate",
+     "preflight:source": "node scripts/source-preflight.mjs",
