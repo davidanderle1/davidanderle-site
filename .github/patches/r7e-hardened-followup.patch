@@ -80,3 +80,5 @@ diff --git a/tests/browser.spec.ts b/tests/browser.spec.ts
        }
      }));
      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+   });
+ }
