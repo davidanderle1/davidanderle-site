@@ -44,7 +44,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence candidate
+          sha256sum --check .r7e-source/SHA256SUMS | tee evidence/chunk-check.txt
           cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > r7e-native-source.zip
+          sha256sum r7e-native-source.zip | tee evidence/source-archive-actual.sha256
           printf '%s  %s\n' '9a98f9e437f5d7419d66d2dd7d341921c4dec4ac296f5edd23ff30f4aa058594' 'r7e-native-source.zip' | sha256sum --check --strict | tee evidence/source-archive-check.txt
           unzip -q r7e-native-source.zip -d candidate
           test -f candidate/package.json
