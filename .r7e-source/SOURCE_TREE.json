@@ -525,9 +525,9 @@
     },
     {
       "path": "tests/browser.spec.ts",
-      "sha256": "ef152e48b2b29b4d79d2f230cea8fd04636769cd65a93b1568f812ebd9befecb",
+      "sha256": "332bf48054e923ff37b7d0021cdccd01697cfd6945b12d0a8dadb8ee7b4bd19d",
       "mode": "0o644",
-      "size": 11481
+      "size": 11962
     },
     {
       "path": "tests/invalid-fixtures/01-duplicate-immutable-id.json",
