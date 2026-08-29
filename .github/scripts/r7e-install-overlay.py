@@ -30,6 +30,15 @@ def clean_path(value: str) -> str:
     return normalized
 
 
+def replace_exact(root: Path, relative: str, old: str, new: str, label: str) -> None:
+    target = root / relative
+    text = target.read_text(encoding='utf-8')
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f'{label}: expected exactly one source pattern in {relative}, found {count}')
+    target.write_text(text.replace(old, new), encoding='utf-8')
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit('usage: r7e-install-overlay.py <candidate-root>')
@@ -105,6 +114,48 @@ def main() -> None:
                 raise SystemExit(f'installed overlay mode mismatch: {relative}')
             installed.append({'path': relative, 'bytes': expected_size, 'sha256': expected_sha, 'mode': oct(expected_mode)})
 
+    # Final stress-lineage corrections discovered by the first hardened execution.
+    # They keep stress-only collection files isolated, ensure every synthetic evidence URL resolves,
+    # and derive the homepage selected-work signal from the canonical collection rather than a hard-coded VCE route.
+    content_config = 'src/content.config.ts'
+    for collection_file in ('milestones.json', 'public-documents.json', 'redirects.json', 'tombstones.json'):
+        replace_exact(
+            candidate,
+            content_config,
+            f"loader: file('src/content/{collection_file}'),",
+            f"loader: file(process.env.R7E_CONTENT_ROOT ? `${{process.env.R7E_CONTENT_ROOT}}/{collection_file}` : 'src/content/{collection_file}'),",
+            f'stress collection isolation for {collection_file}',
+        )
+
+    replace_exact(
+        candidate,
+        'scripts/generate-stress-fixtures.mjs',
+        "evidenceLinks: [{label:'Fixture marker',href:`/stress/${n}/`,kind:'artifact'}]",
+        "evidenceLinks: [{label:'Fixture route',href:`/work/synthetic-test-record-${n}/`,kind:'artifact'}]",
+        'stress evidence link integrity',
+    )
+
+    replace_exact(
+        candidate,
+        'src/pages/index.astro',
+        "const work = (await getPublicWork()).filter((entry) => entry.data.featured);",
+        "const publicWork = await getPublicWork();\nconst featuredWork = publicWork.filter((entry) => entry.data.featured);\nconst work = featuredWork.length > 0 ? featuredWork : publicWork.slice(0, 3);\nconst primaryWork = publicWork.find((entry) => entry.data.immutableId === 'work-vce') ?? publicWork[0];",
+        'canonical selected-work derivation',
+    )
+    replace_exact(
+        candidate,
+        'src/pages/index.astro',
+        '    <SelectedWorkSignal />',
+        '    {primaryWork && <SelectedWorkSignal href={primaryWork.data.route} title={primaryWork.data.title} status={primaryWork.data.summary} />}',
+        'canonical selected-work signal',
+    )
+
+    delta_paths = [
+        'src/content.config.ts',
+        'scripts/generate-stress-fixtures.mjs',
+        'src/pages/index.astro',
+    ]
+
     package = json.loads((candidate / 'package.json').read_text(encoding='utf-8'))
     scripts = package.get('scripts', {})
     checks = {
@@ -118,6 +169,9 @@ def main() -> None:
         'fourLongContentStates': 'metadata-only' in (candidate / 'tests/browser.spec.ts').read_text(encoding='utf-8'),
         'lighthouseRepeatedRuns': 'runsPerRoute = 2' in (candidate / 'scripts/run-lighthouse.mjs').read_text(encoding='utf-8'),
         'networkFailureGate': 'firstPartyHttpErrorCount' in (candidate / 'scripts/network-audit.mjs').read_text(encoding='utf-8'),
+        'stressMilestonesIsolated': 'R7E_CONTENT_ROOT}/milestones.json' in (candidate / 'src/content.config.ts').read_text(encoding='utf-8'),
+        'stressEvidenceLinksResolve': 'Fixture route' in (candidate / 'scripts/generate-stress-fixtures.mjs').read_text(encoding='utf-8') and '/stress/${n}/' not in (candidate / 'scripts/generate-stress-fixtures.mjs').read_text(encoding='utf-8'),
+        'selectedSignalUsesCanonicalWork': 'primaryWork && <SelectedWorkSignal' in (candidate / 'src/pages/index.astro').read_text(encoding='utf-8'),
     }
     if not all(checks.values()):
         raise SystemExit(json.dumps({'passed': False, 'checks': checks}, indent=2))
@@ -129,6 +183,10 @@ def main() -> None:
         'overlayParts': [{'path': path.name, 'bytes': path.stat().st_size, 'sha256': file_digest(path)} for path in part_paths],
         'installedFileCount': len(installed),
         'installedFiles': installed,
+        'postOverlayDeltaFiles': [
+            {'path': relative, 'bytes': (candidate / relative).stat().st_size, 'sha256': file_digest(candidate / relative)}
+            for relative in delta_paths
+        ],
         'checks': checks,
         'packageJsonSha256': file_digest(candidate / 'package.json'),
         'packageLockSha256': file_digest(candidate / 'package-lock.json'),
