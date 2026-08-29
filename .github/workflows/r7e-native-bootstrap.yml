@@ -1,0 +1,184 @@
+name: R7E native Astro bootstrap
+
+on:
+  push:
+    branches:
+      - r7e-native-verification-20260829
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r7e-native-bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout isolated verification branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Record runner environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          {
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            uname -a
+          } | tee evidence/environment.txt
+
+      - name: Materialize genuine Astro source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence candidate
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > r7e-native-source.zip
+          printf '%s  %s\n' '9a98f9e437f5d7419d66d2dd7d341921c4dec4ac296f5edd23ff30f4aa058594' 'r7e-native-source.zip' | sha256sum --check --strict | tee evidence/source-archive-check.txt
+          unzip -q r7e-native-source.zip -d candidate
+          test -f candidate/package.json
+          test -f candidate/src/content.config.ts
+          test -f candidate/astro.config.mjs
+          test -f candidate/src/assets/portrait/david-anderle-headshot-320.webp
+          printf '%s  %s\n' '821af5978918ac642c339da72153a584e59a0e92d47eede87290a5025a1ddc51' 'candidate/src/assets/portrait/david-anderle-headshot-320.webp' | sha256sum --check --strict | tee evidence/portrait-check.txt
+          find candidate -type f -print0 | sort -z | xargs -0 sha256sum > evidence/source-before-lock.sha256
+
+      - name: Resolve complete transitive lockfile once
+        working-directory: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f package-lock.json
+          /usr/bin/time -v -o ../evidence/lock-resolution.time.txt npm install --package-lock-only --ignore-scripts --audit=false --fund=false \
+            > ../evidence/lock-resolution.stdout.txt 2> ../evidence/lock-resolution.stderr.txt
+          node -e "const l=require('./package-lock.json'); const n=Object.keys(l.packages||{}).length; console.log('lock packages='+n); if(n<50) process.exit(2)" | tee ../evidence/lock-summary.txt
+          sha256sum package.json package-lock.json | tee ../evidence/package-lock.sha256
+
+      - name: Freeze candidate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf frozen run1 run2
+          mkdir frozen
+          cp -a candidate/. frozen/
+          rm -rf frozen/node_modules frozen/dist frozen/.astro frozen/.r7e-tmp
+          find frozen -type f -print0 | sort -z | xargs -0 sha256sum > evidence/frozen-source.sha256
+          tar -C frozen -cf - . | sha256sum | tee evidence/frozen-source-tar.sha256
+
+      - name: Clean Run 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir run1
+          cp -a frozen/. run1/
+          cd run1
+          /usr/bin/time -v -o ../evidence/run1-npm-ci.time.txt npm ci --audit=false --fund=false \
+            > ../evidence/run1-npm-ci.stdout.txt 2> ../evidence/run1-npm-ci.stderr.txt
+          npm run preflight:source > ../evidence/run1-preflight.stdout.txt 2> ../evidence/run1-preflight.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-check.time.txt npm run check \
+            > ../evidence/run1-check.stdout.txt 2> ../evidence/run1-check.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-build.time.txt npm run build \
+            > ../evidence/run1-build.stdout.txt 2> ../evidence/run1-build.stderr.txt
+          npm run html:validate > ../evidence/run1-html.stdout.txt 2> ../evidence/run1-html.stderr.txt
+          npm run links:validate > ../evidence/run1-links.stdout.txt 2> ../evidence/run1-links.stderr.txt
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > ../evidence/run1-dist.sha256
+          printf 'files=' > ../evidence/run1-dist-summary.txt
+          find dist -type f | wc -l >> ../evidence/run1-dist-summary.txt
+          printf 'bytes=' >> ../evidence/run1-dist-summary.txt
+          du -sb dist | cut -f1 >> ../evidence/run1-dist-summary.txt
+          cat ../evidence/run1-dist-summary.txt
+
+      - name: Clean Run 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir run2
+          cp -a frozen/. run2/
+          cd run2
+          /usr/bin/time -v -o ../evidence/run2-npm-ci.time.txt npm ci --audit=false --fund=false \
+            > ../evidence/run2-npm-ci.stdout.txt 2> ../evidence/run2-npm-ci.stderr.txt
+          npm run preflight:source > ../evidence/run2-preflight.stdout.txt 2> ../evidence/run2-preflight.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-check.time.txt npm run check \
+            > ../evidence/run2-check.stdout.txt 2> ../evidence/run2-check.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-build.time.txt npm run build \
+            > ../evidence/run2-build.stdout.txt 2> ../evidence/run2-build.stderr.txt
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > ../evidence/run2-dist.sha256
+          printf 'files=' > ../evidence/run2-dist-summary.txt
+          find dist -type f | wc -l >> ../evidence/run2-dist-summary.txt
+          printf 'bytes=' >> ../evidence/run2-dist-summary.txt
+          du -sb dist | cut -f1 >> ../evidence/run2-dist-summary.txt
+          cat ../evidence/run2-dist-summary.txt
+
+      - name: Compare native outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd run1 && find dist -type f -printf '%P\n' | sort) > evidence/run1-paths.txt
+          (cd run2 && find dist -type f -printf '%P\n' | sort) > evidence/run2-paths.txt
+          diff -u evidence/run1-paths.txt evidence/run2-paths.txt | tee evidence/path-diff.txt
+          python3 - <<'PY' | tee evidence/reproducibility.txt
+          from pathlib import Path
+          import hashlib
+          a=Path('run1/dist'); b=Path('run2/dist')
+          pa=sorted(p.relative_to(a) for p in a.rglob('*') if p.is_file())
+          pb=sorted(p.relative_to(b) for p in b.rglob('*') if p.is_file())
+          assert pa==pb, 'path mismatch'
+          diff=[]
+          for rel in pa:
+              ha=hashlib.sha256((a/rel).read_bytes()).hexdigest()
+              hb=hashlib.sha256((b/rel).read_bytes()).hexdigest()
+              if ha!=hb: diff.append((str(rel),ha,hb))
+          print('file_count',len(pa))
+          print('byte_identical',len(pa)-len(diff))
+          print('different',len(diff))
+          for row in diff: print('\t'.join(row))
+          if diff: raise SystemExit(1)
+          PY
+
+      - name: Run content negative fixtures
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run validate:fixtures > ../evidence/invalid-fixtures.stdout.txt 2> ../evidence/invalid-fixtures.stderr.txt
+
+      - name: Preserve successful native source and dist
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/BEARING_PRODUCTION_SOURCE artifact/BEARING_VERIFIED_DIST artifact/R7E_NATIVE_BUILD_EVIDENCE
+          cp -a frozen/. artifact/BEARING_PRODUCTION_SOURCE/
+          cp -a run1/dist/. artifact/BEARING_VERIFIED_DIST/
+          cp -a evidence/. artifact/R7E_NATIVE_BUILD_EVIDENCE/
+          printf 'R7E NATIVE BUILD FOUNDATION PASS\n' > artifact/R7E_NATIVE_FOUNDATION_GATE.txt
+
+      - name: Preserve diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p artifact/BEARING_PRODUCTION_SOURCE artifact/R7E_NATIVE_BUILD_EVIDENCE
+          if [ -d frozen ]; then cp -a frozen/. artifact/BEARING_PRODUCTION_SOURCE/; elif [ -d candidate ]; then cp -a candidate/. artifact/BEARING_PRODUCTION_SOURCE/; fi
+          cp -a evidence/. artifact/R7E_NATIVE_BUILD_EVIDENCE/ 2>/dev/null || true
+          printf 'R7E NATIVE BUILD FOUNDATION FAIL\n' > artifact/R7E_NATIVE_FOUNDATION_GATE.txt
+
+      - name: Upload native build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-native-foundation-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
