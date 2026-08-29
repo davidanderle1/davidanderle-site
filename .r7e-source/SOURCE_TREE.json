@@ -1,5 +1,5 @@
 {
-  "fileCount": 109,
+  "fileCount": 111,
   "files": [
     {
       "path": ".env.example",
@@ -9,9 +9,9 @@
     },
     {
       "path": ".github/workflows/production-reference.yml",
-      "sha256": "1d6ea4bfb568fab930dcde23d8da794887af674ed4e039497a95e190600b068b",
+      "sha256": "667edbe74cb62f78798f285bfcba63491027abc8082e597f04f5d266475e2690",
       "mode": "0o644",
-      "size": 2207
+      "size": 2298
     },
     {
       "path": ".gitignore",
@@ -39,9 +39,9 @@
     },
     {
       "path": "README.md",
-      "sha256": "b859865e6bd96794b72f42c68cca3a02d7b9b120abcf9c285ce589a767b45917",
+      "sha256": "e6fd399a9fdb03900b6e7b6060a16d4736f0bf655831f340bf4aa2d576e9e0c7",
       "mode": "0o644",
-      "size": 769
+      "size": 1235
     },
     {
       "path": "astro.config.mjs",
@@ -87,9 +87,9 @@
     },
     {
       "path": "package.json",
-      "sha256": "f7aa5a49de1c82171095f0569830e564b4a704f19e052e7c4b067742d3d0ae9e",
+      "sha256": "b1bf17c431cf7bba29747b7bf62bfd492750791541ce57061f950a1e578e7c6b",
       "mode": "0o644",
-      "size": 3063
+      "size": 3322
     },
     {
       "path": "playwright.config.ts",
@@ -146,6 +146,12 @@
       "size": 1622
     },
     {
+      "path": "scripts/clean-generated.mjs",
+      "sha256": "b5bb46d1b7e09e0ea6c6ee8a5e4b5d98f8924513ee8056486a19ab20ded3e6a7",
+      "mode": "0o644",
+      "size": 450
+    },
+    {
       "path": "scripts/finalize-static.mjs",
       "sha256": "fa31c3f8e3635f7bcc4085aaf2faa04bc157fdf5251c69f89a0139bc2d2ec964",
       "mode": "0o644",
@@ -171,9 +177,9 @@
     },
     {
       "path": "scripts/inspect-dist.mjs",
-      "sha256": "e94fb9d201fbbcefee18a9d0760107b67062708b5710cad6e928e9d5fa4d6f49",
+      "sha256": "672cb7931f3108fa89e8ec71f0491cd331101f25e8eba03d6046215731ad50d7",
       "mode": "0o644",
-      "size": 2239
+      "size": 4408
     },
     {
       "path": "scripts/lib/frontmatter.mjs",
@@ -207,15 +213,21 @@
     },
     {
       "path": "scripts/source-preflight.mjs",
-      "sha256": "a25dfa0364191c4eca53a9c1d488d3698566918960d07642098cdc63cdf2281e",
+      "sha256": "a43c648dc2e3e4bd1dbd0424786eada7e24bf4d99a1d874df2eed0951e65f621",
       "mode": "0o644",
-      "size": 4844
+      "size": 5136
     },
     {
       "path": "scripts/validate-content.mjs",
       "sha256": "14bd43d9434897e35049369f1552e8cc232a18a9a80e4cb101f86cdd2ef16565",
       "mode": "0o644",
       "size": 8215
+    },
+    {
+      "path": "scripts/validate-links.mjs",
+      "sha256": "686bde076fbdfa58f9fa69c9f40e8d4279395414fcdb854818737ef17c792411",
+      "mode": "0o644",
+      "size": 8556
     },
     {
       "path": "scripts/verify-stress-lineage.mjs",
@@ -633,21 +645,21 @@
     },
     {
       "path": "verification/README.md",
-      "sha256": "a3ae4e1ce3db469563b73be355e15c30a98c1a07c556ea2c977ce23b9a487869",
+      "sha256": "865f3dd9d884721a2498ecd780e6be92e729ea1c866366e6c700dea4257f425f",
       "mode": "0o644",
-      "size": 775
+      "size": 1315
     },
     {
       "path": "verification/clean-run.ps1",
-      "sha256": "3fc5091d94aadc3ff38359c83231ec62e8ea4e534431867ca7fece2e78847098",
+      "sha256": "5fc6031d12205f066cca97f3ce4faaedd1b4db7439ffb544f3b20425d5fc7a66",
       "mode": "0o644",
-      "size": 962
+      "size": 1069
     },
     {
       "path": "verification/clean-run.sh",
-      "sha256": "74a4c5559b3e327b840580f9762317a18b68221549919c684a93e2de66f69506",
+      "sha256": "503fddcdc585405b8b43ce2abb381e3dddb0323b59d475e9dee362f0af59f040",
       "mode": "0o755",
-      "size": 1019
+      "size": 1129
     },
     {
       "path": "wrangler.jsonc",
