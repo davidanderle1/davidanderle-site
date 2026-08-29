@@ -1,0 +1,419 @@
+name: R7E hardened native Astro verification
+
+on:
+  push:
+    branches:
+      - r7e-hardened-verification-20260829
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r7e-hardened-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout hardened verification branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Record runner environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence artifact
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "workflow_commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            uname -a
+          } | tee evidence/environment.txt
+          test "$(node --version)" = 'v24.20.0'
+          test "$(npm --version)" = '11.19.0'
+
+      - name: Materialize immutable canonical Astro source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidate
+          sha256sum --check --strict .r7e-source/SHA256SUMS | tee evidence/source-chunk-check.txt
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > r7e-native-source.zip
+          actual_archive_sha=$(sha256sum r7e-native-source.zip | awk '{print $1}')
+          expected_archive_sha=$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)
+          printf 'expected=%s\nactual=%s\n' "$expected_archive_sha" "$actual_archive_sha" | tee evidence/source-archive-identity.txt
+          test "$actual_archive_sha" = "$expected_archive_sha"
+          unzip -q r7e-native-source.zip -d candidate
+          test -f candidate/package.json
+          test -f candidate/package-lock.json
+          test -f candidate/.node-version
+          test -f candidate/.nvmrc
+          test -f candidate/src/content.config.ts
+          test -f candidate/astro.config.mjs
+          test -f candidate/src/assets/portrait/david-anderle-headshot-320.webp
+          printf '%s  %s\n' '821af5978918ac642c339da72153a584e59a0e92d47eede87290a5025a1ddc51' 'candidate/src/assets/portrait/david-anderle-headshot-320.webp' | sha256sum --check --strict | tee evidence/portrait-check.txt
+          rm -rf candidate/node_modules candidate/dist candidate/.astro candidate/.r7e-tmp candidate/public/assets/portrait candidate/public/assets/js candidate/public/artifacts candidate/src/data/generated
+          python3 .github/scripts/r7e-tree-guard.py manifest candidate evidence/materialized-source-tree.json --source
+
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          expected=json.loads(Path('.r7e-source/SOURCE_TREE.json').read_text())
+          actual={}
+          for p in Path('candidate').rglob('*'):
+              if not p.is_file() or p.is_symlink():
+                  continue
+              rel=p.relative_to('candidate').as_posix()
+              h=hashlib.sha256(p.read_bytes()).hexdigest()
+              actual[rel]={'sha256':h,'size':p.stat().st_size,'mode':oct(p.stat().st_mode & 0o777)}
+          exp={row['path']:{'sha256':row['sha256'],'size':row['size'],'mode':row['mode']} for row in expected['files']}
+          if actual != exp:
+              print(json.dumps({'onlyExpected':sorted(set(exp)-set(actual)),'onlyActual':sorted(set(actual)-set(exp)),'changed':sorted(k for k in set(exp)&set(actual) if exp[k]!=actual[k])},indent=2))
+              raise SystemExit(1)
+          print(json.dumps({'passed':True,'fileCount':len(actual)},indent=2))
+          PY
+
+      - name: Verify committed complete lockfile
+        working-directory: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE' | tee ../evidence/lock-summary.txt
+          const p=require('./package.json');
+          const l=require('./package-lock.json');
+          const count=Object.keys(l.packages||{}).length;
+          const ok=p.packageManager==='npm@11.19.0' && p.engines?.node==='24.20.0' && p.engines?.npm==='11.19.0' && l.lockfileVersion===3 && count>=500 && !l.r7eBootstrapStatus;
+          console.log(`packageManager=${p.packageManager}`);
+          console.log(`lockVersion=${l.lockfileVersion}`);
+          console.log(`lockPackages=${count}`);
+          if(!ok) process.exit(2);
+          NODE
+          sha256sum package.json package-lock.json | tee ../evidence/package-lock.sha256
+
+      - name: Freeze candidate source and deterministic transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf frozen run1 run2 run1-dist-baseline stress-dist-baseline
+          mkdir frozen
+          cp -a candidate/. frozen/
+          rm -rf frozen/node_modules frozen/dist frozen/.astro frozen/.r7e-tmp frozen/public/assets/portrait frozen/public/assets/js frozen/public/artifacts frozen/src/data/generated
+          python3 .github/scripts/r7e-tree-guard.py manifest frozen evidence/frozen-source-tree.json --source
+          tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner -C frozen -cf BEARING_FROZEN_SOURCE.tar .
+          sha256sum BEARING_FROZEN_SOURCE.tar | tee evidence/frozen-source-tar.sha256
+          sha256sum .github/scripts/r7e-pack-source.py .github/scripts/r7e-tree-guard.py | tee evidence/verifier-infrastructure.sha256
+
+      - name: Clean Run 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir run1
+          cp -a frozen/. run1/
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run1 evidence/run1-source-before.json --source
+          cd run1
+          npm run preflight:source > ../evidence/run1-preflight.stdout.txt 2> ../evidence/run1-preflight.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-npm-ci.time.txt npm ci --audit=false --fund=false > ../evidence/run1-npm-ci.stdout.txt 2> ../evidence/run1-npm-ci.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-check.time.txt npm run check > ../evidence/run1-check.stdout.txt 2> ../evidence/run1-check.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-build.time.txt npm run build > ../evidence/run1-build.stdout.txt 2> ../evidence/run1-build.stderr.txt
+          npm run html:validate > ../evidence/run1-html.stdout.txt 2> ../evidence/run1-html.stderr.txt
+          npm run links:validate > ../evidence/run1-links.stdout.txt 2> ../evidence/run1-links.stderr.txt
+          cd ..
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run1 evidence/run1-source-after-build.json --source
+          python3 .github/scripts/r7e-tree-guard.py manifest run1/dist evidence/run1-dist-tree.json
+          mkdir run1-dist-baseline
+          cp -a run1/dist/. run1-dist-baseline/
+          { printf 'files='; find run1/dist -type f | wc -l; printf 'bytes='; du -sb run1/dist | cut -f1; } | tee evidence/run1-dist-summary.txt
+
+      - name: Clean Run 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir run2
+          cp -a frozen/. run2/
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run2 evidence/run2-source-before.json --source
+          cd run2
+          npm run preflight:source > ../evidence/run2-preflight.stdout.txt 2> ../evidence/run2-preflight.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-npm-ci.time.txt npm ci --audit=false --fund=false > ../evidence/run2-npm-ci.stdout.txt 2> ../evidence/run2-npm-ci.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-check.time.txt npm run check > ../evidence/run2-check.stdout.txt 2> ../evidence/run2-check.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-build.time.txt npm run build > ../evidence/run2-build.stdout.txt 2> ../evidence/run2-build.stderr.txt
+          npm run html:validate > ../evidence/run2-html.stdout.txt 2> ../evidence/run2-html.stderr.txt
+          npm run links:validate > ../evidence/run2-links.stdout.txt 2> ../evidence/run2-links.stderr.txt
+          cd ..
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run2 evidence/run2-source-after-build.json --source
+          python3 .github/scripts/r7e-tree-guard.py manifest run2/dist evidence/run2-dist-tree.json
+          { printf 'files='; find run2/dist -type f | wc -l; printf 'bytes='; du -sb run2/dist | cut -f1; } | tee evidence/run2-dist-summary.txt
+
+      - name: Reproducibility gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/r7e-tree-guard.py compare run1/dist run2/dist evidence/reproducibility.json
+          python3 .github/scripts/r7e-tree-guard.py compare run1-dist-baseline run1/dist evidence/run1-dist-post-reproducibility.json
+
+      - name: Invalid fixture gate
+        working-directory: run1
+        shell: bash
+        run: npm run validate:fixtures > ../evidence/invalid-fixtures.stdout.txt 2> ../evidence/invalid-fixtures.stderr.txt
+
+      - name: 500-record native Astro lineage gate
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v -o ../evidence/stress.time.txt npm run test:stress > ../evidence/stress.stdout.txt 2> ../evidence/stress.stderr.txt
+          node - <<'NODE' | tee ../evidence/stress-summary.txt
+          const fs=require('fs');
+          const x=JSON.parse(fs.readFileSync('.r7e-tmp/stress/lineage.json','utf8'));
+          console.log(`passed=${x.passed}`);
+          console.log(`inputRecordCount=${x.inputRecordCount}`);
+          console.log(`normalizedUniqueIds=${x.normalizedUniqueIds}`);
+          console.log(`normalizedUniqueSlugs=${x.normalizedUniqueSlugs}`);
+          console.log(`normalizedUniqueRoutes=${x.normalizedUniqueRoutes}`);
+          console.log(`emittedDetailPageCount=${x.emittedDetailPageCount}`);
+          console.log(`workIndexCoverage=${x.workIndexCoverage}`);
+          console.log(`archiveCoverage=${x.archiveCoverage}`);
+          if(!x.passed || x.inputRecordCount!==500 || x.normalizedUniqueIds!==500 || x.normalizedUniqueSlugs!==500 || x.normalizedUniqueRoutes!==500 || x.emittedDetailPageCount!==500 || x.workIndexCoverage!==500 || x.archiveCoverage!==500) process.exit(1);
+          NODE
+          cd ..
+          python3 .github/scripts/r7e-tree-guard.py manifest run1/.r7e-tmp/stress/dist evidence/stress-dist-tree.json
+          mkdir stress-dist-baseline
+          cp -a run1/.r7e-tmp/stress/dist/. stress-dist-baseline/
+          cp run1/.r7e-tmp/stress/input-manifest.json evidence/stress-input-manifest.json
+          cp run1/.r7e-tmp/stress/lineage.json evidence/stress-lineage.json
+          printf 'TEST_ONLY — DO NOT DEPLOY\n' > evidence/STRESS_SITE_TEST_ONLY.txt
+
+      - name: Install Chromium for browser gates
+        working-directory: run1
+        shell: bash
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser matrix and no-JS gates
+        working-directory: run1
+        shell: bash
+        run: |
+          set -u
+          set +e
+          R7E_PLAYWRIGHT_SUITE=browser npm run test:browser > ../evidence/browser.stdout.txt 2> ../evidence/browser.stderr.txt
+          status=$?
+          set -e
+          count=$(find .r7e-tmp/screenshots -type f -name '*.png' | wc -l)
+          { echo "exit_status=$status"; echo "screenshot_count=$count"; } | tee ../evidence/browser-summary.txt
+          if [ -f .r7e-tmp/playwright/browser-results.json ]; then cp .r7e-tmp/playwright/browser-results.json ../evidence/browser-playwright-results.json; fi
+          if [ "$count" -lt 40 ]; then status=1; fi
+          exit "$status"
+
+      - name: axe-core accessibility automation
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          R7E_PLAYWRIGHT_SUITE=axe npm run test:axe > ../evidence/axe.stdout.txt 2> ../evidence/axe.stderr.txt
+          test "$(find .r7e-tmp/axe -type f -name '*.json' | wc -l)" -eq 10
+          cp .r7e-tmp/playwright/axe-results.json ../evidence/axe-playwright-results.json
+          cp -a .r7e-tmp/axe ../evidence/axe-raw
+
+      - name: Lighthouse measurements
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:lighthouse > ../evidence/lighthouse.stdout.txt 2> ../evidence/lighthouse.stderr.txt
+          cp .r7e-tmp/lighthouse/summary.json ../evidence/lighthouse-summary.json
+          node -e "const x=require('./.r7e-tmp/lighthouse/summary.json'); if(!x.pass || x.reports.length!==4) process.exit(1)"
+
+      - name: Runtime network audit
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run network:audit > ../evidence/network.stdout.txt 2> ../evidence/network.stderr.txt
+          cp .r7e-tmp/network/audit.json ../evidence/network-audit.json
+          node -e "const x=require('./.r7e-tmp/network/audit.json'); if(x.genuineThirdPartyRuntimeRequestCount!==0 || x.firstPartyHttpErrorCount!==0 || x.requestFailureCount!==0 || x.auditError) process.exit(1)"
+
+      - name: Wrangler assets-only dry run
+        working-directory: run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run wrangler:validate > ../evidence/wrangler.stdout.txt 2> ../evidence/wrangler.stderr.txt
+          test -d .r7e-tmp/wrangler
+          find .r7e-tmp/wrangler -type f -print | sort > ../evidence/wrangler-files.txt
+
+      - name: Pre-assembly immutability and chain-of-custody gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run1 evidence/run1-source-final.json --source
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run2 evidence/run2-source-final.json --source
+          python3 .github/scripts/r7e-tree-guard.py compare run1-dist-baseline run1/dist evidence/run1-dist-final.json
+          python3 .github/scripts/r7e-tree-guard.py compare stress-dist-baseline run1/.r7e-tmp/stress/dist evidence/stress-dist-final.json
+
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          def sha(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          frozen=json.loads(Path('evidence/frozen-source-tree.json').read_text())
+          run1=json.loads(Path('evidence/run1-dist-tree.json').read_text())
+          stress=json.loads(Path('evidence/stress-dist-tree.json').read_text())
+          identity={
+            'repository':os.environ['GITHUB_REPOSITORY'],
+            'workflowCommit':os.environ['GITHUB_SHA'],
+            'runId':os.environ['GITHUB_RUN_ID'],
+            'runAttempt':os.environ['GITHUB_RUN_ATTEMPT'],
+            'sourceArchiveSha256':Path('.r7e-source/ARCHIVE_SHA256').read_text().strip(),
+            'packerSha256':sha('.github/scripts/r7e-pack-source.py'),
+            'treeGuardSha256':sha('.github/scripts/r7e-tree-guard.py'),
+            'packageJsonSha256':sha('frozen/package.json'),
+            'packageLockSha256':sha('frozen/package-lock.json'),
+            'frozenSourceTreeSha256':frozen['treeSha256'],
+            'frozenSourceTarSha256':sha('BEARING_FROZEN_SOURCE.tar'),
+            'verifiedDistTreeSha256':run1['treeSha256'],
+            'stressDistTreeSha256':stress['treeSha256'],
+            'stressInputManifestSha256':sha('evidence/stress-input-manifest.json'),
+            'stressLineageSha256':sha('evidence/stress-lineage.json'),
+            'sourceCorrectionLayer':'NONE — corrections folded into canonical packed source'
+          }
+          Path('evidence/R7E_CANDIDATE_IDENTITY.json').write_text(json.dumps(identity,indent=2)+'\n')
+          print(json.dumps(identity,indent=2))
+          PY
+
+      - name: Assemble successful evidence artifact
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/BEARING_PRODUCTION_SOURCE artifact/BEARING_VERIFIED_DIST artifact/BEARING_SCALE_SITE_500 artifact/R7E_EVIDENCE
+          cp -a frozen/. artifact/BEARING_PRODUCTION_SOURCE/
+          cp BEARING_FROZEN_SOURCE.tar artifact/BEARING_FROZEN_SOURCE.tar
+          cp -a run1/dist/. artifact/BEARING_VERIFIED_DIST/
+          cp -a run1/.r7e-tmp/stress/dist/. artifact/BEARING_SCALE_SITE_500/
+          cp -a evidence/. artifact/R7E_EVIDENCE/
+          cp -a run1/.r7e-tmp artifact/R7E_RUN1_TMP
+          printf 'TEST_ONLY — DO NOT DEPLOY\n' > artifact/BEARING_SCALE_SITE_500/TEST_ONLY_DO_NOT_DEPLOY.txt
+          printf 'R7E BUILD EVIDENCE COMPLETE — READY FOR HARDENED INDEPENDENT R7F AUDIT\n' > artifact/R7E_GATE_DECISION.txt
+
+          python3 .github/scripts/r7e-tree-guard.py compare frozen artifact/BEARING_PRODUCTION_SOURCE artifact/R7E_EVIDENCE/staged-source-parity.json --source
+          python3 .github/scripts/r7e-tree-guard.py compare run1-dist-baseline artifact/BEARING_VERIFIED_DIST artifact/R7E_EVIDENCE/staged-dist-parity.json
+          # Marker is added only after the stress build; compare the tested scale tree before validating marker separately.
+          rm artifact/BEARING_SCALE_SITE_500/TEST_ONLY_DO_NOT_DEPLOY.txt
+          python3 .github/scripts/r7e-tree-guard.py compare stress-dist-baseline artifact/BEARING_SCALE_SITE_500 artifact/R7E_EVIDENCE/staged-stress-parity.json
+          printf 'TEST_ONLY — DO NOT DEPLOY\n' > artifact/BEARING_SCALE_SITE_500/TEST_ONLY_DO_NOT_DEPLOY.txt
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('artifact')
+          index={
+            'gate':'R7E_GATE_DECISION.txt',
+            'candidateIdentity':'R7E_EVIDENCE/R7E_CANDIDATE_IDENTITY.json',
+            'frozenSourceDirectory':'BEARING_PRODUCTION_SOURCE/',
+            'frozenSourceTar':'BEARING_FROZEN_SOURCE.tar',
+            'verifiedDist':'BEARING_VERIFIED_DIST/',
+            'scale500':'BEARING_SCALE_SITE_500/',
+            'frozenSourceTree':'R7E_EVIDENCE/frozen-source-tree.json',
+            'run1SourceMutation':'R7E_EVIDENCE/run1-source-final.json',
+            'run2SourceMutation':'R7E_EVIDENCE/run2-source-final.json',
+            'reproducibility':'R7E_EVIDENCE/reproducibility.json',
+            'stressInput':'R7E_EVIDENCE/stress-input-manifest.json',
+            'stressLineage':'R7E_EVIDENCE/stress-lineage.json',
+            'browser':'R7E_EVIDENCE/browser-playwright-results.json',
+            'axe':'R7E_EVIDENCE/axe-playwright-results.json',
+            'axeRaw':'R7E_EVIDENCE/axe-raw/',
+            'lighthouse':'R7E_EVIDENCE/lighthouse-summary.json',
+            'network':'R7E_EVIDENCE/network-audit.json',
+            'wrangler':'R7E_EVIDENCE/wrangler-files.txt'
+          }
+          missing=[v for v in index.values() if not (root/v).exists()]
+          if missing: raise SystemExit(f'Missing evidence paths: {missing}')
+          (root/'R7E_EVIDENCE_INDEX.json').write_text(json.dumps(index,indent=2)+'\n')
+          PY
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('artifact')
+          lineage=json.loads((root/'R7E_EVIDENCE/stress-lineage.json').read_text())
+          identity=json.loads((root/'R7E_EVIDENCE/R7E_CANDIDATE_IDENTITY.json').read_text())
+          checks={
+            'gateReady':(root/'R7E_GATE_DECISION.txt').read_text().strip()=='R7E BUILD EVIDENCE COMPLETE — READY FOR HARDENED INDEPENDENT R7F AUDIT',
+            'sourcePresent':(root/'BEARING_PRODUCTION_SOURCE/package.json').is_file(),
+            'lockfilePresent':(root/'BEARING_PRODUCTION_SOURCE/package-lock.json').is_file(),
+            'nodeVersionPresent':(root/'BEARING_PRODUCTION_SOURCE/.node-version').is_file(),
+            'nvmrcPresent':(root/'BEARING_PRODUCTION_SOURCE/.nvmrc').is_file(),
+            'sourceWorkflowPresent':(root/'BEARING_PRODUCTION_SOURCE/.github/workflows/production-reference.yml').is_file(),
+            'securityTxtPresent':(root/'BEARING_PRODUCTION_SOURCE/public/.well-known/security.txt').is_file(),
+            'sourceTarPresent':(root/'BEARING_FROZEN_SOURCE.tar').is_file(),
+            'verifiedDistPresent':(root/'BEARING_VERIFIED_DIST/index.html').is_file(),
+            'scaleSitePresent':(root/'BEARING_SCALE_SITE_500/index.html').is_file(),
+            'scaleTestMarker':(root/'BEARING_SCALE_SITE_500/TEST_ONLY_DO_NOT_DEPLOY.txt').is_file(),
+            'lineage500':lineage.get('passed') is True and lineage.get('inputRecordCount')==500 and lineage.get('emittedDetailPageCount')==500 and lineage.get('workIndexCoverage')==500 and lineage.get('archiveCoverage')==500,
+            'candidateIdentityBound':bool(identity.get('workflowCommit') and identity.get('sourceArchiveSha256') and identity.get('frozenSourceTarSha256')),
+            'screenshotMinimum':len(list((root/'R7E_RUN1_TMP/screenshots').glob('*.png')))>=40,
+            'axeRawCount':len(list((root/'R7E_EVIDENCE/axe-raw').glob('*.json')))==10,
+            'lighthouseRawCount':len(list((root/'R7E_RUN1_TMP/lighthouse').glob('page-*-run-*.json')))==4,
+            'networkRawPresent':(root/'R7E_RUN1_TMP/network/audit.json').is_file(),
+            'wranglerOutputPresent':(root/'R7E_RUN1_TMP/wrangler').is_dir(),
+            'noNodeModules':not any(p.name=='node_modules' for p in root.rglob('node_modules')),
+            'productionNoSynthetic':not any((root/'BEARING_VERIFIED_DIST/work').glob('synthetic-test-record-*'))
+          }
+          result={'passed':all(checks.values()),'checks':checks}
+          (root/'R7E_PACKAGE_VALIDATION.json').write_text(json.dumps(result,indent=2)+'\n')
+          if not result['passed']: raise SystemExit(json.dumps(result,indent=2))
+          PY
+
+          (
+            cd artifact
+            find . -type f ! -name 'R7E_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > /tmp/R7E_ARTIFACT_SHA256SUMS.txt
+            mv /tmp/R7E_ARTIFACT_SHA256SUMS.txt R7E_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Assemble diagnostic artifact on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf artifact
+          mkdir -p artifact/BEARING_PRODUCTION_SOURCE artifact/R7E_EVIDENCE
+          if [ -d frozen ]; then cp -a frozen/. artifact/BEARING_PRODUCTION_SOURCE/; elif [ -d candidate ]; then cp -a candidate/. artifact/BEARING_PRODUCTION_SOURCE/; fi
+          if [ -f BEARING_FROZEN_SOURCE.tar ]; then cp BEARING_FROZEN_SOURCE.tar artifact/BEARING_FROZEN_SOURCE.tar; fi
+          cp -a evidence/. artifact/R7E_EVIDENCE/ 2>/dev/null || true
+          if [ -d run1/dist ]; then mkdir -p artifact/BEARING_PARTIAL_RUN1_DIST && cp -a run1/dist/. artifact/BEARING_PARTIAL_RUN1_DIST/; fi
+          if [ -d run2/dist ]; then mkdir -p artifact/BEARING_PARTIAL_RUN2_DIST && cp -a run2/dist/. artifact/BEARING_PARTIAL_RUN2_DIST/; fi
+          if [ -d run1/.r7e-tmp ]; then cp -a run1/.r7e-tmp artifact/R7E_RUN1_TMP; fi
+          printf 'R7E BUILD EVIDENCE INCOMPLETE — DO NOT START R7F\n' > artifact/R7E_GATE_DECISION.txt
+          (
+            cd artifact
+            find . -type f ! -name 'R7E_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > /tmp/R7E_ARTIFACT_SHA256SUMS.txt
+            mv /tmp/R7E_ARTIFACT_SHA256SUMS.txt R7E_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload hardened R7E evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-hardened-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
