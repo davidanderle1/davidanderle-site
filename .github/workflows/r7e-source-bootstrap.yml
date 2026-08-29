@@ -59,22 +59,35 @@ jobs:
       - name: Apply consolidated audited source patch
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           cat .github/patches/r7e-hardened-source.patch.* > /tmp/r7e-hardened-source.patch
+          sha256sum /tmp/r7e-hardened-source.patch
+          wc -c /tmp/r7e-hardened-source.patch
           (
             cd canonical
             git apply --check /tmp/r7e-hardened-source.patch
+            echo APPLY_CHECK_OK
             git apply /tmp/r7e-hardened-source.patch
+            echo APPLY_OK
           )
           test -f canonical/scripts/verify-stress-lineage.mjs
+          echo STRESS_SCRIPT_OK
           grep -q 'overflow-wrap: anywhere' canonical/src/styles/project.css
+          echo REFLOW_OK
           grep -q 'const stops = milestones.slice(0, 3)' canonical/src/pages/index.astro
+          echo STOPS_OK
           grep -q 'R7E_ALLOW_TEST_FIXTURES' canonical/src/lib/content.ts
+          echo TEST_FIXTURE_GATE_OK
           node --check canonical/scripts/generate-stress-fixtures.mjs
+          echo GENERATOR_SYNTAX_OK
           node --check canonical/scripts/verify-stress-lineage.mjs
+          echo LINEAGE_SYNTAX_OK
           node --check canonical/scripts/network-audit.mjs
+          echo NETWORK_SYNTAX_OK
           node --check canonical/scripts/run-lighthouse.mjs
-          node -e "const p=require('./canonical/package.json'); const l=require('./canonical/package-lock.json'); if(p.packageManager!=='npm@11.19.0'||l.lockfileVersion!==3||Object.keys(l.packages||{}).length<500) process.exit(1)"
+          echo LIGHTHOUSE_SYNTAX_OK
+          node -e "const p=require('./canonical/package.json'); const l=require('./canonical/package-lock.json'); console.log({packageManager:p.packageManager,lockfileVersion:l.lockfileVersion,packages:Object.keys(l.packages||{}).length}); if(p.packageManager!=='npm@11.19.0'||l.lockfileVersion!==3||Object.keys(l.packages||{}).length<500) process.exit(1)"
+          echo LOCK_OK
 
       - name: Deterministically repack canonical source twice
         shell: bash
