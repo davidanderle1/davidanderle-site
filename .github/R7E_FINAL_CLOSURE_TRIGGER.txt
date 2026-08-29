@@ -1,0 +1,5 @@
+R7E FINAL CLOSURE RUN
+
+Canonical source transport commit: 8bb96e9f9336593055c43a990eb49b9faf109acc
+Canonical source archive SHA-256: 678753575cbf9628c1f4ee943fa2b257bcff4e34f27250e802e815523937d746
+Purpose: explicitly trigger a fresh hardened builder run after the GitHub Actions bootstrap froze the corrected canonical source. GitHub does not recursively trigger workflows for commits pushed with GITHUB_TOKEN.
