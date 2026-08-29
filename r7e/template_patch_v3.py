@@ -45,24 +45,22 @@ def apply_v3_patches(files: dict[str, str]) -> dict[str, str]:
         "const present = await exists(target);\nif (!present) { rows.push({ path: rel, exists: false, sha256: null, bytes: null }); continue; }\nconst stat = await fsp.stat(target);\nif (stat.isDirectory()) {\n  const manifest = await treeManifest(target);\n  rows.push({ path: rel, exists: true, kind: 'directory', files: manifest.files, bytes: manifest.bytes, treeSha256: manifest.treeSha256 });\n} else {\n  rows.push({ path: rel, exists: true, kind: 'file', sha256: await sha256File(target), bytes: stat.size });\n}",
         "directory-aware raw evidence hashing"
     )
-    old_manifest = """const manifests = {};
-for (const [name, target] of [['source', '.'], ['dist', 'dist'], ['distScale', 'dist-scale'], ['evidence', 'evidence']]) {
-  if (!(await exists(target))) { manifests[name] = null; continue; }
-  const manifest = await treeManifest(target);
-  manifests[name] = { files: manifest.files, bytes: manifest.bytes, treeSha256: manifest.treeSha256 };
-}"""
-    new_manifest = """const manifests = {};
-const generatedSourceManifest = 'evidence/reports/source-generation-manifest.json';
-if (await exists(generatedSourceManifest)) {
-  const sourceManifest = JSON.parse(await fsp.readFile(generatedSourceManifest, 'utf8'));
-  manifests.sourceBeforeInstall = { files: sourceManifest.files, bytes: sourceManifest.bytes, treeSha256: sourceManifest.treeSha256 };
-} else manifests.sourceBeforeInstall = null;
-for (const [name, target] of [['dist', 'dist'], ['distScale', 'dist-scale'], ['evidence', 'evidence']]) {
-  if (!(await exists(target))) { manifests[name] = null; continue; }
-  const manifest = await treeManifest(target);
-  manifests[name] = { files: manifest.files, bytes: manifest.bytes, treeSha256: manifest.treeSha256 };
-}"""
-    finalize = must_replace(finalize, old_manifest, new_manifest, "bounded tree summary")
+    finalize = must_sub(
+        finalize,
+        r"const manifests = \{\};\n\s*for \(const \[name, target\] of \[\['source', '\.'\], \['dist', 'dist'\], \['distScale', 'dist-scale'\], \['evidence', 'evidence'\]\]\) \{\n\s*if \(!\(await exists\(target\)\)\) \{ manifests\[name\] = null; continue; \}\n\s*const manifest = await treeManifest\(target\);\n\s*manifests\[name\] = \{ files: manifest\.files, bytes: manifest\.bytes, treeSha256: manifest\.treeSha256 \};\n\s*\}",
+        """const manifests = {};
+            const generatedSourceManifest = 'evidence/reports/source-generation-manifest.json';
+            if (await exists(generatedSourceManifest)) {
+              const sourceManifest = JSON.parse(await fsp.readFile(generatedSourceManifest, 'utf8'));
+              manifests.sourceBeforeInstall = { files: sourceManifest.files, bytes: sourceManifest.bytes, treeSha256: sourceManifest.treeSha256 };
+            } else manifests.sourceBeforeInstall = null;
+            for (const [name, target] of [['dist', 'dist'], ['distScale', 'dist-scale'], ['evidence', 'evidence']]) {
+              if (!(await exists(target))) { manifests[name] = null; continue; }
+              const manifest = await treeManifest(target);
+              manifests[name] = { files: manifest.files, bytes: manifest.bytes, treeSha256: manifest.treeSha256 };
+            }""",
+        "bounded tree summary"
+    )
     finalize = must_replace(finalize, "reports: ['src/content.config.ts', 'evidence/reports/content-validation.json']", "reports: ['src/content.config.ts', 'evidence/reports/content-validation-canonical.json']", "typed content report")
     finalize = must_replace(finalize, "reports: ['evidence/reports/content-validation.json']", "reports: ['evidence/reports/content-validation-canonical.json']", "cross-record report")
     finalize = must_replace(finalize, "reports: ['evidence/scale/generated-records-manifest.json', 'evidence/reports/scale-verification.json']", "reports: ['evidence/scale/generated-records-manifest.json', 'evidence/reports/content-validation-scale.json', 'evidence/reports/scale-verification.json']", "scale report")
