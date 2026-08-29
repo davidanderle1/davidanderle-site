@@ -67,12 +67,11 @@ jobs:
             sha256sum --check --strict /tmp/r7f-v3-expected.sha256
           )
 
-      - name: Install authenticated readable verifier
+      - name: Install authenticated readable verifier scripts
         shell: bash
         run: |
           set -euo pipefail
           cp -a /tmp/r7f-v3-unpacked/.github/scripts/. .github/scripts/
-          cp /tmp/r7f-v3-unpacked/.github/workflows/r7f-hardened-independent-verification-v3.yml .github/workflows/
           chmod 755 \
             .github/scripts/r7f-v3-tree-guard.py \
             .github/scripts/r7f-independent-link-audit.py \
@@ -87,11 +86,11 @@ jobs:
             .github/scripts/r7f-independent-source-audit.py \
             .github/scripts/r7f-evidence-gates.py
           bash -n .github/scripts/r7f-v3.sh
-          rm -rf .github/bootstrap .github/workflows/r7f-v3-bootstrap.yml
-          git add -A
+          rm -rf .github/scripts/__pycache__ .github/bootstrap
+          git add -A .github/scripts .github/bootstrap
           git diff --cached --check
 
-      - name: Commit authenticated verifier source
+      - name: Commit authenticated verifier scripts
         shell: bash
         run: |
           set -euo pipefail
@@ -104,5 +103,5 @@ jobs:
             .github/scripts/r7f-independent-source-audit.py \
             .github/scripts/r7f-evidence-gates.py \
             .github/scripts/r7f-v3.sh
-          git commit -m 'R7F v3: install authenticated independent verifier'
+          git commit -m 'R7F v3: install authenticated independent verifier scripts'
           git push origin HEAD:r7f-hardened-independent-verification-v3-20260830
