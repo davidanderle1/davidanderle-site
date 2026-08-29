@@ -1,0 +1,440 @@
+name: R7F independent Astro verification
+
+on:
+  push:
+    branches:
+      - r7f-independent-verification-20260829
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7f-independent-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  BUILDER_RUN_ID: '33262427626'
+  BUILDER_ARTIFACT_ID: '9717669245'
+  BUILDER_ARTIFACT_NAME: r7e-native-evidence-7347b3e1fe1514b66f4ee79db3bb44a14a13e47b
+  BUILDER_ARTIFACT_DIGEST: sha256:38ab3826d520c9049cf3d50762b54ed62a7846569f00c505faf96f0f9a029f2e
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout independent verifier branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Record independent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence artifact
+          {
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "verifier_commit=${GITHUB_SHA}"
+            uname -a
+          } | tee evidence/environment.txt
+          test "$(node --version)" = 'v24.20.0'
+          test "$(npm --version)" = '11.19.0'
+
+      - name: Download immutable R7E builder submission
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p builder
+          actual_digest=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${BUILDER_ARTIFACT_ID}" --jq '.digest')
+          printf 'expected=%s\nactual=%s\n' "$BUILDER_ARTIFACT_DIGEST" "$actual_digest" | tee evidence/builder-artifact-digest.txt
+          test "$actual_digest" = "$BUILDER_ARTIFACT_DIGEST"
+          gh run download "$BUILDER_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$BUILDER_ARTIFACT_NAME" --dir builder
+          if [ -d "builder/$BUILDER_ARTIFACT_NAME" ] && [ ! -f builder/R7E_GATE_DECISION.txt ]; then
+            cp -a "builder/$BUILDER_ARTIFACT_NAME/." builder/
+            rm -rf "builder/$BUILDER_ARTIFACT_NAME"
+          fi
+          test -f builder/R7E_GATE_DECISION.txt
+          test -f builder/R7E_ARTIFACT_SHA256SUMS.txt
+          test -f builder/R7E_PACKAGE_VALIDATION.json
+          test -f builder/R7E_EVIDENCE_INDEX.json
+          test -d builder/BEARING_PRODUCTION_SOURCE
+          test -d builder/BEARING_VERIFIED_DIST
+          test -d builder/BEARING_SCALE_SITE_500
+          test "$(cat builder/R7E_GATE_DECISION.txt)" = 'R7E BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F AUDIT'
+          node -e "const x=require('./builder/R7E_PACKAGE_VALIDATION.json'); if(x.passed!==true) process.exit(1)"
+          (cd builder && sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt) > evidence/builder-manifest-check.txt
+
+      - name: Inspect candidate authenticity and freeze verifier input
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf candidate verifier-run1 verifier-run2
+          mkdir candidate
+          cp -a builder/BEARING_PRODUCTION_SOURCE/. candidate/
+          rm -rf candidate/node_modules candidate/dist candidate/.astro candidate/.r7e-tmp candidate/public/assets/portrait candidate/public/assets/js candidate/public/artifacts candidate/src/data/generated
+          test -f candidate/package.json
+          test -f candidate/package-lock.json
+          test -f candidate/.node-version
+          test -f candidate/.nvmrc
+          test -f candidate/.github/workflows/production-reference.yml
+          test -f candidate/src/content.config.ts
+          test -f 'candidate/src/pages/work/[slug].astro'
+          test -f candidate/astro.config.mjs
+          test ! -d candidate/node_modules
+          python3 - <<'PY' | tee evidence/candidate-authenticity.json
+          import json, re
+          from pathlib import Path
+          root=Path('candidate')
+          text=[]
+          astro_count=0
+          for p in root.rglob('*'):
+              if not p.is_file():
+                  continue
+              if p.suffix == '.astro':
+                  astro_count += 1
+              if p.suffix.lower() in {'.astro','.ts','.js','.mjs','.json','.jsonc','.md','.css','.yml','.yaml'}:
+                  text.append(p.read_text(errors='ignore'))
+          joined='\n'.join(text)
+          package=json.loads((root/'package.json').read_text())
+          non_exact=[]
+          for scope in ('dependencies','devDependencies','optionalDependencies'):
+              for name,value in package.get(scope,{}).items():
+                  if isinstance(value,str) and (value in {'latest','*'} or value.startswith(('^','~'))):
+                      non_exact.append([scope,name,value])
+          lock=json.loads((root/'package-lock.json').read_text())
+          checks={
+              'astroFilesAtLeastTen':astro_count>=10,
+              'realContentConfig':(root/'src/content.config.ts').is_file(),
+              'dynamicWorkRoute':(root/'src/pages/work/[slug].astro').is_file(),
+              'noPregeneratedResponse':re.search(r'new\s+Response\s*\(',joined,re.I) is None,
+              'noPregeneratedHtmlSymbol':'pregeneratedHtml' not in joined,
+              'exactDependencyPins':not non_exact,
+              'completeLockfile':len(lock.get('packages',{}))>=500,
+              'noNodeModules':not (root/'node_modules').exists()
+          }
+          result={'passed':all(checks.values()),'checks':checks,'astroFileCount':astro_count,'lockPackageCount':len(lock.get('packages',{})),'nonExactDependencies':non_exact}
+          print(json.dumps(result,indent=2))
+          if not result['passed']:
+              raise SystemExit(1)
+          PY
+          find candidate -type f -print0 | sort -z | xargs -0 sha256sum > evidence/verifier-input-source.sha256
+          tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner -C candidate -cf - . | sha256sum | tee evidence/verifier-input-source-tar.sha256
+
+      - name: Independent Clean Run 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir verifier-run1
+          cp -a candidate/. verifier-run1/
+          cd verifier-run1
+          npm run preflight:source > ../evidence/run1-preflight.stdout.txt 2> ../evidence/run1-preflight.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-npm-ci.time.txt npm ci --audit=false --fund=false > ../evidence/run1-npm-ci.stdout.txt 2> ../evidence/run1-npm-ci.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-check.time.txt npm run check > ../evidence/run1-check.stdout.txt 2> ../evidence/run1-check.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-build.time.txt npm run build > ../evidence/run1-build.stdout.txt 2> ../evidence/run1-build.stderr.txt
+          npm run html:validate > ../evidence/run1-html.stdout.txt 2> ../evidence/run1-html.stderr.txt
+          npm run links:validate > ../evidence/run1-links.stdout.txt 2> ../evidence/run1-links.stderr.txt
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > ../evidence/run1-dist.sha256
+          { printf 'files='; find dist -type f | wc -l; printf 'bytes='; du -sb dist | cut -f1; } | tee ../evidence/run1-dist-summary.txt
+
+      - name: Independent Clean Run 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir verifier-run2
+          cp -a candidate/. verifier-run2/
+          cd verifier-run2
+          npm run preflight:source > ../evidence/run2-preflight.stdout.txt 2> ../evidence/run2-preflight.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-npm-ci.time.txt npm ci --audit=false --fund=false > ../evidence/run2-npm-ci.stdout.txt 2> ../evidence/run2-npm-ci.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-check.time.txt npm run check > ../evidence/run2-check.stdout.txt 2> ../evidence/run2-check.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-build.time.txt npm run build > ../evidence/run2-build.stdout.txt 2> ../evidence/run2-build.stderr.txt
+          npm run html:validate > ../evidence/run2-html.stdout.txt 2> ../evidence/run2-html.stderr.txt
+          npm run links:validate > ../evidence/run2-links.stdout.txt 2> ../evidence/run2-links.stderr.txt
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > ../evidence/run2-dist.sha256
+          { printf 'files='; find dist -type f | wc -l; printf 'bytes='; du -sb dist | cut -f1; } | tee ../evidence/run2-dist-summary.txt
+
+      - name: Independent reproducibility and builder-parity gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee evidence/reproducibility-and-builder-parity.json
+          from pathlib import Path
+          import hashlib, json
+          dirs={
+            'run1':Path('verifier-run1/dist'),
+            'run2':Path('verifier-run2/dist'),
+            'builder':Path('builder/BEARING_VERIFIED_DIST')
+          }
+          def manifest(root):
+              return {p.relative_to(root).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file()}
+          data={name:manifest(path) for name,path in dirs.items()}
+          paths={name:set(m) for name,m in data.items()}
+          common_paths=paths['run1']==paths['run2']==paths['builder']
+          run_diffs=[]
+          builder_diffs=[]
+          if common_paths:
+              for rel in sorted(paths['run1']):
+                  if data['run1'][rel]!=data['run2'][rel]: run_diffs.append(rel)
+                  if data['run1'][rel]!=data['builder'][rel]: builder_diffs.append(rel)
+          result={
+            'passed':common_paths and not run_diffs and not builder_diffs,
+            'pathParity':common_paths,
+            'fileCounts':{k:len(v) for k,v in data.items()},
+            'run1Run2Differences':run_diffs,
+            'run1BuilderDifferences':builder_diffs,
+            'byteIdenticalVerifierFiles':len(data['run1'])-len(run_diffs),
+            'byteIdenticalWithBuilder':len(data['run1'])-len(builder_diffs)
+          }
+          print(json.dumps(result,indent=2))
+          if not result['passed']:
+              raise SystemExit(1)
+          PY
+
+      - name: Independent invalid-fixture gate
+        working-directory: verifier-run1
+        shell: bash
+        run: npm run validate:fixtures > ../evidence/invalid-fixtures.stdout.txt 2> ../evidence/invalid-fixtures.stderr.txt
+
+      - name: Independent 500-record native Astro stress gate
+        working-directory: verifier-run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/time -v -o ../evidence/stress.time.txt npm run test:stress > ../evidence/stress.stdout.txt 2> ../evidence/stress.stderr.txt
+          count=$(find .r7e-tmp/stress/dist/work -mindepth 2 -maxdepth 2 -name index.html | wc -l)
+          unique=$(find .r7e-tmp/stress/dist/work -mindepth 2 -maxdepth 2 -name index.html -printf '%h\n' | sort -u | wc -l)
+          printf 'emitted_detail_pages=%s\nunique_detail_pages=%s\n' "$count" "$unique" | tee ../evidence/stress-summary.txt
+          test "$count" -eq 500
+          test "$unique" -eq 500
+          echo "total_files=$(find .r7e-tmp/stress/dist -type f | wc -l)" | tee -a ../evidence/stress-summary.txt
+          echo "total_bytes=$(du -sb .r7e-tmp/stress/dist | cut -f1)" | tee -a ../evidence/stress-summary.txt
+          if npm run test:stress:production-gate > ../evidence/stress-production-gate.stdout.txt 2> ../evidence/stress-production-gate.stderr.txt; then
+            echo 'Production gate unexpectedly accepted test fixtures' >&2
+            exit 1
+          fi
+          test "$(find dist/work -mindepth 1 -maxdepth 1 -type d -name 'synthetic-test-record-*' | wc -l)" -eq 0
+
+      - name: Install Chromium for independent browser gates
+        working-directory: verifier-run1
+        shell: bash
+        run: npx playwright install --with-deps chromium
+
+      - name: Independent browser, no-JS and mobile gates
+        working-directory: verifier-run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:browser > ../evidence/browser.stdout.txt 2> ../evidence/browser.stderr.txt
+          cp .r7e-tmp/playwright/results.json ../evidence/browser-playwright-results.json
+          count=$(find .r7e-tmp/screenshots -type f -name '*.png' | wc -l)
+          echo "screenshot_count=$count" | tee ../evidence/browser-summary.txt
+          test "$count" -ge 40
+
+      - name: Independent axe-core gate
+        working-directory: verifier-run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:axe > ../evidence/axe.stdout.txt 2> ../evidence/axe.stderr.txt
+          cp .r7e-tmp/playwright/results.json ../evidence/axe-playwright-results.json
+
+      - name: Independent Lighthouse measurements
+        working-directory: verifier-run1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:lighthouse > ../evidence/lighthouse.stdout.txt 2> ../evidence/lighthouse.stderr.txt
+          node --input-type=module <<'NODE' > ../evidence/lighthouse-summary.json
+          import fs from 'node:fs';
+          const files=['.r7e-tmp/lighthouse/page-1.json','.r7e-tmp/lighthouse/page-2.json'];
+          const reports=files.map((file) => {
+            const x=JSON.parse(fs.readFileSync(file,'utf8'));
+            const n=(id)=>x.audits?.[id]?.numericValue ?? null;
+            return {file,url:x.finalDisplayedUrl??x.finalUrl??null,performance:x.categories?.performance?.score??null,accessibility:x.categories?.accessibility?.score??null,lcpMs:n('largest-contentful-paint'),cls:n('cumulative-layout-shift'),tbtMs:n('total-blocking-time'),totalByteWeight:n('total-byte-weight')};
+          });
+          console.log(JSON.stringify({reports},null,2));
+          NODE
+
+      - name: Independent runtime network audit
+        working-directory: verifier-run1
+        shell: bash
+        run: npm run network:audit > ../evidence/network.stdout.txt 2> ../evidence/network.stderr.txt
+
+      - name: Independent Workers Static Assets dry run
+        working-directory: verifier-run1
+        shell: bash
+        run: npm run wrangler:validate > ../evidence/wrangler.stdout.txt 2> ../evidence/wrangler.stderr.txt
+
+      - name: Independent artifact-policy checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee evidence/artifact-policy-checks.json
+          import json, re
+          from pathlib import Path
+          root=Path('verifier-run1/dist')
+          html={p.relative_to(root).as_posix():p.read_text(errors='ignore') for p in root.rglob('*.html')}
+          core=['index.html','work/index.html','archive/index.html','about/index.html','cv/index.html','contact/index.html']
+          executable={}
+          for rel,text in html.items():
+              refs=re.findall(r'<script\b([^>]*)>',text,re.I)
+              active=[]
+              for attrs in refs:
+                  if re.search(r'type=["\']application/ld\+json["\']',attrs,re.I):
+                      continue
+                  active.append(attrs)
+              if active: executable[rel]=active
+          portrait=[]
+          for p in root.rglob('portrait-*'):
+              if p.is_file():
+                  m=re.search(r'portrait-(\d+)x(\d+)',p.name)
+                  portrait.append({'path':p.relative_to(root).as_posix(),'width':int(m.group(1)) if m else None,'height':int(m.group(2)) if m else None})
+          checks={
+            'coreRoutesHaveNoExecutableScripts':all(rel not in executable for rel in core),
+            'vceHasExactlyOneExecutableScript':len(executable.get('work/volatility-cascade-engine/index.html',[]))==1,
+            'noOtherExecutableRoutes':set(executable).issubset({'work/volatility-cascade-engine/index.html'}),
+            'portraitDerivativeCount':len(portrait)==9,
+            'portraitDimensionsAllowed':all(x['width'] in {96,112,128} and x['height'] in {120,140,160} for x in portrait),
+            'noNodeModulesInDist':not any(p.name=='node_modules' for p in root.rglob('*')),
+            'securityTxtPresent':(root/'.well-known/security.txt').is_file(),
+            'noSyntheticProductionPages':not any((root/'work').glob('synthetic-test-record-*')),
+            'noWorkerMain':not re.search(r'"main"\s*:',Path('verifier-run1/wrangler.jsonc').read_text())
+          }
+          result={'passed':all(checks.values()),'checks':checks,'executableScriptRoutes':sorted(executable),'portraitFiles':portrait}
+          print(json.dumps(result,indent=2))
+          if not result['passed']:
+              raise SystemExit(1)
+          PY
+
+      - name: Assemble independent R7F success artifact
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p \
+            artifact/R7F_VERIFIED_SOURCE \
+            artifact/R7F_VERIFIER_DIST_1 \
+            artifact/R7F_VERIFIER_DIST_2 \
+            artifact/R7F_BUILDER_DIST \
+            artifact/R7F_SCALE_SITE_500 \
+            artifact/R7F_SCREENSHOTS \
+            artifact/R7F_LIGHTHOUSE_RAW \
+            artifact/R7F_NETWORK_RAW \
+            artifact/R7F_EVIDENCE \
+            artifact/R7F_BUILDER_SUBMISSION
+          cp -a candidate/. artifact/R7F_VERIFIED_SOURCE/
+          cp -a verifier-run1/dist/. artifact/R7F_VERIFIER_DIST_1/
+          cp -a verifier-run2/dist/. artifact/R7F_VERIFIER_DIST_2/
+          cp -a builder/BEARING_VERIFIED_DIST/. artifact/R7F_BUILDER_DIST/
+          cp -a verifier-run1/.r7e-tmp/stress/dist/. artifact/R7F_SCALE_SITE_500/
+          cp -a verifier-run1/.r7e-tmp/screenshots/. artifact/R7F_SCREENSHOTS/
+          cp -a verifier-run1/.r7e-tmp/lighthouse/. artifact/R7F_LIGHTHOUSE_RAW/
+          cp -a verifier-run1/.r7e-tmp/network/. artifact/R7F_NETWORK_RAW/
+          cp -a evidence/. artifact/R7F_EVIDENCE/
+          cp builder/R7E_GATE_DECISION.txt builder/R7E_PACKAGE_VALIDATION.json builder/R7E_EVIDENCE_INDEX.json builder/R7E_ARTIFACT_SHA256SUMS.txt artifact/R7F_BUILDER_SUBMISSION/
+          printf 'R7 ARCHITECTURE EMPIRICALLY VERIFIED AND LOCKED — PROCEED TO R8 AND R9\n' > artifact/R7F_GATE_DECISION.txt
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('artifact')
+          index={
+            'gate':'R7F_GATE_DECISION.txt',
+            'builderSubmission':'R7F_BUILDER_SUBMISSION/',
+            'source':'R7F_VERIFIED_SOURCE/',
+            'run1Dist':'R7F_VERIFIER_DIST_1/',
+            'run2Dist':'R7F_VERIFIER_DIST_2/',
+            'builderDist':'R7F_BUILDER_DIST/',
+            'sourceAuthenticity':'R7F_EVIDENCE/candidate-authenticity.json',
+            'builderManifestCheck':'R7F_EVIDENCE/builder-manifest-check.txt',
+            'reproducibility':'R7F_EVIDENCE/reproducibility-and-builder-parity.json',
+            'invalidFixtures':{'stdout':'R7F_EVIDENCE/invalid-fixtures.stdout.txt','stderr':'R7F_EVIDENCE/invalid-fixtures.stderr.txt'},
+            'scale500':{'summary':'R7F_EVIDENCE/stress-summary.txt','site':'R7F_SCALE_SITE_500/'},
+            'browser':{'results':'R7F_EVIDENCE/browser-playwright-results.json','summary':'R7F_EVIDENCE/browser-summary.txt','screenshots':'R7F_SCREENSHOTS/'},
+            'accessibility':{'results':'R7F_EVIDENCE/axe-playwright-results.json','stdout':'R7F_EVIDENCE/axe.stdout.txt'},
+            'lighthouse':{'summary':'R7F_EVIDENCE/lighthouse-summary.json','raw':'R7F_LIGHTHOUSE_RAW/'},
+            'network':{'stdout':'R7F_EVIDENCE/network.stdout.txt','raw':'R7F_NETWORK_RAW/audit.json'},
+            'wrangler':{'stdout':'R7F_EVIDENCE/wrangler.stdout.txt','stderr':'R7F_EVIDENCE/wrangler.stderr.txt'},
+            'artifactPolicy':'R7F_EVIDENCE/artifact-policy-checks.json'
+          }
+          def walk(x):
+              if isinstance(x,str):
+                  if not (root/x).exists(): raise SystemExit(f'missing evidence path: {x}')
+              elif isinstance(x,dict):
+                  for v in x.values(): walk(v)
+          walk(index)
+          (root/'R7F_EVIDENCE_INDEX.json').write_text(json.dumps(index,indent=2)+'\n')
+          PY
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('artifact')
+          checks={
+            'gateLocked':(root/'R7F_GATE_DECISION.txt').read_text().strip()=='R7 ARCHITECTURE EMPIRICALLY VERIFIED AND LOCKED — PROCEED TO R8 AND R9',
+            'sourcePresent':(root/'R7F_VERIFIED_SOURCE/package-lock.json').is_file(),
+            'hiddenSourceFiles':all((root/p).is_file() for p in ['R7F_VERIFIED_SOURCE/.node-version','R7F_VERIFIED_SOURCE/.nvmrc','R7F_VERIFIED_SOURCE/.github/workflows/production-reference.yml']),
+            'run1Present':(root/'R7F_VERIFIER_DIST_1/index.html').is_file(),
+            'run2Present':(root/'R7F_VERIFIER_DIST_2/index.html').is_file(),
+            'builderDistPresent':(root/'R7F_BUILDER_DIST/index.html').is_file(),
+            'scale500':len(list((root/'R7F_SCALE_SITE_500/work').glob('synthetic-test-record-*/index.html')))==500,
+            'screenshots':len(list((root/'R7F_SCREENSHOTS').glob('*.png')))>=40,
+            'lighthouseReports':len(list((root/'R7F_LIGHTHOUSE_RAW').glob('page-*.json')))==2,
+            'networkRaw':(root/'R7F_NETWORK_RAW/audit.json').is_file(),
+            'evidenceIndex':(root/'R7F_EVIDENCE_INDEX.json').is_file(),
+            'noNodeModules':not any(p.name=='node_modules' for p in root.rglob('node_modules')),
+            'noSyntheticProductionPages':not any((root/'R7F_VERIFIER_DIST_1/work').glob('synthetic-test-record-*'))
+          }
+          result={'passed':all(checks.values()),'checks':checks,'fileCountBeforeManifest':sum(1 for p in root.rglob('*') if p.is_file())}
+          (root/'R7F_PACKAGE_VALIDATION.json').write_text(json.dumps(result,indent=2)+'\n')
+          if not result['passed']: raise SystemExit(json.dumps(result,indent=2))
+          PY
+
+          (
+            cd artifact
+            find . -type f ! -name 'R7F_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7F_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Assemble independent R7F failure artifact
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/R7F_EVIDENCE
+          cp -a evidence/. artifact/R7F_EVIDENCE/ 2>/dev/null || true
+          if [ -d candidate ]; then mkdir -p artifact/R7F_CANDIDATE_SOURCE && cp -a candidate/. artifact/R7F_CANDIDATE_SOURCE/; fi
+          if [ -d verifier-run1/dist ]; then mkdir -p artifact/R7F_PARTIAL_DIST_1 && cp -a verifier-run1/dist/. artifact/R7F_PARTIAL_DIST_1/; fi
+          if [ -d verifier-run2/dist ]; then mkdir -p artifact/R7F_PARTIAL_DIST_2 && cp -a verifier-run2/dist/. artifact/R7F_PARTIAL_DIST_2/; fi
+          if [ -d verifier-run1/.r7e-tmp ]; then cp -a verifier-run1/.r7e-tmp artifact/R7F_RUN1_TMP; fi
+          if [ -d verifier-run1/test-results ]; then cp -a verifier-run1/test-results artifact/R7F_PLAYWRIGHT_FAILURE_RESULTS; fi
+          printf 'R7 ARCHITECTURE INDEPENDENT VERIFICATION FAILED — DO NOT PROCEED\n' > artifact/R7F_GATE_DECISION.txt
+          (
+            cd artifact
+            find . -type f ! -name 'R7F_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7F_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload independent R7F evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-independent-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
