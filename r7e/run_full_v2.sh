@@ -23,7 +23,7 @@ R=(python3 scripts/run_evidence.py --evidence evidence)
 "${R[@]}" --id 010-lockfile --artifact package-lock.json -- npm install --package-lock-only --ignore-scripts
 "${R[@]}" --id 020-npm-ci --artifact node_modules/.package-lock.json -- npm ci
 "${R[@]}" --id 030-toolchain-environment --artifact evidence/reports/toolchain-environment.json -- node scripts/capture-toolchain.mjs
-"${R[@]}" --id 040-official-sources --soft --artifact evidence/reports/official-source-verification.json -- node scripts/verify-official-sources.mjs
+"${R[@]}" --id 040-official-sources --artifact evidence/reports/official-source-verification.json -- node scripts/verify-official-sources.mjs
 "${R[@]}" --id 050-source-verification --artifact evidence/reports/source-verification.json -- node scripts/verify-source.mjs
 "${R[@]}" --id 060-astro-check -- npx astro check
 "${R[@]}" --id 070-content-validation --artifact evidence/reports/content-validation-canonical.json -- node scripts/validate-content.mjs
@@ -67,7 +67,7 @@ cd "$ROOT/r7e-negative-js"
 python3 "$SOURCE/scripts/run_evidence.py" --evidence "$SOURCE/evidence" --id 261-neg-js-dist --expect nonzero -- node scripts/verify-dist.mjs dist
 cd "$SOURCE"
 
-"${R[@]}" --id 270-reproducibility --soft --artifact evidence/reproducibility/report.json -- node scripts/verify-reproducibility.mjs
+"${R[@]}" --id 270-reproducibility --artifact evidence/reproducibility/report.json -- node scripts/verify-reproducibility.mjs
 "${R[@]}" --id 280-npm-audit --soft --expect any -- npm audit --json
 mkdir -p evidence/supply-chain
 "${R[@]}" --id 290-sbom --soft -- bash -lc 'npm sbom --sbom-format=cyclonedx > evidence/supply-chain/sbom.cdx.json'
@@ -75,4 +75,5 @@ mkdir -p evidence/supply-chain
 
 rm -rf "$ROOT/r7e-negative-schema" "$ROOT/r7e-negative-crossref" "$ROOT/r7e-negative-duplicate" "$ROOT/r7e-negative-photo" "$ROOT/r7e-negative-js"
 node scripts/finalize-evidence.mjs
+"${R[@]}" --id 310-final-gate --artifact R7E_FINAL_GATE.json --artifact evidence/reports/R7E_FINAL_GATE.json -- node scripts/verify-final-gate.mjs
 python3 scripts/package_r7e.py
