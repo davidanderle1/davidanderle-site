@@ -159,9 +159,9 @@
     },
     {
       "path": "scripts/generate-stress-fixtures.mjs",
-      "sha256": "54d74339a85f7108b94355c63c01e5cb0a062a59bf0acb477e3e6faa6da06f14",
+      "sha256": "2e5c293d79b3f4319e3e46d04e4bccdef8d23e850e2759a221475d1fd525025b",
       "mode": "0o644",
-      "size": 3494
+      "size": 3459
     },
     {
       "path": "scripts/hash-tree.mjs",
