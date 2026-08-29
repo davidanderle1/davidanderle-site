@@ -8,7 +8,6 @@ on:
       - '.github/workflows/r7e-source-bootstrap.yml'
       - '.github/scripts/r7e-pack-source.py'
       - '.github/patches/**'
-      - '.github/workflow-parts/**'
   workflow_dispatch:
 
 permissions:
@@ -55,14 +54,18 @@ jobs:
           cp -a builder/BEARING_PRODUCTION_SOURCE/. canonical/
           test -f canonical/package-lock.json
           test -f canonical/.node-version
+          test -f canonical/src/styles/project.css
 
       - name: Apply consolidated audited source patch
         shell: bash
         run: |
           set -euo pipefail
           cat .github/patches/r7e-hardened-source.patch.* > /tmp/r7e-hardened-source.patch
-          git apply --check --directory=canonical /tmp/r7e-hardened-source.patch
-          git apply --directory=canonical /tmp/r7e-hardened-source.patch
+          (
+            cd canonical
+            git apply --check /tmp/r7e-hardened-source.patch
+            git apply /tmp/r7e-hardened-source.patch
+          )
           test -f canonical/scripts/verify-stress-lineage.mjs
           grep -q 'overflow-wrap: anywhere' canonical/src/styles/project.css
           grep -q 'const stops = milestones.slice(0, 3)' canonical/src/pages/index.astro
@@ -89,8 +92,6 @@ jobs:
           printf '%s\n' "$archive_sha" > .r7e-source/HARDENED_SOURCE_READY
           sha256sum --check --strict .r7e-source/SHA256SUMS
           printf 'archive_sha256=%s\n' "$archive_sha"
-          cat .github/workflow-parts/r7e-hardened-verification.yml.* > .github/workflows/r7e-hardened-verification.yml
-          test -s .github/workflows/r7e-hardened-verification.yml
 
       - name: Commit immutable canonical source transport
         shell: bash
@@ -98,7 +99,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A .r7e-source .github/workflows/r7e-hardened-verification.yml
-          test -n "$(git status --porcelain -- .r7e-source .github/workflows/r7e-hardened-verification.yml)"
+          git add -A .r7e-source
+          test -n "$(git status --porcelain -- .r7e-source)"
           git commit -m 'R7E: freeze hardened canonical source after independent audits'
           git push origin HEAD:r7e-hardened-verification-20260829
