@@ -1,0 +1,2 @@
+hardened-source-commit=c4b248ace9c1285f01b79f6c7c31d91f96b9a50d
+purpose=trigger hardened verification after deterministic source bootstrap
