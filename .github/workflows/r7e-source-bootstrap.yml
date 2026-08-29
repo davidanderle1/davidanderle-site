@@ -63,13 +63,18 @@ jobs:
           cat .github/patches/r7e-hardened-source.patch.* > /tmp/r7e-hardened-source.patch
           sha256sum /tmp/r7e-hardened-source.patch
           wc -c /tmp/r7e-hardened-source.patch
+          test ! -e canonical/.git
           (
             cd canonical
+            git init -q
+            git add -A
+            git -c user.name='r7e-bootstrap' -c user.email='r7e-bootstrap@example.invalid' commit -qm 'baseline canonical source'
             git apply --check /tmp/r7e-hardened-source.patch
             echo APPLY_CHECK_OK
             git apply /tmp/r7e-hardened-source.patch
             echo APPLY_OK
           )
+          rm -rf canonical/.git
           test -f canonical/scripts/verify-stress-lineage.mjs
           echo STRESS_SCRIPT_OK
           grep -q 'overflow-wrap: anywhere' canonical/src/styles/project.css
