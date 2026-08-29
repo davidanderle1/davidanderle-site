@@ -1,0 +1,72 @@
+index f069eebcd9531f88fcaee4edb43f4b05e11aa0f4..9ef007e482cd32f7e4bc18a69a3d20cf571b49db 100644
+--- a/verification/README.md
++++ b/verification/README.md
+@@ -1,13 +1,16 @@
+ # External clean execution
+ 
+-The original R7E builder could not resolve or download npm dependencies. A verifier must:
++A release verifier must treat the submitted source as immutable input and must not repair it during verification.
+ 
+-1. Install Node 24.20.0 with npm 11.19.0.
+-2. From a disposable bootstrap copy, run `npm install --package-lock-only --ignore-scripts` once to create a complete transitive lockfile, review the diff and freeze it. This is not a clean verification run.
+-3. Create a fresh source freeze manifest.
+-4. Copy only the frozen source into two empty directories.
+-5. Run `verification/clean-run.sh RUN_1 evidence/run-1` and then the same for RUN_2.
+-6. Compare both `dist/` trees by relative path, bytes and SHA-256.
+-7. Run browser, axe, Lighthouse, network and Wrangler checks against the actual Run 1 artifact.
++1. Install exactly Node 24.20.0 with npm 11.19.0.
++2. Run `npm run preflight:source` in the untouched source before dependency installation.
++3. Copy the frozen source into two empty run directories.
++4. In each directory, run `verification/clean-run.sh RUN_ID OUTPUT_DIR` or the PowerShell equivalent.
++5. Require each link report to contain generated HTML and a non-zero number of validated same-site document and asset references; a successful zero-link crawl is invalid evidence.
++6. Compare both production `dist/` trees by relative path, mode, bytes and SHA-256.
++7. Confirm that only the approved VCE route emits executable JavaScript and that ordinary routes retain essential content without JavaScript.
++8. Run browser, axe-core, Lighthouse, runtime-network and Workers Static Assets checks against the actual Run 1 output.
++9. Authenticate the 500-record stress lineage and keep its output marked `TEST_ONLY_DO_NOT_DEPLOY`.
++10. Package raw evidence with a complete SHA-256 manifest.
+ 
+-Do not replace failed steps with hand-created evidence.
++Do not replace failed steps with hand-created evidence. A green builder is not self-certification; final acceptance requires an independent verifier over the immutable builder artifact.
+diff --git a/verification/clean-run.ps1 b/verification/clean-run.ps1
+index df6c2e844cd9c058f43163cd9a68e407538e86e3..29da721903a87ef258ee1815ca85ede98f466864 100644
+--- a/verification/clean-run.ps1
++++ b/verification/clean-run.ps1
+@@ -3,7 +3,18 @@ $ErrorActionPreference = "Stop"
+ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+ node --version | Tee-Object "$OutputDir/$RunId.node-version.txt"
+ npm --version | Tee-Object "$OutputDir/$RunId.npm-version.txt"
+-$commands = @("npm ci","npm run validate:content","npm run check:astro","npm run build","npm run html:validate","npm run links:validate","npm run validate:fixtures","node scripts/hash-tree.mjs dist")
++$commands = @(
++  "npm run preflight:source",
++  "npm ci --audit=false --fund=false",
++  "npm run validate:content",
++  "npm run check:astro",
++  "npm run build",
++  "npm run html:validate",
++  "npm run links:validate",
++  "npm run validate:fixtures",
++  "npm run test:stress",
++  "node scripts/hash-tree.mjs dist"
++)
+ foreach ($command in $commands) {
+   $start=(Get-Date).ToUniversalTime().ToString("o")
+   cmd /c $command 2>&1 | Tee-Object -Append "$OutputDir/$RunId.stdout.log"
+diff --git a/verification/clean-run.sh b/verification/clean-run.sh
+index d6bb646e31cbd1f687c0110b7be07a52c520943b..6a58205ce82c1420447f159d324735813e838f39 100755
+--- a/verification/clean-run.sh
++++ b/verification/clean-run.sh
+@@ -19,11 +19,13 @@ record() {
+ }
+ node --version | tee "$out/${run_id}.node-version.txt"
+ npm --version | tee "$out/${run_id}.npm-version.txt"
+-record npm-ci npm ci
++record source-preflight npm run preflight:source
++record npm-ci npm ci --audit=false --fund=false
+ record content npm run validate:content
+ record check npm run check:astro
+ record build npm run build
+ record html npm run html:validate
+ record links npm run links:validate
+ record fixtures npm run validate:fixtures
++record stress npm run test:stress
+ record tree node scripts/hash-tree.mjs dist
