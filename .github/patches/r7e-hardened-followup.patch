@@ -1,0 +1,19 @@
+diff --git a/scripts/generate-stress-fixtures.mjs b/scripts/generate-stress-fixtures.mjs
+--- a/scripts/generate-stress-fixtures.mjs
++++ b/scripts/generate-stress-fixtures.mjs
+@@ -81,13 +81,8 @@ for (let i = 1; i <= 500; i++) {
+   });
+ }
+ 
+-for (const [name, value] of [
+-  ['milestones.json', []],
+-  ['public-documents.json', []],
+-  ['redirects.json', []],
+-  ['tombstones.json', []]
+-]) {
+-  fs.writeFileSync(path.join(root, name), JSON.stringify(value));
++for (const name of ['milestones.json', 'public-documents.json', 'redirects.json', 'tombstones.json']) {
++  fs.copyFileSync(path.join('src/content', name), path.join(root, name));
+ }
+ fs.mkdirSync(path.join(root, 'profile'), { recursive: true });
+ fs.mkdirSync(path.join(root, 'writing'), { recursive: true });

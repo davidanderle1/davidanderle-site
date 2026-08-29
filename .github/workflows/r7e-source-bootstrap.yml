@@ -61,8 +61,9 @@ jobs:
         run: |
           set -euxo pipefail
           cat .github/patches/r7e-hardened-source.patch.* > /tmp/r7e-hardened-source.patch
-          sha256sum /tmp/r7e-hardened-source.patch
-          wc -c /tmp/r7e-hardened-source.patch
+          cp .github/patches/r7e-hardened-followup.patch /tmp/r7e-hardened-followup.patch
+          sha256sum /tmp/r7e-hardened-source.patch /tmp/r7e-hardened-followup.patch
+          wc -c /tmp/r7e-hardened-source.patch /tmp/r7e-hardened-followup.patch
           test ! -e canonical/.git
           (
             cd canonical
@@ -70,29 +71,25 @@ jobs:
             git add -A
             git -c user.name='r7e-bootstrap' -c user.email='r7e-bootstrap@example.invalid' commit -qm 'baseline canonical source'
             git apply --check /tmp/r7e-hardened-source.patch
-            echo APPLY_CHECK_OK
             git apply /tmp/r7e-hardened-source.patch
-            echo APPLY_OK
+            echo PRIMARY_APPLY_OK
+            git add -A
+            git -c user.name='r7e-bootstrap' -c user.email='r7e-bootstrap@example.invalid' commit -qm 'primary hardened patch'
+            git apply --check /tmp/r7e-hardened-followup.patch
+            git apply /tmp/r7e-hardened-followup.patch
+            echo FOLLOWUP_APPLY_OK
           )
           rm -rf canonical/.git
           test -f canonical/scripts/verify-stress-lineage.mjs
-          echo STRESS_SCRIPT_OK
           grep -q 'overflow-wrap: anywhere' canonical/src/styles/project.css
-          echo REFLOW_OK
           grep -q 'const stops = milestones.slice(0, 3)' canonical/src/pages/index.astro
-          echo STOPS_OK
           grep -q 'R7E_ALLOW_TEST_FIXTURES' canonical/src/lib/content.ts
-          echo TEST_FIXTURE_GATE_OK
+          grep -q "fs.copyFileSync(path.join('src/content', name)" canonical/scripts/generate-stress-fixtures.mjs
           node --check canonical/scripts/generate-stress-fixtures.mjs
-          echo GENERATOR_SYNTAX_OK
           node --check canonical/scripts/verify-stress-lineage.mjs
-          echo LINEAGE_SYNTAX_OK
           node --check canonical/scripts/network-audit.mjs
-          echo NETWORK_SYNTAX_OK
           node --check canonical/scripts/run-lighthouse.mjs
-          echo LIGHTHOUSE_SYNTAX_OK
           node -e "const p=require('./canonical/package.json'); const l=require('./canonical/package-lock.json'); console.log({packageManager:p.packageManager,lockfileVersion:l.lockfileVersion,packages:Object.keys(l.packages||{}).length}); if(p.packageManager!=='npm@11.19.0'||l.lockfileVersion!==3||Object.keys(l.packages||{}).length<500) process.exit(1)"
-          echo LOCK_OK
 
       - name: Deterministically repack canonical source twice
         shell: bash
@@ -119,5 +116,5 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A .r7e-source
           test -n "$(git status --porcelain -- .r7e-source)"
-          git commit -m 'R7E: freeze hardened canonical source after independent audits'
+          git commit -m 'R7E: freeze hardened canonical source after lineage correction'
           git push origin HEAD:r7e-hardened-verification-20260829
