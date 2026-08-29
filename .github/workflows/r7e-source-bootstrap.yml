@@ -56,14 +56,16 @@ jobs:
           test -f canonical/.node-version
           test -f canonical/src/styles/project.css
 
-      - name: Apply consolidated audited source patch
+      - name: Apply consolidated audited source patches
         shell: bash
         run: |
           set -euxo pipefail
           cat .github/patches/r7e-hardened-source.patch.* > /tmp/r7e-hardened-source.patch
           cp .github/patches/r7e-hardened-followup.patch /tmp/r7e-hardened-followup.patch
-          sha256sum /tmp/r7e-hardened-source.patch /tmp/r7e-hardened-followup.patch
-          wc -c /tmp/r7e-hardened-source.patch /tmp/r7e-hardened-followup.patch
+          cat .github/patches/r7e-final-closure.patch.* > /tmp/r7e-final-closure.patch
+          printf '%s  %s\n' '611bb4a0007af9943696ef93a47fa0a0ecf8decfc45fcd5d8d76ba2c06137070' '/tmp/r7e-final-closure.patch' | sha256sum --check --strict
+          sha256sum /tmp/r7e-hardened-source.patch /tmp/r7e-hardened-followup.patch /tmp/r7e-final-closure.patch
+          wc -c /tmp/r7e-hardened-source.patch /tmp/r7e-hardened-followup.patch /tmp/r7e-final-closure.patch
           test ! -e canonical/.git
           (
             cd canonical
@@ -78,18 +80,33 @@ jobs:
             git apply --check /tmp/r7e-hardened-followup.patch
             git apply /tmp/r7e-hardened-followup.patch
             echo FOLLOWUP_APPLY_OK
+            git add -A
+            git -c user.name='r7e-bootstrap' -c user.email='r7e-bootstrap@example.invalid' commit -qm 'followup hardened patch'
+            git apply --check /tmp/r7e-final-closure.patch
+            git apply /tmp/r7e-final-closure.patch
+            echo FINAL_CLOSURE_APPLY_OK
+            git add -A
+            git -c user.name='r7e-bootstrap' -c user.email='r7e-bootstrap@example.invalid' commit -qm 'final closure hardening patch'
           )
           rm -rf canonical/.git
           test -f canonical/scripts/verify-stress-lineage.mjs
+          test -f canonical/scripts/validate-links.mjs
+          test -f canonical/scripts/clean-generated.mjs
           grep -q 'overflow-wrap: anywhere' canonical/src/styles/project.css
           grep -q 'const stops = milestones.slice(0, 3)' canonical/src/pages/index.astro
           grep -q 'R7E_ALLOW_TEST_FIXTURES' canonical/src/lib/content.ts
           grep -q "fs.copyFileSync(path.join('src/content', name)" canonical/scripts/generate-stress-fixtures.mjs
           grep -q 'const bounded = async' canonical/tests/browser.spec.ts
+          grep -q 'VACUOUS_REFERENCE_SET' canonical/scripts/validate-links.mjs
+          grep -q 'EXECUTABLE_SCRIPT_COUNT' canonical/scripts/inspect-dist.mjs
+          grep -q 'preflight:workspace' canonical/package.json
+          node --check canonical/scripts/clean-generated.mjs
           node --check canonical/scripts/generate-stress-fixtures.mjs
-          node --check canonical/scripts/verify-stress-lineage.mjs
+          node --check canonical/scripts/inspect-dist.mjs
           node --check canonical/scripts/network-audit.mjs
           node --check canonical/scripts/run-lighthouse.mjs
+          node --check canonical/scripts/validate-links.mjs
+          node --check canonical/scripts/verify-stress-lineage.mjs
           node -e "const p=require('./canonical/package.json'); const l=require('./canonical/package-lock.json'); console.log({packageManager:p.packageManager,lockfileVersion:l.lockfileVersion,packages:Object.keys(l.packages||{}).length}); if(p.packageManager!=='npm@11.19.0'||l.lockfileVersion!==3||Object.keys(l.packages||{}).length<500) process.exit(1)"
 
       - name: Deterministically repack canonical source twice
@@ -120,5 +137,5 @@ jobs:
             echo 'SOURCE_TRANSPORT_ALREADY_CURRENT'
             exit 0
           fi
-          git commit -m 'R7E: freeze hardened canonical source'
+          git commit -m 'R7E: freeze final closure-hardened canonical source'
           git push origin HEAD:r7e-hardened-verification-20260829
