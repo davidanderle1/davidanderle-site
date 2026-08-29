@@ -63,4 +63,37 @@ replace_exact(
     'writing concise metadata title',
 )
 
-print('Applied audited R7E corrections: optional href, module-scoped VCE component, runtime audit semantics, unique contribution IDs, concise metadata title.')
+# Narrow-screen resilience: large technical headings and metadata must wrap inside their own boxes.
+# This deliberately fixes intrinsic sizing rather than hiding document overflow.
+replace_exact(
+    'src/styles/project.css',
+    '.project-hero h1 { margin: .3rem 0 1.5rem; font-size: clamp(3.1rem, 8vw, 8.2rem); line-height: .82; letter-spacing: -.072em; max-width: 11ch; text-wrap: balance; }',
+    '.project-hero h1 { margin: .3rem 0 1.5rem; font-size: clamp(3.1rem, 8vw, 8.2rem); line-height: .82; letter-spacing: -.072em; max-width: 11ch; text-wrap: balance; overflow-wrap: anywhere; }',
+    'project title narrow reflow',
+)
+replace_exact(
+    'src/styles/project.css',
+    '.project-facts div { padding-top: 1rem; border-top: 1px solid var(--line); }\n.project-facts dt { margin-bottom: .4rem; }',
+    '.project-facts div { min-inline-size: 0; padding-top: 1rem; border-top: 1px solid var(--line); }\n.project-facts dt { margin-bottom: .4rem; }\n.project-facts dd { overflow-wrap: anywhere; }',
+    'project metadata narrow reflow',
+)
+replace_exact(
+    'src/styles/project.css',
+    '.boundary-grid > div:last-child { color: var(--ink-soft); font-size: 1.1rem; }',
+    '.boundary-grid > * { min-inline-size: 0; }\n.boundary-grid > div:last-child { color: var(--ink-soft); font-size: 1.1rem; overflow-wrap: anywhere; }',
+    'boundary grid intrinsic sizing',
+)
+replace_exact(
+    'src/styles/project.css',
+    '.evidence-links a { display: grid; grid-template-columns: 9rem 1fr auto; gap: 1rem; align-items: center; min-height: 4.2rem; text-decoration: none; }',
+    '.evidence-links a { display: grid; grid-template-columns: 9rem minmax(0, 1fr) auto; gap: 1rem; align-items: center; min-height: 4.2rem; text-decoration: none; }\n.evidence-links a > * { min-inline-size: 0; overflow-wrap: anywhere; }',
+    'evidence link intrinsic sizing',
+)
+replace_exact(
+    'src/styles/project.css',
+    '.provenance-block dl { display: grid; grid-template-columns: repeat(3,1fr); gap: 1rem; margin: 0; }',
+    '.provenance-block dl { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 1rem; margin: 0; }\n.provenance-block dl > *, .provenance-block dd { min-inline-size: 0; overflow-wrap: anywhere; }',
+    'provenance intrinsic sizing',
+)
+
+print('Applied audited R7E corrections: optional href, module-scoped VCE component, runtime audit semantics, unique contribution IDs, concise metadata title, and narrow project-text reflow.')
