@@ -1,0 +1,66 @@
+name: R7E Bearing production reference evidence v3
+
+on:
+  push:
+    branches:
+      - r7e-reference-build-20260829
+    paths:
+      - r7e/reference_builder_v3.py
+      - r7e/template_patch_v3.py
+      - .github/workflows/r7e-production-reference-v3.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-bearing-production-reference-v3
+  cancel-in-progress: false
+
+jobs:
+  build-and-measure:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      TZ: UTC
+      SOURCE_DATE_EPOCH: '1787961600'
+      NODE_OPTIONS: '--max-old-space-size=4096'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.20.0'
+
+      - name: Execute native R7E v3 programme
+        run: |
+          sed 's/reference_builder_v2.py/reference_builder_v3.py/g' r7e/run_full_v2.sh > /tmp/run-r7e-v3.sh
+          bash /tmp/run-r7e-v3.sh
+
+      - name: Commit audit artifact only to isolated branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f R7E_OUTPUT/DAVID_ANDERLE_R7E_PRODUCTION_REFERENCE_COMPLETE.zip
+          git add -f R7E_OUTPUT/DAVID_ANDERLE_R7E_PRODUCTION_REFERENCE_COMPLETE.zip.sha256
+          git add -f R7E_OUTPUT/R7E_OUTPUT_SUMMARY.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore(r7e): publish v3 raw audit artifact [skip ci]'
+            git push origin HEAD:r7e-reference-build-20260829
+          fi
+
+      - name: Upload immutable workflow artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: david-anderle-r7e-production-reference-v3
+          path: |
+            R7E_OUTPUT/DAVID_ANDERLE_R7E_PRODUCTION_REFERENCE_COMPLETE.zip
+            R7E_OUTPUT/DAVID_ANDERLE_R7E_PRODUCTION_REFERENCE_COMPLETE.zip.sha256
+            R7E_OUTPUT/R7E_OUTPUT_SUMMARY.json
+          if-no-files-found: error
+          retention-days: 30
