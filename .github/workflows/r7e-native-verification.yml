@@ -177,6 +177,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run test:browser > ../evidence/browser.stdout.txt 2> ../evidence/browser.stderr.txt
+          cp .r7e-tmp/playwright/results.json ../evidence/browser-playwright-results.json
           count=$(find .r7e-tmp/screenshots -type f -name '*.png' | wc -l)
           echo "screenshot_count=$count" | tee ../evidence/browser-summary.txt
           test "$count" -ge 40
@@ -184,12 +185,36 @@ jobs:
       - name: axe-core accessibility automation
         working-directory: run1
         shell: bash
-        run: npm run test:axe > ../evidence/axe.stdout.txt 2> ../evidence/axe.stderr.txt
+        run: |
+          set -euo pipefail
+          npm run test:axe > ../evidence/axe.stdout.txt 2> ../evidence/axe.stderr.txt
+          cp .r7e-tmp/playwright/results.json ../evidence/axe-playwright-results.json
 
       - name: Lighthouse measurements
         working-directory: run1
         shell: bash
-        run: npm run test:lighthouse > ../evidence/lighthouse.stdout.txt 2> ../evidence/lighthouse.stderr.txt
+        run: |
+          set -euo pipefail
+          npm run test:lighthouse > ../evidence/lighthouse.stdout.txt 2> ../evidence/lighthouse.stderr.txt
+          node --input-type=module <<'NODE' > ../evidence/lighthouse-summary.json
+          import fs from 'node:fs';
+          const files=['.r7e-tmp/lighthouse/page-1.json','.r7e-tmp/lighthouse/page-2.json'];
+          const rows=files.map((file) => {
+            const report=JSON.parse(fs.readFileSync(file,'utf8'));
+            const audit=(id) => report.audits?.[id]?.numericValue ?? null;
+            return {
+              file,
+              url: report.finalDisplayedUrl ?? report.finalUrl ?? null,
+              performance: report.categories?.performance?.score ?? null,
+              accessibility: report.categories?.accessibility?.score ?? null,
+              lcpMs: audit('largest-contentful-paint'),
+              cls: audit('cumulative-layout-shift'),
+              tbtMs: audit('total-blocking-time'),
+              totalByteWeight: audit('total-byte-weight')
+            };
+          });
+          console.log(JSON.stringify({reports:rows},null,2));
+          NODE
 
       - name: Runtime network audit
         working-directory: run1
@@ -206,25 +231,165 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifact/BEARING_PRODUCTION_SOURCE artifact/BEARING_VERIFIED_DIST artifact/BEARING_SCALE_SITE_500 artifact/R7E_EVIDENCE
+          mkdir -p \
+            artifact/BEARING_PRODUCTION_SOURCE \
+            artifact/BEARING_VERIFIED_DIST \
+            artifact/BEARING_SCALE_SITE_500 \
+            artifact/R7E_EVIDENCE \
+            artifact/R7E_BROWSER_SCREENSHOTS \
+            artifact/R7E_LIGHTHOUSE_RAW \
+            artifact/R7E_NETWORK_RAW
           cp -a frozen/. artifact/BEARING_PRODUCTION_SOURCE/
           cp -a run1/dist/. artifact/BEARING_VERIFIED_DIST/
           cp -a run1/.r7e-tmp/stress/dist/. artifact/BEARING_SCALE_SITE_500/
           cp -a evidence/. artifact/R7E_EVIDENCE/
           cp -a run1/.r7e-tmp artifact/R7E_RUN1_TMP
+          cp -a run1/.r7e-tmp/screenshots/. artifact/R7E_BROWSER_SCREENSHOTS/
+          cp -a run1/.r7e-tmp/lighthouse/. artifact/R7E_LIGHTHOUSE_RAW/
+          cp -a run1/.r7e-tmp/network/. artifact/R7E_NETWORK_RAW/
           printf 'R7E BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F AUDIT\n' > artifact/R7E_GATE_DECISION.txt
-          find artifact -type f -print0 | sort -z | xargs -0 sha256sum > artifact/R7E_ARTIFACT_SHA256SUMS.txt
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('artifact')
+          index={
+            'gate':'R7E_GATE_DECISION.txt',
+            'source':{
+              'tree':'BEARING_PRODUCTION_SOURCE/',
+              'lockfile':'BEARING_PRODUCTION_SOURCE/package-lock.json',
+              'sourceHashes':'R7E_EVIDENCE/frozen-source.sha256',
+              'aggregateSourceHash':'R7E_EVIDENCE/frozen-source-tar.sha256'
+            },
+            'cleanRun1':{
+              'installStdout':'R7E_EVIDENCE/run1-npm-ci.stdout.txt',
+              'installStderr':'R7E_EVIDENCE/run1-npm-ci.stderr.txt',
+              'checkStdout':'R7E_EVIDENCE/run1-check.stdout.txt',
+              'buildStdout':'R7E_EVIDENCE/run1-build.stdout.txt',
+              'buildStderr':'R7E_EVIDENCE/run1-build.stderr.txt',
+              'timing':'R7E_EVIDENCE/run1-build.time.txt',
+              'manifest':'R7E_EVIDENCE/run1-dist.sha256',
+              'dist':'BEARING_VERIFIED_DIST/'
+            },
+            'cleanRun2':{
+              'installStdout':'R7E_EVIDENCE/run2-npm-ci.stdout.txt',
+              'installStderr':'R7E_EVIDENCE/run2-npm-ci.stderr.txt',
+              'checkStdout':'R7E_EVIDENCE/run2-check.stdout.txt',
+              'buildStdout':'R7E_EVIDENCE/run2-build.stdout.txt',
+              'buildStderr':'R7E_EVIDENCE/run2-build.stderr.txt',
+              'timing':'R7E_EVIDENCE/run2-build.time.txt',
+              'manifest':'R7E_EVIDENCE/run2-dist.sha256'
+            },
+            'reproducibility':'R7E_EVIDENCE/reproducibility.txt',
+            'invalidFixtures':{
+              'stdout':'R7E_EVIDENCE/invalid-fixtures.stdout.txt',
+              'stderr':'R7E_EVIDENCE/invalid-fixtures.stderr.txt',
+              'structured':'R7E_RUN1_TMP/invalid-fixture-results.json'
+            },
+            'scale500':{
+              'summary':'R7E_EVIDENCE/stress-summary.txt',
+              'stdout':'R7E_EVIDENCE/stress.stdout.txt',
+              'stderr':'R7E_EVIDENCE/stress.stderr.txt',
+              'timing':'R7E_EVIDENCE/stress.time.txt',
+              'site':'BEARING_SCALE_SITE_500/'
+            },
+            'browser':{
+              'stdout':'R7E_EVIDENCE/browser.stdout.txt',
+              'stderr':'R7E_EVIDENCE/browser.stderr.txt',
+              'results':'R7E_EVIDENCE/browser-playwright-results.json',
+              'summary':'R7E_EVIDENCE/browser-summary.txt',
+              'screenshots':'R7E_BROWSER_SCREENSHOTS/'
+            },
+            'accessibility':{
+              'stdout':'R7E_EVIDENCE/axe.stdout.txt',
+              'stderr':'R7E_EVIDENCE/axe.stderr.txt',
+              'results':'R7E_EVIDENCE/axe-playwright-results.json'
+            },
+            'lighthouse':{
+              'stdout':'R7E_EVIDENCE/lighthouse.stdout.txt',
+              'stderr':'R7E_EVIDENCE/lighthouse.stderr.txt',
+              'summary':'R7E_EVIDENCE/lighthouse-summary.json',
+              'raw':'R7E_LIGHTHOUSE_RAW/'
+            },
+            'network':{
+              'stdout':'R7E_EVIDENCE/network.stdout.txt',
+              'stderr':'R7E_EVIDENCE/network.stderr.txt',
+              'raw':'R7E_NETWORK_RAW/audit.json'
+            },
+            'wrangler':{
+              'stdout':'R7E_EVIDENCE/wrangler.stdout.txt',
+              'stderr':'R7E_EVIDENCE/wrangler.stderr.txt',
+              'config':'BEARING_PRODUCTION_SOURCE/wrangler.jsonc'
+            }
+          }
+          missing=[]
+          for section in index.values():
+            if isinstance(section,str):
+              if not (root/section).exists(): missing.append(section)
+            elif isinstance(section,dict):
+              for value in section.values():
+                if isinstance(value,str) and not (root/value).exists(): missing.append(value)
+          if missing:
+            raise SystemExit(f'Evidence index has missing paths: {missing}')
+          (root/'R7E_EVIDENCE_INDEX.json').write_text(json.dumps(index,indent=2)+'\n')
+          PY
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('artifact')
+          checks={
+            'gateReady':(root/'R7E_GATE_DECISION.txt').read_text().strip()=='R7E BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F AUDIT',
+            'sourcePresent':(root/'BEARING_PRODUCTION_SOURCE/package.json').is_file(),
+            'lockfilePresent':(root/'BEARING_PRODUCTION_SOURCE/package-lock.json').is_file(),
+            'nodeVersionPresent':(root/'BEARING_PRODUCTION_SOURCE/.node-version').is_file(),
+            'nvmrcPresent':(root/'BEARING_PRODUCTION_SOURCE/.nvmrc').is_file(),
+            'sourceWorkflowPresent':(root/'BEARING_PRODUCTION_SOURCE/.github/workflows/production-reference.yml').is_file(),
+            'verifiedDistPresent':(root/'BEARING_VERIFIED_DIST/index.html').is_file(),
+            'securityTxtPresent':(root/'BEARING_VERIFIED_DIST/.well-known/security.txt').is_file(),
+            'scaleSitePresent':(root/'BEARING_SCALE_SITE_500/index.html').is_file(),
+            'scaleDetailPages':len(list((root/'BEARING_SCALE_SITE_500/work').glob('synthetic-test-record-*/index.html')))==500,
+            'screenshotMinimum':len(list((root/'R7E_BROWSER_SCREENSHOTS').glob('*.png')))>=40,
+            'browserStructuredResults':(root/'R7E_EVIDENCE/browser-playwright-results.json').is_file(),
+            'axeStructuredResults':(root/'R7E_EVIDENCE/axe-playwright-results.json').is_file(),
+            'lighthouseReportCount':len(list((root/'R7E_LIGHTHOUSE_RAW').glob('*.json')))==2,
+            'networkRawPresent':(root/'R7E_NETWORK_RAW/audit.json').is_file(),
+            'evidenceIndexPresent':(root/'R7E_EVIDENCE_INDEX.json').is_file(),
+            'noNodeModules':not any(p.name=='node_modules' for p in root.rglob('node_modules')),
+            'noForbiddenPortraitDerivatives':not any(p.is_file() and any(token in p.name for token in ('640','960','1280')) for p in root.rglob('portrait-*')),
+            'productionHasNoSyntheticFixturePages':not any((root/'BEARING_VERIFIED_DIST/work').glob('synthetic-test-record-*'))
+          }
+          result={'passed':all(checks.values()),'checks':checks,'fileCountBeforeManifest':sum(1 for p in root.rglob('*') if p.is_file())}
+          (root/'R7E_PACKAGE_VALIDATION.json').write_text(json.dumps(result,indent=2)+'\n')
+          if not result['passed']:
+            raise SystemExit(json.dumps(result,indent=2))
+          PY
+
+          (
+            cd artifact
+            find . -type f ! -name 'R7E_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7E_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
 
       - name: Assemble diagnostic artifact on failure
         if: failure()
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p artifact/BEARING_PRODUCTION_SOURCE artifact/R7E_EVIDENCE
           if [ -d frozen ]; then cp -a frozen/. artifact/BEARING_PRODUCTION_SOURCE/; elif [ -d candidate ]; then cp -a candidate/. artifact/BEARING_PRODUCTION_SOURCE/; fi
           rm -rf artifact/BEARING_PRODUCTION_SOURCE/node_modules artifact/BEARING_PRODUCTION_SOURCE/dist artifact/BEARING_PRODUCTION_SOURCE/.astro artifact/BEARING_PRODUCTION_SOURCE/.r7e-tmp
           cp -a evidence/. artifact/R7E_EVIDENCE/ 2>/dev/null || true
+          if [ -d run1/dist ]; then mkdir -p artifact/BEARING_PARTIAL_RUN1_DIST && cp -a run1/dist/. artifact/BEARING_PARTIAL_RUN1_DIST/; fi
+          if [ -d run2/dist ]; then mkdir -p artifact/BEARING_PARTIAL_RUN2_DIST && cp -a run2/dist/. artifact/BEARING_PARTIAL_RUN2_DIST/; fi
           if [ -d run1/.r7e-tmp ]; then cp -a run1/.r7e-tmp artifact/R7E_RUN1_TMP; fi
+          if [ -d run1/test-results ]; then cp -a run1/test-results artifact/R7E_PLAYWRIGHT_FAILURE_RESULTS; fi
           printf 'R7E BUILD EVIDENCE INCOMPLETE — DO NOT START R7F\n' > artifact/R7E_GATE_DECISION.txt
+          (
+            cd artifact
+            find . -type f ! -name 'R7E_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7E_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
 
       - name: Upload R7E evidence
         if: always()
@@ -235,3 +400,4 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 6
+          include-hidden-files: true
