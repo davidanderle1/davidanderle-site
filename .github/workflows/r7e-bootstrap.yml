@@ -1,0 +1,71 @@
+name: R7E bootstrap toolchain resolution
+
+on:
+  push:
+    branches:
+      - r7e-reference-build-20260829
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated R7E branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install exact Node toolchain
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+          check-latest: false
+      - name: Resolve current package versions and environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p r7e-bootstrap
+          {
+            echo "start_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "working_directory=$PWD"
+            echo "node=$(node --version)"
+            echo "npm=$(npm --version)"
+            echo "registry=$(npm config get registry)"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+          } | tee r7e-bootstrap/environment.txt
+          node <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+          const packages = [
+            'astro',
+            '@astrojs/check',
+            'typescript',
+            'sharp',
+            '@playwright/test',
+            'axe-core',
+            'lighthouse',
+            '@lhci/cli',
+            'wrangler',
+            'html-validate',
+            'yaml',
+            'zod',
+            'prettier',
+            'prettier-plugin-astro'
+          ];
+          const out = {};
+          for (const name of packages) {
+            out[name] = execFileSync('npm', ['view', name, 'version'], { encoding: 'utf8' }).trim();
+          }
+          fs.writeFileSync('r7e-bootstrap/package-versions.json', JSON.stringify(out, null, 2) + '\n');
+          NODE
+          sha256sum r7e-bootstrap/* | tee r7e-bootstrap/SHA256SUMS
+          echo "end_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a r7e-bootstrap/environment.txt
+      - name: Upload bootstrap evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-bootstrap-toolchain
+          path: r7e-bootstrap
+          if-no-files-found: error
+          retention-days: 30
