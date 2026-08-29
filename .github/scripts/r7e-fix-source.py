@@ -43,7 +43,7 @@ replace_exact(
     'duplicate contribution id',
 )
 
-# Keep the full factual H1 while allowing a concise, human-authored metadata title.
+# Keep the full factual H1 while allowing a concise metadata title.
 replace_exact(
     'src/components/HeadMetadata.astro',
     "interface Props { title?: string; description?: string; canonicalPath?: string; noindex?: boolean; }\nconst { title, description = site.description, canonicalPath = '/', noindex = false } = Astro.props;\nconst fullTitle = title ? `${title} | ${site.name}` : `${site.name} | Technical work and public record`;",
@@ -59,7 +59,7 @@ replace_exact(
 replace_exact(
     'src/pages/writing/[slug].astro',
     '<BaseLayout title={record.data.title} canonicalPath={record.data.route} description={record.data.summary}>',
-    '<BaseLayout title={record.data.title} metaTitle={record.data.title.split(\':\')[0]} canonicalPath={record.data.route} description={record.data.summary}>',
+    '<BaseLayout title={record.data.title} metaTitle={record.data.title.split(\':\', 1)[0] ?? record.data.title} canonicalPath={record.data.route} description={record.data.summary}>',
     'writing concise metadata title',
 )
 
