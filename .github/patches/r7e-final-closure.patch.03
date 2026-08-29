@@ -1,0 +1,157 @@
++  for (const match of text.matchAll(/\b(?:id|name)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi)) {
++    const value = decodeHtml(match[1] ?? match[2] ?? match[3] ?? '').trim();
++    if (value) ids.add(value);
++  }
++  idsByHtml.set(relative, ids);
++}
++
++function splitSrcset(value) {
++  if (/^\s*data:/i.test(value)) return [value.trim()];
++  return value.split(',').map((item) => item.trim().split(/\s+/, 1)[0]).filter(Boolean);
++}
++
++function extractReferences(file) {
++  const relative = toPosix(path.relative(root, file));
++  const text = fs.readFileSync(file, 'utf8');
++  const rows = [];
++  if (relative.endsWith('.html') || relative.endsWith('.svg')) {
++    const attributePattern = /\b(href|xlink:href|src|srcset|poster|action)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
++    for (const match of text.matchAll(attributePattern)) {
++      const attribute = match[1].toLowerCase();
++      const raw = decodeHtml(match[2] ?? match[3] ?? match[4] ?? '').trim();
++      const values = attribute === 'srcset' ? splitSrcset(raw) : [raw];
++      for (const value of values) rows.push({ source: relative, attribute, value });
++    }
++  }
++  if (relative.endsWith('.css')) {
++    for (const match of text.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^\s)'";]+))\s*\)/gi)) {
++      rows.push({ source: relative, attribute: 'css-url', value: decodeHtml(match[1] ?? match[2] ?? match[3] ?? '').trim() });
++    }
++  }
++  return rows;
++}
++
++function localTarget(pathname) {
++  let decoded;
++  try { decoded = decodeURIComponent(pathname); }
++  catch { return { error: `Invalid percent encoding: ${pathname}` }; }
++  if (!decoded.startsWith('/')) return { error: `Resolved path is not absolute: ${decoded}` };
++  const rel = decoded.slice(1);
++  const candidates = [];
++  if (decoded === '/') candidates.push('index.html');
++  else if (decoded.endsWith('/')) candidates.push(`${rel}index.html`);
++  else {
++    candidates.push(rel);
++    candidates.push(`${rel}/index.html`);
++  }
++  const target = candidates.find((candidate) => relativeFiles.has(candidate));
++  return target ? { target } : { error: `No generated target for ${decoded}`, candidates };
++}
++
++const references = textFiles.flatMap(extractReferences);
++const inventory = [];
++const errors = [];
++let internalReferenceCount = 0;
++let externalReferenceCount = 0;
++let ignoredReferenceCount = 0;
++let documentReferenceCount = 0;
++let assetReferenceCount = 0;
++let fragmentReferenceCount = 0;
++const internalTargets = new Set();
++const filesWithReferences = new Set(references.map((row) => row.source));
++
++for (const row of references) {
++  const value = row.value;
++  if (!value) {
++    ignoredReferenceCount += 1;
++    inventory.push({ ...row, classification: 'empty' });
++    continue;
++  }
++  let parsed;
++  try { parsed = new URL(value, `${canonicalOrigin}${baseRouteForFile(row.source)}`); }
++  catch (error) {
++    errors.push({ ...row, code: 'INVALID_URL', message: error instanceof Error ? error.message : String(error) });
++    continue;
++  }
++
++  if (parsed.protocol === 'javascript:') {
++    errors.push({ ...row, code: 'JAVASCRIPT_URL', message: 'javascript: references are prohibited' });
++    continue;
++  }
++  if (ignoredSchemes.has(parsed.protocol)) {
++    ignoredReferenceCount += 1;
++    inventory.push({ ...row, classification: 'ignored', scheme: parsed.protocol });
++    continue;
++  }
++  if (!['http:', 'https:'].includes(parsed.protocol)) {
++    errors.push({ ...row, code: 'UNSUPPORTED_SCHEME', message: `Unsupported URL scheme ${parsed.protocol}` });
++    continue;
++  }
++  if (!canonicalHosts.has(parsed.hostname.toLowerCase())) {
++    externalReferenceCount += 1;
++    inventory.push({ ...row, classification: 'external', target: parsed.href });
++    continue;
++  }
++
++  internalReferenceCount += 1;
++  const resolved = localTarget(parsed.pathname);
++  if (!resolved.target) {
++    errors.push({ ...row, code: 'MISSING_TARGET', message: resolved.error, candidates: resolved.candidates ?? [] });
++    continue;
++  }
++  internalTargets.add(resolved.target);
++  const isDocument = resolved.target.endsWith('.html');
++  if (isDocument) documentReferenceCount += 1;
++  else assetReferenceCount += 1;
++
++  let fragment = '';
++  if (parsed.hash) {
++    fragmentReferenceCount += 1;
++    try { fragment = decodeURIComponent(parsed.hash.slice(1)); }
++    catch { fragment = parsed.hash.slice(1); }
++    if (fragment && isDocument && !idsByHtml.get(resolved.target)?.has(fragment)) {
++      errors.push({ ...row, code: 'MISSING_FRAGMENT', target: resolved.target, fragment, message: `Missing fragment #${fragment}` });
++      continue;
++    }
++  }
++  inventory.push({ ...row, classification: 'internal', target: resolved.target, fragment });
++}
++
++const normalizedInventory = inventory
++  .map((row) => JSON.stringify(row))
++  .sort()
++  .join('\n') + '\n';
++const htmlFilesWithoutReferences = htmlFiles
++  .map((file) => toPosix(path.relative(root, file)))
++  .filter((relative) => !filesWithReferences.has(relative));
++
++if (htmlFiles.length === 0) errors.push({ code: 'VACUOUS_HTML_SET', message: 'No generated HTML files were found' });
++if (references.length === 0) errors.push({ code: 'VACUOUS_REFERENCE_SET', message: 'No references were extracted' });
++if (internalReferenceCount === 0) errors.push({ code: 'VACUOUS_INTERNAL_SET', message: 'No same-site references were validated' });
++if (documentReferenceCount === 0) errors.push({ code: 'VACUOUS_DOCUMENT_SET', message: 'No generated document references were validated' });
++if (assetReferenceCount === 0) errors.push({ code: 'VACUOUS_ASSET_SET', message: 'No generated asset references were validated' });
++
++const report = {
++  root,
++  htmlFileCount: htmlFiles.length,
++  scannedTextFileCount: textFiles.length,
++  referenceCount: references.length,
++  internalReferenceCount,
++  externalReferenceCount,
++  ignoredReferenceCount,
++  documentReferenceCount,
++  assetReferenceCount,
++  fragmentReferenceCount,
++  uniqueInternalTargetCount: internalTargets.size,
++  htmlFilesWithoutReferences,
++  inventorySha256: sha256(normalizedInventory),
++  brokenCount: errors.length,
++  errors,
++  pass: errors.length === 0,
++};
++
++fs.mkdirSync(path.dirname(reportPath), { recursive: true });
++fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
++console.log(JSON.stringify(report, null, 2));
++if (!report.pass) process.exitCode = 1;
+diff --git a/verification/README.md b/verification/README.md
