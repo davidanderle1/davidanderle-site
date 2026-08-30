@@ -1,0 +1,145 @@
+diff --git a/scripts/run-lighthouse.mjs b/scripts/run-lighthouse.mjs
+index 2879305..1b981bb 100644
+--- a/scripts/run-lighthouse.mjs
++++ b/scripts/run-lighthouse.mjs
+@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
+ import { chromium } from '@playwright/test';
+ 
+ const lighthouseBin = path.resolve('node_modules/lighthouse/cli/index.js');
++const warmupRunsPerUrl = 1;
+ const runsPerUrl = 2;
+ const thresholds = { performance: 0.90, accessibility: 0.95 };
+ fs.mkdirSync('.r7e-tmp/lighthouse', { recursive: true });
+@@ -74,52 +75,67 @@ if (!ready) {
+   process.exit(2);
+ }
+ 
++function runLighthouse(url, output) {
++  const chromePath = chromium.executablePath();
++  const run = spawnSync(process.execPath, [
++    lighthouseBin,
++    url,
++    '--quiet',
++    `--chrome-path=${chromePath}`,
++    '--chrome-flags=--headless=new --no-sandbox --disable-dev-shm-usage',
++    '--output=json',
++    `--output-path=${output}`,
++    '--only-categories=performance,accessibility'
++  ], { encoding:'utf8', timeout:120_000, maxBuffer:10*1024*1024 });
++  process.stdout.write(run.stdout ?? '');
++  process.stderr.write(run.stderr ?? '');
++  if (run.error || run.status !== 0) {
++    throw run.error ?? new Error(`Lighthouse exited ${run.status}`);
++  }
++  const report = JSON.parse(fs.readFileSync(output, 'utf8'));
++  const numeric = (id) => report.audits?.[id]?.numericValue ?? null;
++  const scores = Object.fromEntries(Object.keys(thresholds).map((name) => [name, report.categories?.[name]?.score ?? 0]));
++  return {
++    url,
++    output,
++    scores,
++    lcpMs: numeric('largest-contentful-paint'),
++    cls: numeric('cumulative-layout-shift'),
++    tbtMs: numeric('total-blocking-time'),
++    totalByteWeight: numeric('total-byte-weight')
++  };
++}
++
+ let exitCode = 0;
++const warmupReports = [];
+ const reports = [];
+ try {
+-  const chromePath = chromium.executablePath();
+   for (const [index,url] of urls.entries()) {
+-    for (let runIndex = 1; runIndex <= runsPerUrl; runIndex++) {
+-      const output = `.r7e-tmp/lighthouse/page-${index+1}-run-${runIndex}.json`;
+-      const run = spawnSync(process.execPath, [
+-        lighthouseBin,
+-        url,
+-        '--quiet',
+-        `--chrome-path=${chromePath}`,
+-        '--chrome-flags=--headless=new --no-sandbox --disable-dev-shm-usage',
+-        '--output=json',
+-        `--output-path=${output}`,
+-        '--only-categories=performance,accessibility'
+-      ], { encoding:'utf8', timeout:120_000, maxBuffer:10*1024*1024 });
+-      process.stdout.write(run.stdout ?? '');
+-      process.stderr.write(run.stderr ?? '');
+-      if (run.error || run.status !== 0) {
+-        console.error(run.error ?? `Lighthouse exited ${run.status}`);
+-        exitCode = run.status ?? 1;
++    for (let warmupIndex = 1; warmupIndex <= warmupRunsPerUrl; warmupIndex++) {
++      const output = `.r7e-tmp/lighthouse/page-${index+1}-warmup-${warmupIndex}.json`;
++      try {
++        warmupReports.push({ ...runLighthouse(url, output), warmup: warmupIndex });
++      } catch (error) {
++        console.error(`Lighthouse warm-up failed for ${url}:`, error);
++        exitCode = 1;
+         break;
+       }
++    }
++    if (exitCode) break;
++
++    for (let runIndex = 1; runIndex <= runsPerUrl; runIndex++) {
++      const output = `.r7e-tmp/lighthouse/page-${index+1}-run-${runIndex}.json`;
+       try {
+-        const report = JSON.parse(fs.readFileSync(output, 'utf8'));
+-        const numeric = (id) => report.audits?.[id]?.numericValue ?? null;
+-        const scores = Object.fromEntries(Object.keys(thresholds).map((name) => [name, report.categories?.[name]?.score ?? 0]));
+-        reports.push({
+-          url,
+-          run: runIndex,
+-          output,
+-          scores,
+-          lcpMs: numeric('largest-contentful-paint'),
+-          cls: numeric('cumulative-layout-shift'),
+-          tbtMs: numeric('total-blocking-time'),
+-          totalByteWeight: numeric('total-byte-weight')
+-        });
++        const result = { ...runLighthouse(url, output), run: runIndex };
++        reports.push(result);
+         for (const [name, minimum] of Object.entries(thresholds)) {
+-          if (scores[name] < minimum) {
+-            console.error(`${url} run ${runIndex}: ${name} ${scores[name]} < ${minimum}`);
++          if (result.scores[name] < minimum) {
++            console.error(`${url} measured run ${runIndex}: ${name} ${result.scores[name]} < ${minimum}`);
+             exitCode = 1;
+           }
+         }
+       } catch (error) {
+-        console.error(`Unable to parse ${output}:`, error);
++        console.error(`Unable to complete ${output}:`, error);
+         exitCode = 1;
+       }
+     }
+@@ -131,15 +147,27 @@ try {
+   fs.writeFileSync('.r7e-tmp/lighthouse/server.stderr.txt', serverErr);
+ }
+ 
++const expectedWarmupReports = urls.length * warmupRunsPerUrl;
++const expectedReports = urls.length * runsPerUrl;
+ const summary = {
++  protocol: {
++    id: 'isolated-runner-warmup-v1',
++    warmupRunsPerUrl,
++    measuredRunsPerUrl: runsPerUrl,
++    warmupScored: false,
++    measuredRunsIndividuallyGated: true
++  },
+   thresholds,
++  warmupRunsPerUrl,
+   runsPerUrl,
+-  expectedReports: urls.length * runsPerUrl,
++  expectedWarmupReports,
++  expectedReports,
++  warmupReports,
+   reports,
+   server: { port, expectedHomeSha256, servedHomeSha256 },
+-  pass: exitCode === 0 && reports.length === urls.length * runsPerUrl
++  pass: exitCode === 0 && warmupReports.length === expectedWarmupReports && reports.length === expectedReports
+ };
+-if (reports.length !== urls.length * runsPerUrl) exitCode = 1;
++if (warmupReports.length !== expectedWarmupReports || reports.length !== expectedReports) exitCode = 1;
+ fs.writeFileSync('.r7e-tmp/lighthouse/summary.json', JSON.stringify(summary, null, 2));
+ console.log(JSON.stringify(summary, null, 2));
+ if (exitCode) process.exit(exitCode);
