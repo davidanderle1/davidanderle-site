@@ -24,8 +24,11 @@ jobs:
           cp -a .github/scripts export/.github/
           cp -a .github/workflows export/.github/
           cp -a .github/r7f-v5-builder-input.json export/.github/
-          find export -type f -print0 | sort -z | xargs -0 sha256sum > export/SHA256SUMS.txt
-          (cd export && sha256sum --check --strict SHA256SUMS.txt)
+          (
+            cd export
+            find . -type f ! -name 'SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+            sha256sum --check --strict SHA256SUMS.txt
+          )
 
       - name: Upload verifier source export
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
