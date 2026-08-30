@@ -1,5 +1,5 @@
 {
-  "fileCount": 112,
+  "fileCount": 113,
   "files": [
     {
       "path": ".env.example",
@@ -87,9 +87,9 @@
     },
     {
       "path": "package.json",
-      "sha256": "ca0c1211af36fd83440306c3966d952f1813aaae8c228aee098aee424a749504",
+      "sha256": "25254b251362b0e7418a1c45517e92dd6bacbe6fc68108027646679ee5aea42e",
       "mode": "0o644",
-      "size": 3477
+      "size": 3590
     },
     {
       "path": "playwright.config.ts",
@@ -132,6 +132,12 @@
       "sha256": "365ab4b5542f4f6a51d7acc4fe019a9e53e2115f4530de16728a9db128add3c6",
       "mode": "0o644",
       "size": 67
+    },
+    {
+      "path": "scripts/build-axe-fingerprint-adjudication.mjs",
+      "sha256": "e6e3920f1608959dba939e78dd7fb9359a40d58703541262344a32646267345b",
+      "mode": "0o644",
+      "size": 14930
     },
     {
       "path": "scripts/build-images.mjs",
@@ -537,9 +543,9 @@
     },
     {
       "path": "tests/accessibility.spec.ts",
-      "sha256": "7faaf52707d0ee0a1484a3321e1ff353fb74fb82a806a5fac0cece411b7e01a7",
+      "sha256": "75337a2abc02b831f824b978d0f41a26550a64a014ec0e45a0302693a9a234f3",
       "mode": "0o644",
-      "size": 9055
+      "size": 12162
     },
     {
       "path": "tests/browser.spec.ts",
