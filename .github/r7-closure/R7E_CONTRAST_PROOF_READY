@@ -1,0 +1,7 @@
+source_commit=daf44e65f4d2385554bce1528f1a9c13074edca6
+source_archive_sha256=e840cb7d88a1829f79ca754f78c61ef6488b008d3b45cbe9be9ec41df5ce0289
+patch_sha256=a314a2af5301870eef183f418399cafbeb4f4d87cfa9fd7c984c8f2bfd956fdc
+proof_designation=R7E_STATIC_CONTRAST_BOUND_V1
+proof_check_count=32
+proof_minimum_ratio=5.8
+changed_files=package.json,scripts/verify-contrast-bounds.mjs,tests/accessibility.spec.ts
