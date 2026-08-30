@@ -1,0 +1,70 @@
+name: R7 dispatch final fingerprint closure after expression-safe materialization
+
+on:
+  push:
+    branches:
+      - r7-final-closure-audit-v2-20260830
+    paths:
+      - '.github/workflows/r7-final-fingerprint-closure-dispatch-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: r7-final-fingerprint-dispatch-v2
+  cancel-in-progress: false
+
+env:
+  REPOSITORY: ${{ github.repository }}
+  VERIFIER_BRANCH: r7f-hardened-independent-verification-v5-20260830
+  VERIFIER_WORKFLOW_PATH: .github/workflows/r7f-hardened-independent-verification-v6.yml
+  CLOSURE_BRANCH: r7-technical-architecture-closed-fingerprint-v2-20260830
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Wait for exact expression-safe R7F v6 success
+        id: ready
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 360); do
+            if gh api "repos/${REPOSITORY}/branches/${CLOSURE_BRANCH}" >/dev/null 2>&1; then
+              echo 'already_closed=true' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            head="$(gh api "repos/${REPOSITORY}/branches/${VERIFIER_BRANCH}" --jq '.commit.sha')"
+            if ! gh api "repos/${REPOSITORY}/contents/.github/r7f-v6-builder-input.json?ref=${VERIFIER_BRANCH}" -H 'Accept: application/vnd.github.raw+json' > /tmp/r7f-v6-lock.json 2>/dev/null; then
+              sleep 10; continue
+            fi
+            if ! jq -e '.schema=="R7F_BUILDER_INPUT_V3_FINGERPRINT_BOUND" and .materializerVersion=="v2-expression-safe"' /tmp/r7f-v6-lock.json >/dev/null; then
+              sleep 10; continue
+            fi
+            runs="$(gh api "repos/${REPOSITORY}/actions/runs?branch=${VERIFIER_BRANCH}&per_page=100")"
+            success="$(jq -r --arg head "$head" --arg path "$VERIFIER_WORKFLOW_PATH" '[.workflow_runs[]|select(.head_sha==$head and .path==$path and .status=="completed" and .conclusion=="success")]|length' <<<"$runs")"
+            if [ "$success" -gt 0 ]; then
+              echo 'already_closed=false' >> "$GITHUB_OUTPUT"
+              echo "verifier_head=$head" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Expression-safe R7F v6 did not become green.' >&2
+          exit 61
+
+      - name: Dispatch fresh final closure audit
+        if: ${{ steps.ready.outputs.already_closed != 'true' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run r7-final-fingerprint-closure-audit-v3.yml \
+            --repo "${REPOSITORY}" \
+            --ref r7-final-closure-audit-v2-20260830
