@@ -1,0 +1,100 @@
+name: R7E no-JavaScript evidence wait bootstrap
+
+on:
+  push:
+    branches:
+      - r7e-nojs-settle-hardening-20260830
+    paths:
+      - '.github/patches/r7e-nojs-settle-fix.patch'
+      - '.github/workflows/r7e-nojs-settle-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  CURRENT_SOURCE_ARCHIVE_SHA256: 'd0baa8a40b1cbe9e91c6f486a39b44b92d1873ba0f88c3cff274b9afd2346327'
+  PATCH_SHA256: '58cca2b4a1fdde885569546d200dbac414bca2d28523db9f6ef270750b2bb6e2'
+  EXPECTED_BROWSER_TEST_SHA256: '92aaba715f0ccf1c3ae3243c08ed9a85e0206469e84df178cf0efb4aa8f08d3b'
+  EXPECTED_NEW_SOURCE_ARCHIVE_SHA256: '5dd1b86fb4d9e29be64645a475e3daf9b8fd5653bda8388457a5f2321c7bf4a9'
+  CANONICAL_BRANCH: 'r7e-hardened-verification-20260829'
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated staging branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Authenticate and materialize current canonical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > /tmp/current-source.zip
+          actual=$(sha256sum /tmp/current-source.zip | awk '{print $1}')
+          committed=$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)
+          printf 'expected=%s\ncommitted=%s\nactual=%s\n' "$CURRENT_SOURCE_ARCHIVE_SHA256" "$committed" "$actual"
+          test "$actual" = "$committed"
+          test "$actual" = "$CURRENT_SOURCE_ARCHIVE_SHA256"
+          rm -rf canonical
+          mkdir canonical
+          unzip -q /tmp/current-source.zip -d canonical
+          printf '%s  %s\n' '1498032ea2c37a7905dd78da3a401e8b0a69c318ca98bc7342cab696d49b9940' canonical/tests/browser.spec.ts | sha256sum --check --strict
+
+      - name: Authenticate and apply minimal wait correction
+        shell: bash
+        run: |
+          set -euxo pipefail
+          printf '%s  %s\n' "$PATCH_SHA256" .github/patches/r7e-nojs-settle-fix.patch | sha256sum --check --strict
+          git apply --check --verbose --directory=canonical .github/patches/r7e-nojs-settle-fix.patch
+          git apply --verbose --directory=canonical .github/patches/r7e-nojs-settle-fix.patch
+          actual=$(sha256sum canonical/tests/browser.spec.ts | awk '{print $1}')
+          printf 'expected=%s\nactual=%s\n' "$EXPECTED_BROWSER_TEST_SHA256" "$actual"
+          test "$actual" = "$EXPECTED_BROWSER_TEST_SHA256"
+          grep -nF 'Navigation already waited for the load event' canonical/tests/browser.spec.ts
+          if sed -n '225,245p' canonical/tests/browser.spec.ts | grep -F 'await settleLayout(page);'; then
+            echo 'Forbidden page-side settle remains in no-JavaScript VCE evidence block' >&2
+            exit 1
+          fi
+
+      - name: Deterministically repack corrected source twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/pack1 /tmp/pack2 /tmp/source1.zip /tmp/source2.zip /tmp/source-transport
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/pack1 --archive /tmp/source1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/pack2 --archive /tmp/source2.zip
+          cmp /tmp/source1.zip /tmp/source2.zip
+          diff -ru /tmp/pack1 /tmp/pack2
+          actual=$(sha256sum /tmp/source1.zip | awk '{print $1}')
+          printf 'expected=%s\nactual=%s\n' "$EXPECTED_NEW_SOURCE_ARCHIVE_SHA256" "$actual"
+          test "$actual" = "$EXPECTED_NEW_SOURCE_ARCHIVE_SHA256"
+          mkdir -p /tmp/source-transport/.r7e-source
+          cp -a /tmp/pack1/. /tmp/source-transport/.r7e-source/
+          printf '%s\n' "$actual" > /tmp/source-transport/.r7e-source/HARDENED_SOURCE_READY
+          (cd /tmp/source-transport && sha256sum --check --strict .r7e-source/SHA256SUMS)
+
+      - name: Publish only corrected source transport on canonical branch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch --no-tags origin "+refs/heads/${CANONICAL_BRANCH}:refs/remotes/origin/${CANONICAL_BRANCH}"
+          git reset --hard
+          git clean -fdx
+          git checkout --detach "refs/remotes/origin/${CANONICAL_BRANCH}"
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/source-transport/.r7e-source/. .r7e-source/
+          git add -A .r7e-source
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m 'R7E: remove page-side wait from no-JavaScript evidence'
+          git push origin "HEAD:refs/heads/${CANONICAL_BRANCH}"
