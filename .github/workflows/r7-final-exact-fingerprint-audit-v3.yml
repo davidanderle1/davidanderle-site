@@ -1,0 +1,334 @@
+name: R7 final exact-fingerprint closure audit v3
+
+on:
+  push:
+    branches:
+      - r7-final-exact-fingerprint-audit-v3-20260830
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7-final-exact-fingerprint-v3
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  REPOSITORY: davidanderle1/davidanderle-site
+  R7E_BRANCH: r7e-fingerprint-bound-verification-20260830
+  R7E_WORKFLOW_PATH: .github/workflows/r7e-fingerprint-bound-verification.yml
+  R7E_HEAD: dc9a57220e4c7aaedc497b6a04ce9bca121c3324
+  R7E_RUN_ID: '33335150420'
+  R7E_ARTIFACT_ID: '9738847793'
+  R7E_ARTIFACT_NAME: r7e-fingerprint-bound-evidence-dc9a57220e4c7aaedc497b6a04ce9bca121c3324
+  R7E_ARTIFACT_DIGEST: sha256:f1e4d8e288e161cb3edcd4aecc7de94d71f55088fde23e85f878a2342d59a5c1
+  R7F_BRANCH: r7f-hardened-independent-verification-v6-20260830
+  R7F_WORKFLOW_PATH: .github/workflows/r7f-hardened-independent-verification-v6-final.yml
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout isolated final-audit branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Authenticate final auditor implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit-input R7_CLOSURE_EVIDENCE R7_CLOSURE_OUTPUT
+          test -f .github/audit/r7-final-exact-fingerprint-audit-v3.py
+          python3 -m py_compile .github/audit/r7-final-exact-fingerprint-audit-v3.py
+          sha256sum \
+            .github/audit/r7-final-exact-fingerprint-audit-v3.py \
+            .github/workflows/r7-final-exact-fingerprint-audit-v3.yml \
+            > R7_CLOSURE_EVIDENCE/auditor-infrastructure.sha256
+
+      - name: Authenticate and download exact R7E artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${REPOSITORY}/branches/${R7E_BRANCH}" --jq '.commit.sha')" = "${R7E_HEAD}"
+          gh api "repos/${REPOSITORY}/actions/runs/${R7E_RUN_ID}" > R7_CLOSURE_EVIDENCE/r7e-run-metadata.json
+          jq -e --arg head "$R7E_HEAD" --arg branch "$R7E_BRANCH" --arg path "$R7E_WORKFLOW_PATH" \
+            '.head_sha==$head and .head_branch==$branch and .path==$path and .status=="completed" and .conclusion=="success"' \
+            R7_CLOSURE_EVIDENCE/r7e-run-metadata.json >/dev/null
+          gh api "repos/${REPOSITORY}/actions/artifacts/${R7E_ARTIFACT_ID}" > R7_CLOSURE_EVIDENCE/r7e-artifact-metadata.json
+          jq -e --arg name "$R7E_ARTIFACT_NAME" --arg digest "$R7E_ARTIFACT_DIGEST" --argjson run "$R7E_RUN_ID" \
+            '.name==$name and .digest==$digest and .expired==false and .workflow_run.id==$run' \
+            R7_CLOSURE_EVIDENCE/r7e-artifact-metadata.json >/dev/null
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${R7E_ARTIFACT_ID}/zip" \
+            --output audit-input/r7e.zip
+          test "sha256:$(sha256sum audit-input/r7e.zip | awk '{print $1}')" = "$R7E_ARTIFACT_DIGEST"
+          mkdir audit-input/r7e
+          unzip -q audit-input/r7e.zip -d audit-input/r7e
+          (
+            cd audit-input/r7e
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt > ../../R7_CLOSURE_EVIDENCE/r7e-internal-manifest-check.txt
+          )
+          test "$(tr -d '\r\n' < audit-input/r7e/R7E_GATE_DECISION.txt)" = 'R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F V6 AUDIT'
+          jq -e '.passed==true and ((.failedChecks // [])|length)==0' audit-input/r7e/R7E_PACKAGE_VALIDATION.json >/dev/null
+          sha256sum audit-input/r7e.zip > R7_CLOSURE_EVIDENCE/r7e-artifact-local.sha256
+
+      - name: Wait for and authenticate exact successful R7F v6 artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          selected_head=''
+          selected_run=''
+          for attempt in $(seq 1 270); do
+            head="$(gh api "repos/${REPOSITORY}/branches/${R7F_BRANCH}" --jq '.commit.sha')"
+            runs="$(gh api "repos/${REPOSITORY}/actions/runs?branch=${R7F_BRANCH}&per_page=100")"
+            run="$(jq -r --arg head "$head" --arg path "$R7F_WORKFLOW_PATH" '
+              [.workflow_runs[]
+                | select(.head_sha==$head)
+                | select(.path==$path)
+                | select(.status=="completed")
+                | select(.conclusion=="success")]
+              | sort_by(.created_at)
+              | reverse
+              | .[0].id // empty
+            ' <<<"$runs")"
+            if [[ -n "$run" ]]; then
+              selected_head="$head"
+              selected_run="$run"
+              break
+            fi
+            printf 'Waiting for successful exact R7F v6 at current head %s (attempt %s/270)\n' "$head" "$attempt"
+            sleep 20
+          done
+          test -n "$selected_head"
+          test -n "$selected_run"
+          test "$(gh api "repos/${REPOSITORY}/branches/${R7F_BRANCH}" --jq '.commit.sha')" = "$selected_head"
+          gh api "repos/${REPOSITORY}/actions/runs/${selected_run}" > R7_CLOSURE_EVIDENCE/r7f-run-metadata.json
+          jq -e --arg head "$selected_head" --arg branch "$R7F_BRANCH" --arg path "$R7F_WORKFLOW_PATH" \
+            '.head_sha==$head and .head_branch==$branch and .path==$path and .status=="completed" and .conclusion=="success"' \
+            R7_CLOSURE_EVIDENCE/r7f-run-metadata.json >/dev/null
+          artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${selected_run}/artifacts?per_page=100")"
+          expected_name="r7f-hardened-independent-v6-exact-evidence-${selected_head}"
+          count="$(jq --arg name "$expected_name" '[.artifacts[] | select(.expired==false and .name==$name)] | length' <<<"$artifacts")"
+          test "$count" -eq 1
+          artifact_id="$(jq -r --arg name "$expected_name" '.artifacts[] | select(.expired==false and .name==$name) | .id' <<<"$artifacts")"
+          artifact_digest="$(jq -r --arg name "$expected_name" '.artifacts[] | select(.expired==false and .name==$name) | .digest' <<<"$artifacts")"
+          case "$artifact_digest" in sha256:*) ;; *) exit 41 ;; esac
+          gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}" > R7_CLOSURE_EVIDENCE/r7f-artifact-metadata.json
+          jq -e --arg name "$expected_name" --arg digest "$artifact_digest" --argjson run "$selected_run" \
+            '.name==$name and .digest==$digest and .expired==false and .workflow_run.id==$run' \
+            R7_CLOSURE_EVIDENCE/r7f-artifact-metadata.json >/dev/null
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+            --output audit-input/r7f.zip
+          test "sha256:$(sha256sum audit-input/r7f.zip | awk '{print $1}')" = "$artifact_digest"
+          mkdir audit-input/r7f
+          unzip -q audit-input/r7f.zip -d audit-input/r7f
+          (
+            cd audit-input/r7f
+            sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt > ../../R7_CLOSURE_EVIDENCE/r7f-internal-manifest-check.txt
+          )
+          test "$(tr -d '\r\n' < audit-input/r7f/R7F_GATE_DECISION.txt)" = 'R7F HARDENED INDEPENDENT VERIFICATION V6 EXACT FINGERPRINT COMPLETE — R7 MAY ENTER FINAL CLOSURE AUDIT'
+          jq -e '.passed==true and .verificationVersion=="R7F-v6-exact-fingerprint" and ((.failedChecks // [])|length)==0' audit-input/r7f/R7F_PACKAGE_VALIDATION.json >/dev/null
+          jq -n \
+            --arg repository "$REPOSITORY" \
+            --arg r7eBranch "$R7E_BRANCH" \
+            --arg r7eHead "$R7E_HEAD" \
+            --argjson r7eRun "$R7E_RUN_ID" \
+            --argjson r7eArtifact "$R7E_ARTIFACT_ID" \
+            --arg r7eName "$R7E_ARTIFACT_NAME" \
+            --arg r7eDigest "$R7E_ARTIFACT_DIGEST" \
+            --arg r7fBranch "$R7F_BRANCH" \
+            --arg r7fHead "$selected_head" \
+            --argjson r7fRun "$selected_run" \
+            --argjson r7fArtifact "$artifact_id" \
+            --arg r7fName "$expected_name" \
+            --arg r7fDigest "$artifact_digest" \
+            '{schema:"R7_EXACT_FINGERPRINT_CHAIN_V1",repository:$repository,r7e:{branch:$r7eBranch,headSha:$r7eHead,runId:$r7eRun,artifactId:$r7eArtifact,artifactName:$r7eName,artifactDigest:$r7eDigest},r7f:{branch:$r7fBranch,headSha:$r7fHead,runId:$r7fRun,artifactId:$r7fArtifact,artifactName:$r7fName,artifactDigest:$r7fDigest}}' \
+            > R7_CLOSURE_EVIDENCE/chain-of-custody.json
+          sha256sum audit-input/r7f.zip > R7_CLOSURE_EVIDENCE/r7f-artifact-local.sha256
+
+      - name: Execute final independent exact-fingerprint closure audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/audit/r7-final-exact-fingerprint-audit-v3.py \
+            audit-input/r7e \
+            audit-input/r7f \
+            R7_CLOSURE_EVIDENCE/final-exact-fingerprint-audit.json \
+            > R7_CLOSURE_EVIDENCE/final-audit.stdout.txt \
+            2> R7_CLOSURE_EVIDENCE/final-audit.stderr.txt
+          jq -e '.passed==true and .decision=="R7_ENGINEERING_CLOSURE_CANDIDATE_READY" and ((.blockers // [])|length)==0' \
+            R7_CLOSURE_EVIDENCE/final-exact-fingerprint-audit.json >/dev/null
+
+      - name: Prove final auditor rejects former false-green mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rebuild_manifest() {
+            local root="$1"
+            rm -f "$root/R7F_ARTIFACT_SHA256SUMS.txt"
+            (
+              cd "$root"
+              find . -type f ! -name 'R7F_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7F_ARTIFACT_SHA256SUMS.txt
+              sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt >/dev/null
+            )
+          }
+
+          rm -rf audit-input/negative-desktop audit-input/negative-mobile audit-input/negative-proof
+          cp -a audit-input/r7f audit-input/negative-desktop
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('audit-input/negative-desktop/R7F_RUN1_TMP/axe/home-1280.json')
+          x=json.loads(p.read_text())
+          changed=False
+          for result in x.get('incomplete',[]):
+              for node in result.get('nodes',[]):
+                  rows=node.get('any') or []
+                  key=((rows[0].get('data') or {}).get('messageKey')) if len(rows)==1 else None
+                  if key=='elmPartiallyObscuring':
+                      node['target']=['#r7-final-mutated-desktop-target']
+                      changed=True
+                      break
+              if changed: break
+          if not changed: raise SystemExit('desktop mutation target not found')
+          p.write_text(json.dumps(x,indent=2)+'\n')
+          PY
+          rebuild_manifest audit-input/negative-desktop
+          set +e
+          python3 .github/audit/r7-final-exact-fingerprint-audit-v3.py audit-input/r7e audit-input/negative-desktop R7_CLOSURE_EVIDENCE/negative-final-desktop.json \
+            > R7_CLOSURE_EVIDENCE/negative-final-desktop.stdout.txt 2> R7_CLOSURE_EVIDENCE/negative-final-desktop.stderr.txt
+          desktop_status=$?
+          set -e
+          test "$desktop_status" -ne 0
+          jq -e '.passed==false and ((.failedChecks // []) | index("exact-raw-payload-multiset")) != null' R7_CLOSURE_EVIDENCE/negative-final-desktop.json >/dev/null
+
+          cp -a audit-input/r7f audit-input/negative-mobile
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          p=Path('audit-input/negative-mobile/R7F_RUN1_TMP/axe/home-390.json')
+          x=json.loads(p.read_text())
+          changed=False
+          for result in x.get('incomplete',[]):
+              for node in result.get('nodes',[]):
+                  rows=node.get('any') or []
+                  key=((rows[0].get('data') or {}).get('messageKey')) if len(rows)==1 else None
+                  related=(rows[0].get('relatedNodes') or []) if len(rows)==1 else []
+                  if key!='pseudoContent' or not related:
+                      continue
+                  target=related[0].get('target') or []
+                  if len(target)!=1: continue
+                  match=re.search(r'nth-child\((\d+)\)',target[0])
+                  if not match: continue
+                  old=int(match.group(1)); new=2 if old!=2 else 1
+                  related[0]['target']=[target[0].replace(f'nth-child({old})',f'nth-child({new})')]
+                  changed=True
+                  break
+              if changed: break
+          if not changed: raise SystemExit('mobile mutation target not found')
+          p.write_text(json.dumps(x,indent=2)+'\n')
+          PY
+          rebuild_manifest audit-input/negative-mobile
+          set +e
+          python3 .github/audit/r7-final-exact-fingerprint-audit-v3.py audit-input/r7e audit-input/negative-mobile R7_CLOSURE_EVIDENCE/negative-final-mobile.json \
+            > R7_CLOSURE_EVIDENCE/negative-final-mobile.stdout.txt 2> R7_CLOSURE_EVIDENCE/negative-final-mobile.stderr.txt
+          mobile_status=$?
+          set -e
+          test "$mobile_status" -ne 0
+          jq -e '.passed==false and ((.failedChecks // []) | index("exact-raw-payload-multiset")) != null' R7_CLOSURE_EVIDENCE/negative-final-mobile.json >/dev/null
+
+          cp -a audit-input/r7f audit-input/negative-proof
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('audit-input/negative-proof/R7F_RUN1_TMP/axe-compensation/home-route-backplates-1280.json')
+          x=json.loads(p.read_text())
+          x['passed']=False
+          p.write_text(json.dumps(x,indent=2)+'\n')
+          PY
+          rebuild_manifest audit-input/negative-proof
+          set +e
+          python3 .github/audit/r7-final-exact-fingerprint-audit-v3.py audit-input/r7e audit-input/negative-proof R7_CLOSURE_EVIDENCE/negative-final-proof.json \
+            > R7_CLOSURE_EVIDENCE/negative-final-proof.stdout.txt 2> R7_CLOSURE_EVIDENCE/negative-final-proof.stderr.txt
+          proof_status=$?
+          set -e
+          test "$proof_status" -ne 0
+          jq -e '.passed==false and ((.failedChecks // []) | index("verifier-proof-valid")) != null' R7_CLOSURE_EVIDENCE/negative-final-proof.json >/dev/null
+
+          jq -n \
+            --argjson desktopStatus "$desktop_status" \
+            --argjson mobileStatus "$mobile_status" \
+            --argjson proofStatus "$proof_status" \
+            '{gate:"R7_FINAL_AUDITOR_NON_VACUITY_V1",passed:($desktopStatus!=0 and $mobileStatus!=0 and $proofStatus!=0),controls:{desktopAffectedTarget:{exitStatus:$desktopStatus,rejected:($desktopStatus!=0)},mobileRelatedIndex:{exitStatus:$mobileStatus,rejected:($mobileStatus!=0)},compensationProof:{exitStatus:$proofStatus,rejected:($proofStatus!=0)}}}' \
+            > R7_CLOSURE_EVIDENCE/final-auditor-negative-controls.json
+          jq -e '.passed==true' R7_CLOSURE_EVIDENCE/final-auditor-negative-controls.json >/dev/null
+
+      - name: Assemble engineering closure candidate record
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit_passed=false
+          negative_passed=false
+          [[ -f R7_CLOSURE_EVIDENCE/final-exact-fingerprint-audit.json ]] && audit_passed="$(jq -r '.passed==true' R7_CLOSURE_EVIDENCE/final-exact-fingerprint-audit.json)"
+          [[ -f R7_CLOSURE_EVIDENCE/final-auditor-negative-controls.json ]] && negative_passed="$(jq -r '.passed==true' R7_CLOSURE_EVIDENCE/final-auditor-negative-controls.json)"
+          decision='R7_REMAINS_OPEN'
+          if [[ "$audit_passed" == true && "$negative_passed" == true ]]; then
+            decision='R7_ENGINEERING_CLOSURE_CANDIDATE_READY'
+          fi
+          chain='{}'
+          [[ -f R7_CLOSURE_EVIDENCE/chain-of-custody.json ]] && chain="$(cat R7_CLOSURE_EVIDENCE/chain-of-custody.json)"
+          jq -n \
+            --arg decision "$decision" \
+            --argjson auditPassed "$audit_passed" \
+            --argjson negativePassed "$negative_passed" \
+            --argjson chain "$chain" \
+            '{schema:"R7_ENGINEERING_CLOSURE_CANDIDATE_V1",decision:$decision,passed:($auditPassed and $negativePassed),blockers:(if ($auditPassed and $negativePassed) then [] else ["FINAL_EXACT_FINGERPRINT_AUDIT_OR_NON_VACUITY_INCOMPLETE"] end),bearingDesign:"FROZEN",architectureSelection:"UNCHANGED",chainOfCustody:$chain,scope:{r7EngineeringEvidenceReady:($auditPassed and $negativePassed),fullHistoryConsistencyAuditCompleted:false,r7FinallyClosed:false,r8SecurityCertified:false,r9DiscoverabilityCertified:false,productionLaunchApproved:false,mainBranchModified:false},nextRequiredInput:"User-provided complete prior chat transcript and sequential programme ZIPs for full-history consistency audit."}' \
+            > R7_CLOSURE_OUTPUT/R7_ENGINEERING_CLOSURE_CANDIDATE.json
+          cp -a R7_CLOSURE_EVIDENCE R7_CLOSURE_OUTPUT/
+          cp .github/audit/r7-final-exact-fingerprint-audit-v3.py R7_CLOSURE_OUTPUT/
+          cat > R7_CLOSURE_OUTPUT/R7_ENGINEERING_CLOSURE_CANDIDATE.md <<EOF
+          # R7 Engineering Closure Candidate
+
+          Decision: \`${decision}\`
+
+          This package covers the repaired exact-fingerprint engineering evidence chain only. BEARING and the selected Astro architecture remain unchanged. The project does not declare R7 finally closed until the complete prior chat transcript and sequential programme ZIPs have been checked for full-history consistency.
+          EOF
+          (
+            cd R7_CLOSURE_OUTPUT
+            find . -type f ! -name 'R7_CLOSURE_CANDIDATE_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7_CLOSURE_CANDIDATE_SHA256SUMS.txt
+            sha256sum --check --strict R7_CLOSURE_CANDIDATE_SHA256SUMS.txt >/dev/null
+          )
+
+      - name: Upload final exact-fingerprint closure candidate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-exact-fingerprint-closure-candidate-${{ github.sha }}
+          path: R7_CLOSURE_OUTPUT/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Enforce engineering closure candidate decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.passed==true and .decision=="R7_ENGINEERING_CLOSURE_CANDIDATE_READY" and .scope.fullHistoryConsistencyAuditCompleted==false and .scope.r7FinallyClosed==false' \
+            R7_CLOSURE_OUTPUT/R7_ENGINEERING_CLOSURE_CANDIDATE.json >/dev/null
