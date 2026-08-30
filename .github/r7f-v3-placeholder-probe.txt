@@ -1,0 +1,1 @@
+This marker confirms GitHub connector write access on the verifier branch.
