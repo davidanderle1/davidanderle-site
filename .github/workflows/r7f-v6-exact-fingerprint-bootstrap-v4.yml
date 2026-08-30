@@ -1,0 +1,133 @@
+name: Bootstrap authenticated R7F v6 exact verifier files
+
+on:
+  push:
+    branches:
+      - r7f-hardened-independent-verification-v6-20260830
+    paths:
+      - '.github/workflows/r7f-v6-exact-fingerprint-bootstrap-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7f-v6-exact-fingerprint-bootstrap-v4
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact R7F v6 branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Reassemble and authenticate exact payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t parts < <(find .github/bootstrap -maxdepth 1 -type f -name 'r7f-v6-payload.part*.b64' -print | sort)
+          test "${#parts[@]}" -eq 7
+          cat "${parts[@]}" | tr -d '\r\n\t ' | base64 --decode > /tmp/r7f-v6-exact-fingerprint-payload.tar.gz
+          printf '%s  %s\n' \
+            '8904ed1acd83cfabf28545d491b4b1f1796d8001d02e89f9ee0d4983df0d15d2' \
+            '/tmp/r7f-v6-exact-fingerprint-payload.tar.gz' \
+            | sha256sum --check --strict
+          tar -tzf /tmp/r7f-v6-exact-fingerprint-payload.tar.gz | grep -v '/$' | sort > /tmp/r7f-v6-payload-files.txt
+          cat > /tmp/r7f-v6-expected-files.txt <<'EOF'
+          .github/r7f-v6-builder-input.json
+          .github/r7f-v6-r7e-external-audit.json
+          .github/scripts/r7f-independent-axe-fingerprint-audit-v2.py
+          .github/scripts/r7f-v6-final-locked.sh
+          .github/scripts/r7f-v6-final.sh
+          EOF
+          diff -u /tmp/r7f-v6-expected-files.txt /tmp/r7f-v6-payload-files.txt
+          tar -xzf /tmp/r7f-v6-exact-fingerprint-payload.tar.gz -C .
+
+          cat > /tmp/r7f-v6-contained-sha256.txt <<'EOF'
+          e6cd6834c00b1c2e8289ffeee543ade2994e59ddaa1db7596c2dd0745482540f  .github/r7f-v6-builder-input.json
+          589539f8a3d66c6a3801264a524520035fa08adf3beea817316b401f129bb3b0  .github/r7f-v6-r7e-external-audit.json
+          3ff54e1e78622387fb9af389fcbede5ee8c060287cc46e2f152fc67d20a7a450  .github/scripts/r7f-independent-axe-fingerprint-audit-v2.py
+          d611bd9484a920382baabee548a3cb29ac26b437107ddaab5adbac3044ccd6cd  .github/scripts/r7f-v6-final-locked.sh
+          6e5eceec312778155cabe35413eb4fba2eaf920b01b42c5249aa522786e4f90e  .github/scripts/r7f-v6-final.sh
+          EOF
+          sha256sum --check --strict /tmp/r7f-v6-contained-sha256.txt
+
+      - name: Bind inherited verifier to exact fingerprint R7E contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          old_gate = 'R7E BUILD EVIDENCE COMPLETE — READY FOR HARDENED INDEPENDENT R7F AUDIT'
+          new_gate = 'R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F V6 AUDIT'
+
+          v3 = Path('.github/scripts/r7f-v3.sh')
+          text = v3.read_text(encoding='utf-8')
+          if text.count(old_gate) != 1:
+              raise SystemExit(f'r7f-v3 gate replacement count: {text.count(old_gate)}')
+          v3.write_text(text.replace(old_gate, new_gate), encoding='utf-8')
+
+          gates = Path('.github/scripts/r7f-evidence-gates.py')
+          text = gates.read_text(encoding='utf-8')
+          if text.count(old_gate) != 1:
+              raise SystemExit(f'evidence-gates gate replacement count: {text.count(old_gate)}')
+          if text.count('r7e-hardened-evidence-') != 1:
+              raise SystemExit(f'evidence-gates prefix replacement count: {text.count("r7e-hardened-evidence-")}')
+          text = text.replace(old_gate, new_gate)
+          text = text.replace('r7e-hardened-evidence-', 'r7e-fingerprint-bound-evidence-')
+          gates.write_text(text, encoding='utf-8')
+          PY
+
+          grep -Fq 'R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F V6 AUDIT' .github/scripts/r7f-v3.sh
+          grep -Fq 'R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F V6 AUDIT' .github/scripts/r7f-evidence-gates.py
+          grep -Fq 'r7e-fingerprint-bound-evidence-' .github/scripts/r7f-evidence-gates.py
+          ! grep -Fq 'R7E BUILD EVIDENCE COMPLETE — READY FOR HARDENED INDEPENDENT R7F AUDIT' .github/scripts/r7f-v3.sh
+          ! grep -Fq 'R7E BUILD EVIDENCE COMPLETE — READY FOR HARDENED INDEPENDENT R7F AUDIT' .github/scripts/r7f-evidence-gates.py
+          ! grep -Fq 'r7e-hardened-evidence-' .github/scripts/r7f-evidence-gates.py
+
+          chmod +x \
+            .github/scripts/r7f-v3.sh \
+            .github/scripts/r7f-v4.sh \
+            .github/scripts/r7f-v5.sh \
+            .github/scripts/r7f-independent-axe-fingerprint-audit-v2.py \
+            .github/scripts/r7f-v6-final.sh \
+            .github/scripts/r7f-v6-final-locked.sh
+
+          python3 -m py_compile \
+            .github/scripts/r7f-evidence-gates.py \
+            .github/scripts/r7f-independent-axe-fingerprint-audit-v2.py
+          bash -n .github/scripts/r7f-v3.sh
+          bash -n .github/scripts/r7f-v4.sh
+          bash -n .github/scripts/r7f-v5.sh
+          bash -n .github/scripts/r7f-v6-final.sh
+          bash -n .github/scripts/r7f-v6-final-locked.sh
+          jq -e '.schema == "R7F_BUILDER_INPUT_V4_EXACT_FINGERPRINT_BOUND"' .github/r7f-v6-builder-input.json >/dev/null
+          jq -e '.passed == true and .decision == "R7E_EXTERNAL_FINGERPRINT_AUDIT_PASS"' .github/r7f-v6-r7e-external-audit.json >/dev/null
+
+      - name: Commit exact verifier infrastructure
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/bootstrap/r7f-v6-exact-fingerprint-payload.tar.gz.b64
+          rm -f .github/bootstrap/r7f-v6-payload.part*.b64
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A \
+            .github/bootstrap \
+            .github/r7f-v6-builder-input.json \
+            .github/r7f-v6-r7e-external-audit.json \
+            .github/scripts/r7f-v3.sh \
+            .github/scripts/r7f-evidence-gates.py \
+            .github/scripts/r7f-independent-axe-fingerprint-audit-v2.py \
+            .github/scripts/r7f-v6-final.sh \
+            .github/scripts/r7f-v6-final-locked.sh
+          git diff --cached --check
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'R7F v6: freeze exact fingerprint verifier infrastructure'
+          git push origin HEAD:r7f-hardened-independent-verification-v6-20260830
