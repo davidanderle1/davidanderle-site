@@ -1,0 +1,321 @@
+diff --git a/package.json b/package.json
+index c263843..de5968e 100644
+--- a/package.json
++++ b/package.json
+@@ -14,17 +14,18 @@
+     "prepare:records": "node scripts/generate-public-records.mjs",
+     "prepare": "npm run prepare:images && npm run prepare:client && npm run prepare:records",
+     "validate:content": "node scripts/validate-content.mjs --mode production --content-root src/content",
++    "validate:contrast": "node scripts/verify-contrast-bounds.mjs",
+     "validate:fixtures": "node scripts/run-invalid-fixtures.mjs",
+     "check:astro": "astro check",
+-    "check": "npm run validate:content && npm run check:astro",
++    "check": "npm run validate:content && npm run validate:contrast && npm run check:astro",
+     "build:astro": "astro build",
+     "dist:inspect": "node scripts/inspect-dist.mjs dist",
+     "html:validate": "html-validate \"dist/**/*.html\"",
+     "links:validate": "node scripts/validate-links.mjs dist .r7e-tmp/link-validation-production.json",
+-    "build": "npm run prepare && npm run validate:content && npm run build:astro && npm run finalize:static && npm run dist:inspect",
++    "build": "npm run prepare && npm run validate:content && npm run validate:contrast && npm run build:astro && npm run finalize:static && npm run dist:inspect",
+     "serve": "node scripts/serve-dist.mjs",
+     "test:browser": "playwright test tests/browser.spec.ts",
+-    "test:axe": "playwright test tests/accessibility.spec.ts",
++    "test:axe": "npm run validate:contrast && playwright test tests/accessibility.spec.ts",
+     "test:lighthouse": "node scripts/run-lighthouse.mjs",
+     "test:stress:generate": "node scripts/generate-stress-fixtures.mjs",
+     "test:stress:validate": "node scripts/validate-content.mjs --mode stress --content-root .r7e-tmp/stress/content",
+diff --git a/scripts/verify-contrast-bounds.mjs b/scripts/verify-contrast-bounds.mjs
+new file mode 100644
+index 0000000..275e052
+--- /dev/null
++++ b/scripts/verify-contrast-bounds.mjs
+@@ -0,0 +1,244 @@
++import fs from 'node:fs';
++import path from 'node:path';
++import crypto from 'node:crypto';
++
++const outputPath = path.resolve('.r7e-tmp/contrast-bounds.json');
++const tokenPath = path.resolve('src/styles/tokens.css');
++const expectedStylesheetInventory = [
++  'src/styles/bearing.css',
++  'src/styles/global.css',
++  'src/styles/project.css',
++  'src/styles/tokens.css'
++];
++const actualStylesheetInventory = fs.readdirSync(path.resolve('src/styles'), { withFileTypes: true })
++  .filter((entry) => entry.isFile() && entry.name.endsWith('.css'))
++  .map((entry) => `src/styles/${entry.name}`)
++  .sort();
++if (JSON.stringify(actualStylesheetInventory) !== JSON.stringify(expectedStylesheetInventory)) {
++  throw new Error(`Stylesheet inventory changed: ${JSON.stringify(actualStylesheetInventory)}`);
++}
++const stylePaths = expectedStylesheetInventory
++  .filter((file) => file !== 'src/styles/tokens.css')
++  .map((file) => path.resolve(file));
++
++function sha256(file) {
++  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
++}
++
++function parseHex(value) {
++  const match = /^#([0-9a-f]{6})$/i.exec(value);
++  if (!match) throw new Error(`Expected six-digit hex color, received ${value}`);
++  const hex = match[1];
++  return [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
++}
++
++function srgbToLinear(channel) {
++  const value = channel / 255;
++  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
++}
++
++function luminance(rgb) {
++  return 0.2126 * srgbToLinear(rgb[0]) + 0.7152 * srgbToLinear(rgb[1]) + 0.0722 * srgbToLinear(rgb[2]);
++}
++
++function contrastRatio(first, second) {
++  const a = luminance(first);
++  const b = luminance(second);
++  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
++}
++
++function compositeSrgb(foreground, background, alpha) {
++  return foreground.map((channel, index) => channel * alpha + background[index] * (1 - alpha));
++}
++
++function rgbHex(rgb) {
++  return `#${rgb.map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')}`;
++}
++
++const tokenCss = fs.readFileSync(tokenPath, 'utf8');
++if (!tokenCss.includes('color-scheme: dark;')) throw new Error('Dark color-scheme contract changed');
++const tokenNames = ['ink', 'ink-soft', 'muted', 'bg', 'surface', 'surface-2', 'accent', 'accent-soft', 'danger-soft'];
++const tokens = {};
++for (const name of tokenNames) {
++  const match = new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})\\s*;`).exec(tokenCss);
++  if (!match) throw new Error(`Missing exact hexadecimal token --${name}`);
++  tokens[name] = { hex: match[1].toLowerCase(), rgb: parseHex(match[1]) };
++}
++
++const styles = Object.fromEntries(stylePaths.map((file) => [
++  path.relative(process.cwd(), file).replaceAll('\\', '/'),
++  fs.readFileSync(file, 'utf8')
++]));
++const globalCss = styles['src/styles/global.css'];
++const projectCss = styles['src/styles/project.css'];
++const bearingCss = styles['src/styles/bearing.css'];
++const combinedStyles = Object.values(styles).join('\n');
++
++const expectedBodyRadialGradient = 'radial-gradient(circle at 90% 0%, rgba(145,214,201,.07), transparent 27rem)';
++const expectedBodyBackground = `${expectedBodyRadialGradient}, var(--bg)`;
++const expectedLimitationGradient = 'linear-gradient(145deg, rgba(228,183,172,.055), transparent 65%)';
++const expectedDecorativeRouteGradient = 'linear-gradient(var(--accent), var(--line))';
++if (!globalCss.includes(`background: ${expectedBodyBackground};`)) throw new Error('Body gradient contract changed');
++if (!projectCss.includes(`background: ${expectedLimitationGradient};`)) throw new Error('Limitation gradient contract changed');
++if (!bearingCss.includes(`background: ${expectedDecorativeRouteGradient};`)) throw new Error('Decorative route gradient contract changed');
++
++const expectedGradients = [expectedBodyRadialGradient, expectedDecorativeRouteGradient, expectedLimitationGradient];
++const gradientOccurrenceCount = [...combinedStyles.matchAll(/\b(?:radial|linear)-gradient\(/g)].length;
++for (const gradient of expectedGradients) {
++  if (combinedStyles.split(gradient).length - 1 !== 1) {
++    throw new Error(`Expected exactly one audited gradient occurrence: ${gradient}`);
++  }
++}
++if (gradientOccurrenceCount !== expectedGradients.length) {
++  throw new Error(`Unexpected gradient count ${gradientOccurrenceCount}; expected ${expectedGradients.length}`);
++}
++
++const allowedBackgroundExpressions = new Set([
++  'var(--bg)',
++  expectedBodyBackground,
++  'var(--ink)',
++  'var(--surface)',
++  'var(--accent)',
++  expectedDecorativeRouteGradient,
++  expectedLimitationGradient
++]);
++const declaredBackgrounds = [];
++for (const [file, css] of Object.entries(styles)) {
++  for (const match of css.matchAll(/(?:^|[;{])\s*background(?:-color|-image)?\s*:\s*([^;]+);/gm)) {
++    const expression = match[1].trim();
++    declaredBackgrounds.push({ file, expression });
++    if (!allowedBackgroundExpressions.has(expression)) {
++      throw new Error(`Unaudited background expression ${expression} in ${file}`);
++    }
++  }
++}
++
++const allowedTextColorExpressions = new Set([
++  'inherit',
++  'CanvasText',
++  'var(--ink)',
++  'var(--ink-soft)',
++  'var(--muted)',
++  'var(--accent)',
++  'var(--accent-soft)',
++  'var(--bg)'
++]);
++const declaredTextColors = [];
++for (const [file, css] of Object.entries(styles)) {
++  for (const match of css.matchAll(/(?:^|[;{])\s*color\s*:\s*([^;]+);/gm)) {
++    const expression = match[1].trim();
++    declaredTextColors.push({ file, expression });
++    if (!allowedTextColorExpressions.has(expression)) {
++      throw new Error(`Unaudited text color expression ${expression} in ${file}`);
++    }
++  }
++}
++
++const sourceExtensions = new Set(['.astro', '.ts', '.mjs', '.css', '.md', '.json', '.html']);
++const inlinePresentationHits = [];
++const embeddedStyleHits = [];
++for (const entry of fs.readdirSync('src', { recursive: true })) {
++  const file = path.join('src', String(entry));
++  if (!fs.existsSync(file) || !fs.statSync(file).isFile() || !sourceExtensions.has(path.extname(file))) continue;
++  const text = fs.readFileSync(file, 'utf8');
++  if (/style\s*=\s*["'][^"']*\b(?:color|background(?:-color|-image)?)\s*:/i.test(text)) {
++    inlinePresentationHits.push(file.replaceAll('\\', '/'));
++  }
++  if (path.extname(file) === '.astro' && /<style\b/i.test(text)) {
++    embeddedStyleHits.push(file.replaceAll('\\', '/'));
++  }
++}
++if (inlinePresentationHits.length) {
++  throw new Error(`Inline color/background styles are outside the audited model: ${inlinePresentationHits.join(', ')}`);
++}
++if (embeddedStyleHits.length) {
++  throw new Error(`Embedded Astro styles are outside the audited stylesheet inventory: ${embeddedStyleHits.join(', ')}`);
++}
++
++const opacityMatches = [...combinedStyles.matchAll(/(?:^|[;{])\s*opacity\s*:\s*([^;]+);/gm)]
++  .map((match) => match[1].trim());
++const expectedDecorativeOpacityRule = ".bearing-signature { position: absolute; z-index: 1; left: 0; bottom: 2rem; width: 100%; height: auto; opacity: .88; }";
++if (JSON.stringify(opacityMatches) !== JSON.stringify(['.88']) || !bearingCss.includes(expectedDecorativeOpacityRule)) {
++  throw new Error(`Opacity contract changed: ${JSON.stringify(opacityMatches)}`);
++}
++for (const property of ['filter', 'mix-blend-mode', 'background-blend-mode', '-webkit-text-fill-color']) {
++  if (new RegExp(`(?:^|[;{])\\s*${property}\\s*:`, 'gm').test(combinedStyles)) {
++    throw new Error(`Unaudited compositing property present: ${property}`);
++  }
++}
++
++const bodyGradientPeak = compositeSrgb(tokens.accent.rgb, tokens.bg.rgb, 0.07);
++const limitationGradientPeak = compositeSrgb(tokens['danger-soft'].rgb, bodyGradientPeak, 0.055);
++const darkBackgrounds = {
++  bg: tokens.bg.rgb,
++  bodyGradientPeak,
++  surface: tokens.surface.rgb,
++  'surface-2': tokens['surface-2'].rgb,
++  limitationGradientPeak
++};
++const normalTextTokens = ['ink', 'ink-soft', 'muted', 'accent', 'accent-soft', 'danger-soft'];
++const checks = [];
++for (const foregroundName of normalTextTokens) {
++  for (const [backgroundName, background] of Object.entries(darkBackgrounds)) {
++    const ratio = contrastRatio(tokens[foregroundName].rgb, background);
++    checks.push({
++      foreground: foregroundName,
++      foregroundHex: tokens[foregroundName].hex,
++      background: backgroundName,
++      backgroundHex: rgbHex(background),
++      ratio: Number(ratio.toFixed(3)),
++      required: 4.5,
++      passed: ratio >= 4.5
++    });
++  }
++}
++for (const [backgroundName, background] of Object.entries({ accent: tokens.accent.rgb, ink: tokens.ink.rgb })) {
++  const ratio = contrastRatio(tokens.bg.rgb, background);
++  checks.push({
++    foreground: 'bg',
++    foregroundHex: tokens.bg.hex,
++    background: backgroundName,
++    backgroundHex: rgbHex(background),
++    ratio: Number(ratio.toFixed(3)),
++    required: 4.5,
++    passed: ratio >= 4.5
++  });
++}
++
++const failed = checks.filter((check) => !check.passed);
++const result = {
++  designation: 'R7E_STATIC_CONTRAST_BOUND_V1',
++  passed: failed.length === 0,
++  standard: 'WCAG 2.x relative luminance contrast formula',
++  normalTextMinimum: 4.5,
++  conservativeModel: {
++    alphaCompositingSpace: 'encoded sRGB',
++    bodyGradientPeakAlpha: 0.07,
++    limitationGradientPeakAlpha: 0.055,
++    bodyGradientPeakHex: rgbHex(bodyGradientPeak),
++    limitationGradientPeakHex: rgbHex(limitationGradientPeak),
++    allNormalTextTokensTestedAgainstAllDarkBackgroundBounds: true,
++    inverseTextPairsTested: ['bg-on-accent', 'bg-on-ink']
++  },
++  stylesheetInventory: actualStylesheetInventory,
++  sourceSha256: Object.fromEntries([tokenPath, ...stylePaths].map((file) => [
++    path.relative(process.cwd(), file).replaceAll('\\', '/'),
++    sha256(file)
++  ])),
++  tokens: Object.fromEntries(Object.entries(tokens).map(([name, value]) => [name, value.hex])),
++  auditedGradients: expectedGradients,
++  gradientOccurrenceCount,
++  declaredBackgrounds,
++  declaredTextColors,
++  inlinePresentationHits,
++  embeddedStyleHits,
++  opacityMatches,
++  checkCount: checks.length,
++  minimumObservedRatio: Math.min(...checks.map((check) => check.ratio)),
++  failed,
++  checks
++};
++fs.mkdirSync(path.dirname(outputPath), { recursive: true });
++fs.writeFileSync(outputPath, `${JSON.stringify(result, null, 2)}\n`);
++console.log(JSON.stringify(result, null, 2));
++if (!result.passed) process.exit(1);
+diff --git a/tests/accessibility.spec.ts b/tests/accessibility.spec.ts
+index 0c583a8..d211e5b 100644
+--- a/tests/accessibility.spec.ts
++++ b/tests/accessibility.spec.ts
+@@ -4,7 +4,16 @@ import axe from 'axe-core';
+ 
+ fs.mkdirSync('.r7e-tmp/axe', { recursive: true });
+ const pages = ['/', '/work/', '/archive/', '/work/volatility-cascade-engine/', '/about/'];
+-const allowedIncompleteRuleIds = new Set(['color-contrast']);
++const contrastProof = JSON.parse(fs.readFileSync('.r7e-tmp/contrast-bounds.json', 'utf8'));
++
++type AxeIncompleteResult = {
++  id: string;
++  nodes: Array<{
++    any: Array<{ id: string; data?: { messageKey?: string } }>;
++    all: unknown[];
++    none: unknown[];
++  }>;
++};
+ 
+ for (const width of [1280,390]) for (const url of pages) test(`axe ${url} ${width}`, async ({ page }) => {
+   await page.setViewportSize({width,height:width===390?844:900});
+@@ -19,7 +28,21 @@ for (const width of [1280,390]) for (const url of pages) test(`axe ${url} ${widt
+   }));
+   const routeName = url === '/' ? 'home' : url.replace(/^\//, '').replace(/\/$/, '').replaceAll('/', '-');
+   fs.writeFileSync(`.r7e-tmp/axe/${routeName}-${width}.json`, JSON.stringify(results, null, 2));
+-  const unexpectedIncomplete = results.incomplete.filter((result: { id: string }) => !allowedIncompleteRuleIds.has(result.id));
++  const unexpectedIncomplete = (results.incomplete as AxeIncompleteResult[]).filter((result) =>
++    result.id !== 'color-contrast' ||
++    result.nodes.length === 0 ||
++    result.nodes.some((node) =>
++      node.any.length !== 1 ||
++      node.any[0].id !== 'color-contrast' ||
++      node.any[0].data?.messageKey !== 'bgGradient' ||
++      node.all.length !== 0 ||
++      node.none.length !== 0
++    )
++  );
++  expect(contrastProof.designation).toBe('R7E_STATIC_CONTRAST_BOUND_V1');
++  expect(contrastProof.passed, JSON.stringify(contrastProof,null,2)).toBe(true);
++  expect(contrastProof.checkCount).toBe(32);
++  expect(contrastProof.minimumObservedRatio).toBeGreaterThanOrEqual(4.5);
+   expect(results.violations, JSON.stringify(results.violations,null,2)).toEqual([]);
+   expect(unexpectedIncomplete, JSON.stringify(unexpectedIncomplete,null,2)).toEqual([]);
+ });
