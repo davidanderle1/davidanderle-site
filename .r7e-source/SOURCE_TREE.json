@@ -441,9 +441,9 @@
     },
     {
       "path": "src/pages/archive/index.astro",
-      "sha256": "3c8d89953f03d43817c743ba3238471f663f9cbe09cee193153781fc5a0de825",
+      "sha256": "cef44886f5d42c70dc3e9cd041a3d21a8fe8ebeaac0eac29813a89675da0d34d",
       "mode": "0o644",
-      "size": 1984
+      "size": 1978
     },
     {
       "path": "src/pages/contact/index.astro",
