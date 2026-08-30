@@ -1,0 +1,12 @@
+--- a/tests/browser.spec.ts
++++ b/tests/browser.spec.ts
+@@ -233,7 +233,8 @@
+       for (let index = 0; index < 4; index += 1) await expect(panels.nth(index)).toBeVisible();
+       const status = main.locator('.sequence-status');
+       await expect(status).toHaveText('Static sequence: all steps visible.');
+-      await settleLayout(page);
++      // Page-side timers and requestAnimationFrame are intentionally unavailable in this context.
++      // Navigation already waited for the load event, so capture the static fallback directly.
+       await page.screenshot({ path: NO_JS_SCREENSHOT, fullPage: true });
+       vceEvidence = {
+         panelCount: await panels.count(),
