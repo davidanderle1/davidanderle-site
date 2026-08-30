@@ -201,9 +201,9 @@
     },
     {
       "path": "scripts/run-lighthouse.mjs",
-      "sha256": "61a706b10c20f136079354121d9a6c616d68d129d7a500f5f298547d590fa4a6",
+      "sha256": "9fab247608961728df41bee15b27477d81db1dccae19e6868c6f83365bfde282",
       "mode": "0o644",
-      "size": 6077
+      "size": 7103
     },
     {
       "path": "scripts/serve-dist.mjs",
@@ -315,9 +315,9 @@
     },
     {
       "path": "src/components/SiteHeader.astro",
-      "sha256": "62032f3c7bf1d1c53174d2466464d15a5a9ce21348287e3ab5438a12d39fb0f0",
+      "sha256": "4070fd8eba1a383948508868b124b84ce309a09ed11a57038fd7da29590270c4",
       "mode": "0o644",
-      "size": 457
+      "size": 424
     },
     {
       "path": "src/components/StructuredData.astro",
@@ -441,9 +441,9 @@
     },
     {
       "path": "src/pages/archive/index.astro",
-      "sha256": "e9aa905e2cbbe43d46ed8344864fa1aee1e87567d5a19fcd8dfee71df11f6ea9",
+      "sha256": "3c8d89953f03d43817c743ba3238471f663f9cbe09cee193153781fc5a0de825",
       "mode": "0o644",
-      "size": 1922
+      "size": 1984
     },
     {
       "path": "src/pages/contact/index.astro",
@@ -531,9 +531,9 @@
     },
     {
       "path": "tests/accessibility.spec.ts",
-      "sha256": "40fe543e6aa9480805be7a42e1c5988d6f143eff5df2992061e184ac17b6d4d7",
+      "sha256": "54e8770680874ecf43fff81944de150ebdca434dc7c04ca75241e482c92d0180",
       "mode": "0o644",
-      "size": 1182
+      "size": 1461
     },
     {
       "path": "tests/browser.spec.ts",
