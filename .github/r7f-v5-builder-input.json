@@ -1,0 +1,21 @@
+{
+  "schema": "R7F_BUILDER_INPUT_V2",
+  "repository": "davidanderle1/davidanderle-site",
+  "builderBranch": "r7e-hardened-verification-20260829",
+  "builderHeadSha": "4aec82c193ca929ebd9e4ae112524ed19cc5d34d",
+  "builderRunId": 33309269707,
+  "builderArtifactId": 9731512676,
+  "builderArtifactName": "r7e-hardened-evidence-4aec82c193ca929ebd9e4ae112524ed19cc5d34d",
+  "builderArtifactDigest": "sha256:745af71506b0ba845d7fc5774ccfc001ea38a95f86ea55d67ba212dd3ff7a309",
+  "builderSourceArchiveSha256": "f0da3a54989f8ab114be4f172225a769d223ecd5db9bb138cacfa40fe5d13a64",
+  "builderFrozenSourceTreeSha256": "46e6c8c6baee94811ea10c1df1ecb5a5337c641d7937029294159f18a3563bbd",
+  "builderVerifiedDistTreeSha256": "aa1bce26744c87aef5fb2df2457de3e3b641643f19274c88455ca39671a8f25d",
+  "builderStressDistTreeSha256": "7a238c577ff9dc9f623968a453cc690240e15cbd027e4f2801eee1410eb23d25",
+  "externalR7eAudit": {
+    "decision": "R7E_EXTERNAL_AUDIT_PASS",
+    "passed": true,
+    "auditSha256": "9ff467f9982f83674b1849e1dcf19052bfb3793dcd113774c72274af9081e6dd",
+    "blockers": []
+  },
+  "selectionRule": "Exact successful R7E workflow head plus one active evidence artifact whose GitHub digest and internal evidence package were independently verified."
+}
