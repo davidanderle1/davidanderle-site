@@ -1,0 +1,1 @@
+Authoritative R7E closure trigger. This repository-level marker is outside the frozen source package and does not alter the candidate source tree.
