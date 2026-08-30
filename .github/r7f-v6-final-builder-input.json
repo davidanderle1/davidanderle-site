@@ -1,0 +1,16 @@
+{
+  "schema": "R7F_BUILDER_INPUT_V4_EXACT_FINGERPRINT",
+  "repository": "davidanderle1/davidanderle-site",
+  "builderBranch": "r7e-fingerprint-bound-verification-20260830",
+  "builderWorkflowPath": ".github/workflows/r7e-fingerprint-bound-verification.yml",
+  "builderHeadSha": "dc9a57220e4c7aaedc497b6a04ce9bca121c3324",
+  "builderRunId": 33335150420,
+  "builderArtifactId": 9738847793,
+  "builderArtifactName": "r7e-fingerprint-bound-evidence-dc9a57220e4c7aaedc497b6a04ce9bca121c3324",
+  "builderArtifactDigest": "sha256:f1e4d8e288e161cb3edcd4aecc7de94d71f55088fde23e85f878a2342d59a5c1",
+  "expectedGateDecision": "R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F V6 AUDIT",
+  "expectedInternalManifest": "R7E_ARTIFACT_SHA256SUMS.txt",
+  "expectedFingerprintInventory": "R7E_EVIDENCE/axe-adjudication-inventory.json",
+  "expectedFingerprintTmpInventory": "R7E_RUN1_TMP/axe-adjudication/builder-inventory.json",
+  "selectionRule": "Exact successful R7E fingerprint-bound workflow run, exact head SHA, exact artifact ID, exact artifact name, and exact GitHub SHA-256 digest. No latest-run resolution is permitted."
+}
