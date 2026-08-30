@@ -1,0 +1,152 @@
+name: Bootstrap R7F v6 timestamp-normalized independent raw audit
+
+on:
+  push:
+    branches:
+      - r7f-hardened-independent-verification-v6-20260830
+    paths:
+      - '.github/workflows/r7f-v6-independent-timestamp-audit-repair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7f-v6-independent-timestamp-audit-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact R7F v6 branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Create v3 independent fingerprint auditor
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('.github/scripts/r7f-independent-axe-fingerprint-audit-v2.py')
+          target = Path('.github/scripts/r7f-independent-axe-fingerprint-audit-v3.py')
+          text = source.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  "def string_array(value: Any) -> list[str] | None:\n",
+                  "def normalized_raw_report(value: Any) -> Any:\n    if not isinstance(value, dict):\n        return value\n    normalized = dict(value)\n    normalized.pop('timestamp', None)\n    return normalized\n\n\ndef semantic_report_summaries(rows: Any) -> Any:\n    if not isinstance(rows, list):\n        return rows\n    return [\n        {key: value for key, value in row.items() if key != 'rawSha256'}\n        if isinstance(row, dict) else row\n        for row in rows\n    ]\n\n\ndef string_array(value: Any) -> list[str] | None:\n",
+              ),
+              (
+                  "    parser.add_argument('--label', default='candidate')\n",
+                  "    parser.add_argument('--label', default='candidate')\n    parser.add_argument('--reference-tmp-root', type=Path, default=None)\n",
+              ),
+              (
+                  "    tmp = args.tmp_root.resolve()\n    builder_path = args.builder_inventory.resolve()\n",
+                  "    tmp = args.tmp_root.resolve()\n    reference_tmp = args.reference_tmp_root.resolve() if args.reference_tmp_root else None\n    builder_path = args.builder_inventory.resolve()\n",
+              ),
+              (
+                  "    node_fingerprints = [entry['nodeFingerprint'] for entry in entries]\n",
+                  "    reference_report_comparisons: list[dict[str, Any]] = []\n    if reference_tmp is not None:\n        reference_axe_root = reference_tmp / 'axe'\n        reference_paths = sorted(reference_axe_root.glob('*.json')) if reference_axe_root.is_dir() else []\n        check('reference-exact-raw-report-set', [path.name for path in reference_paths] == [path.name for path in raw_paths])\n        reference_by_name = {path.name: path for path in reference_paths}\n        for report_path in raw_paths:\n            reference_path = reference_by_name.get(report_path.name)\n            current_report = load(report_path)\n            reference_report = load(reference_path) if reference_path and reference_path.is_file() else None\n            normalized_equal = reference_report is not None and normalized_raw_report(current_report) == normalized_raw_report(reference_report)\n            reference_report_comparisons.append({\n                'report': report_path.name,\n                'currentRawSha256': file_sha256(report_path),\n                'referenceRawSha256': file_sha256(reference_path) if reference_path and reference_path.is_file() else None,\n                'currentTimestamp': current_report.get('timestamp') if isinstance(current_report, dict) else None,\n                'referenceTimestamp': reference_report.get('timestamp') if isinstance(reference_report, dict) else None,\n                'normalizedEqual': normalized_equal,\n            })\n            if not normalized_equal:\n                findings.append({'code': 'REFERENCE_NORMALIZED_RAW_REPORT_MISMATCH', 'report': report_path.name})\n        check('reference-normalized-raw-reports-exact', len(reference_report_comparisons) == 10 and all(row['normalizedEqual'] for row in reference_report_comparisons))\n\n    node_fingerprints = [entry['nodeFingerprint'] for entry in entries]\n",
+              ),
+              (
+                  "    check('builder-report-summaries-exact', builder.get('reportSummaries') == report_summaries)\n",
+                  "    check('builder-report-semantics-exact', semantic_report_summaries(builder.get('reportSummaries')) == semantic_report_summaries(report_summaries))\n    if args.label == 'authoritative-builder':\n        check('builder-report-raw-digests-exact', builder.get('reportSummaries') == report_summaries)\n    else:\n        check('builder-report-raw-digests-not-required-for-independent-run', True)\n",
+              ),
+              (
+                  "        'builderInventory': {\n",
+                  "        'referenceRawReports': {\n            'tmpRoot': str(reference_tmp) if reference_tmp is not None else None,\n            'comparisons': reference_report_comparisons,\n        },\n        'builderInventory': {\n",
+              ),
+              (
+                  "'audit': 'R7F_INDEPENDENT_AXE_FINGERPRINT_ADJUDICATION_V2'",
+                  "'audit': 'R7F_INDEPENDENT_AXE_FINGERPRINT_ADJUDICATION_V3'",
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Unexpected auditor replacement count {count} for {old!r}')
+              text = text.replace(old, new)
+
+          required = [
+              "parser.add_argument('--reference-tmp-root'",
+              "reference-normalized-raw-reports-exact",
+              "normalized.pop('timestamp', None)",
+              "builder-report-semantics-exact",
+              "builder-report-raw-digests-exact",
+              "R7F_INDEPENDENT_AXE_FINGERPRINT_ADJUDICATION_V3",
+          ]
+          missing = [token for token in required if token not in text]
+          if missing:
+              raise SystemExit(f'Missing v3 auditor tokens: {missing}')
+          target.write_text(text, encoding='utf-8')
+          PY
+
+          chmod +x .github/scripts/r7f-independent-axe-fingerprint-audit-v3.py
+          python3 -m py_compile .github/scripts/r7f-independent-axe-fingerprint-audit-v3.py
+
+      - name: Bind R7F v6 execution to v3 auditor and explicit normalized parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          final_path = Path('.github/scripts/r7f-v6-final.sh')
+          text = final_path.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  'INDEPENDENT_AUDITOR="$SCRIPTS/r7f-independent-axe-fingerprint-audit-v2.py"',
+                  'INDEPENDENT_AUDITOR="$SCRIPTS/r7f-independent-axe-fingerprint-audit-v3.py"',
+              ),
+              (
+                  '  "$EVIDENCE/independent-verifier-axe-fingerprint-v2.json" \\\n  --label independent-verifier',
+                  '  "$EVIDENCE/independent-verifier-axe-fingerprint-v2.json" \\\n  --label independent-verifier \\\n  --reference-tmp-root "$BUILDER/R7E_RUN1_TMP"',
+              ),
+              (
+                  "  'verifier-exact-fingerprint-audit':verifier.get('passed') is True,\n",
+                  "  'verifier-exact-fingerprint-audit':verifier.get('passed') is True,\n  'verifier-normalized-raw-report-parity':(verifier.get('checks') or {}).get('reference-normalized-raw-reports-exact') is True,\n",
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Unexpected final-script replacement count {count} for {old!r}')
+              text = text.replace(old, new)
+          final_path.write_text(text, encoding='utf-8')
+
+          locked_path = Path('.github/scripts/r7f-v6-final-locked.sh')
+          text = locked_path.read_text(encoding='utf-8')
+          old = 'r7f-independent-axe-fingerprint-audit-v2.py'
+          count = text.count(old)
+          if count != 2:
+              raise SystemExit(f'Unexpected locked-script auditor reference count: {count}')
+          locked_path.write_text(text.replace(old, 'r7f-independent-axe-fingerprint-audit-v3.py'), encoding='utf-8')
+          PY
+
+          bash -n .github/scripts/r7f-v6-final.sh
+          bash -n .github/scripts/r7f-v6-final-locked.sh
+          grep -Fq 'r7f-independent-axe-fingerprint-audit-v3.py' .github/scripts/r7f-v6-final.sh
+          grep -Fq -- '--reference-tmp-root "$BUILDER/R7E_RUN1_TMP"' .github/scripts/r7f-v6-final.sh
+          grep -Fq 'verifier-normalized-raw-report-parity' .github/scripts/r7f-v6-final.sh
+          ! grep -Fq 'r7f-independent-axe-fingerprint-audit-v2.py' .github/scripts/r7f-v6-final.sh
+          ! grep -Fq 'r7f-independent-axe-fingerprint-audit-v2.py' .github/scripts/r7f-v6-final-locked.sh
+
+      - name: Commit audited v3 repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            .github/scripts/r7f-independent-axe-fingerprint-audit-v3.py \
+            .github/scripts/r7f-v6-final.sh \
+            .github/scripts/r7f-v6-final-locked.sh
+          git diff --cached --check
+          git commit -m 'R7F v6: distinguish runtime timestamps from semantic raw parity'
+          git push origin HEAD:r7f-hardened-independent-verification-v6-20260830
