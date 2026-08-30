@@ -1,0 +1,108 @@
+name: R7 final closure wait trigger
+
+on:
+  push:
+    branches:
+      - r7-final-closure-audit-20260830
+    paths-ignore:
+      - .github/r7-audit-ready-trigger.txt
+      - R7_CLOSURE_DECISION.json
+      - R7_CLOSURE_RECORD.md
+      - R7_CLOSURE_EVIDENCE/**
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7-final-closure-wait-trigger
+  cancel-in-progress: false
+
+jobs:
+  wait-and-trigger:
+    runs-on: ubuntu-24.04
+    env:
+      REPOSITORY: ${{ github.repository }}
+      VERIFIER_BRANCH: r7f-hardened-independent-verification-v3-20260830
+      VERIFIER_WORKFLOW_PATH: .github/workflows/r7f-hardened-independent-verification-v3.yml
+    steps:
+      - name: Checkout closure-audit branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Wait for exact successful R7F v3 and trigger strict audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          verifier_head=''
+          verifier_run_id=''
+          verifier_artifact_id=''
+          verifier_artifact_digest=''
+
+          for attempt in $(seq 1 240); do
+            current_head="$(gh api "repos/${REPOSITORY}/branches/${VERIFIER_BRANCH}" --jq '.commit.sha')"
+
+            set +e
+            lock_json="$(gh api "repos/${REPOSITORY}/contents/.github/r7f-v3-builder-input.json?ref=${VERIFIER_BRANCH}" -H 'Accept: application/vnd.github.raw+json' 2>/dev/null)"
+            lock_rc=$?
+            set -e
+            if test "${lock_rc}" -ne 0 || ! jq -e . >/dev/null 2>&1 <<<"${lock_json}"; then
+              echo "Waiting for verifier input lock; attempt ${attempt}/240"
+              sleep 10
+              continue
+            fi
+
+            runs="$(gh api "repos/${REPOSITORY}/actions/runs?branch=${VERIFIER_BRANCH}&per_page=100")"
+            while IFS= read -r run_id; do
+              test -n "${run_id}" || continue
+              artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100")"
+              count="$(jq '[.artifacts[] | select(.expired == false) | select((.name | ascii_downcase | contains("r7f")) and (.name | ascii_downcase | contains("evidence")))] | length' <<<"${artifacts}")"
+              if test "${count}" -eq 1; then
+                verifier_head="${current_head}"
+                verifier_run_id="${run_id}"
+                verifier_artifact_id="$(jq -r '.artifacts[] | select(.expired == false) | select((.name | ascii_downcase | contains("r7f")) and (.name | ascii_downcase | contains("evidence"))) | .id' <<<"${artifacts}")"
+                verifier_artifact_digest="$(jq -r '.artifacts[] | select(.expired == false) | select((.name | ascii_downcase | contains("r7f")) and (.name | ascii_downcase | contains("evidence"))) | .digest' <<<"${artifacts}")"
+                break 2
+              fi
+            done < <(jq -r --arg head "${current_head}" --arg path "${VERIFIER_WORKFLOW_PATH}" '
+              [.workflow_runs[]
+                | select(.head_sha == $head)
+                | select(.path == $path)
+                | select(.status == "completed")
+                | select(.conclusion == "success")]
+              | sort_by(.created_at)
+              | reverse
+              | .[].id
+            ' <<<"${runs}")
+
+            echo "Waiting for R7F v3 evidence at ${current_head}; attempt ${attempt}/240"
+            sleep 10
+          done
+
+          test -n "${verifier_run_id}"
+          case "${verifier_artifact_digest}" in sha256:*) ;; *) exit 51 ;; esac
+          current_head="$(gh api "repos/${REPOSITORY}/branches/${VERIFIER_BRANCH}" --jq '.commit.sha')"
+          test "${current_head}" = "${verifier_head}"
+
+          cat > .github/r7-audit-ready-trigger.txt <<EOF
+          verifier_branch=${VERIFIER_BRANCH}
+          verifier_head=${verifier_head}
+          verifier_run_id=${verifier_run_id}
+          verifier_artifact_id=${verifier_artifact_id}
+          verifier_artifact_digest=${verifier_artifact_digest}
+          EOF
+
+          git add .github/r7-audit-ready-trigger.txt
+          if git diff --cached --quiet; then
+            echo 'Strict audit already triggered for this exact verifier artifact.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'R7: trigger strict audit for exact R7F v3 artifact'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
