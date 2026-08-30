@@ -1,0 +1,4 @@
+source_commit=0684a0605a34550ab75345e6c33ac7449714a07d
+source_archive_sha256=a4d843b19ecd6792ea3c91ed5fb3f39b38b8f14c8f62e4c649572783b3c129bc
+patch_sha256=d35e326c507800ae80b69c8ee3ab242caff526b5ec99bbfcb5f26caef2ebdba3
+changed_files=scripts/run-lighthouse.mjs,src/components/SiteHeader.astro,src/pages/archive/index.astro,tests/accessibility.spec.ts
