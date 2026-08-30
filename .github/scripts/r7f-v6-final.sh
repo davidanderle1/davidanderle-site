@@ -9,7 +9,7 @@ ARTIFACT="$ROOT/artifact"
 RUN1="$ROOT/verifier-run1"
 BUILDER="$ROOT/builder"
 CANDIDATE="$ROOT/candidate"
-INDEPENDENT_AUDITOR="$SCRIPTS/r7f-independent-axe-fingerprint-audit-v2.py"
+INDEPENDENT_AUDITOR="$SCRIPTS/r7f-independent-axe-fingerprint-audit-v3.py"
 V6_SUCCESS=0
 
 stage_v6_failure() {
@@ -123,7 +123,8 @@ python3 "$INDEPENDENT_AUDITOR" \
 python3 "$INDEPENDENT_AUDITOR" \
   "$RUN1/.r7e-tmp" "$BUILDER_INVENTORY" \
   "$EVIDENCE/independent-verifier-axe-fingerprint-v2.json" \
-  --label independent-verifier
+  --label independent-verifier \
+  --reference-tmp-root "$BUILDER/R7E_RUN1_TMP"
 
 rm -rf \
   "$ROOT/negative-fingerprint-desktop" \
@@ -307,6 +308,7 @@ checks.update({
   'builder-exact-fingerprint-identity':identity.get('passed') is True,
   'builder-exact-fingerprint-audit':builder.get('passed') is True,
   'verifier-exact-fingerprint-audit':verifier.get('passed') is True,
+  'verifier-normalized-raw-report-parity':(verifier.get('checks') or {}).get('reference-normalized-raw-reports-exact') is True,
   'builder-verifier-semantic-inventory-parity':bm.get('inventorySha256')==vm.get('inventorySha256'),
   'builder-verifier-node-set-parity':bm.get('nodeFingerprintSetSha256')==vm.get('nodeFingerprintSetSha256'),
   'builder-verifier-binding-set-parity':bm.get('bindingFingerprintSetSha256')==vm.get('bindingFingerprintSetSha256'),
