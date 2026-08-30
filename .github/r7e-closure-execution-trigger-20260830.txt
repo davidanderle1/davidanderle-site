@@ -1,0 +1,1 @@
+Trigger for the authoritative R7E closure execution. The frozen candidate source is carried only in .r7e-source and is unaffected by this repository-level marker.
