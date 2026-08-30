@@ -1,0 +1,132 @@
+name: Bootstrap canonical R7E fingerprint source contract
+
+on:
+  push:
+    branches:
+      - r7e-fingerprint-bound-verification-20260830
+    paths:
+      - '.github/workflows/r7e-fingerprint-source-contract-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-fingerprint-source-contract-bootstrap
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact fingerprint branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Materialize deterministic fingerprint contract source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf canonical /tmp/r7e-fp-pack1 /tmp/r7e-fp-pack2 /tmp/r7e-fp-source1.zip /tmp/r7e-fp-source2.zip
+          mkdir canonical
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > /tmp/r7e-fp-current.zip
+          test "$(sha256sum /tmp/r7e-fp-current.zip | awk '{print $1}')" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
+          unzip -q /tmp/r7e-fp-current.zip -d canonical
+
+          printf '%s  %s\n' \
+            'e6e3920f1608959dba939e78dd7fb9359a40d58703541262344a32646267345b' \
+            'canonical/scripts/build-axe-fingerprint-adjudication.mjs' \
+            | sha256sum --check --strict
+          printf '%s  %s\n' \
+            '25254b251362b0e7418a1c45517e92dd6bacbe6fc68108027646679ee5aea42e' \
+            'canonical/package.json' \
+            | sha256sum --check --strict
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          script_path = Path('canonical/scripts/build-axe-fingerprint-adjudication.mjs')
+          script = script_path.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  "const orderedAdjudicationFingerprints = entries.map((entry) => entry.adjudicationFingerprint);",
+                  "const orderedAdjudicationFingerprints = entries.map((entry) => entry.adjudicationFingerprint);\nconst nodeFingerprintSet = [...new Set(orderedNodeFingerprints)].sort();\nconst bindingFingerprintSet = [...new Set(orderedAdjudicationFingerprints)].sort();",
+              ),
+              (
+                  "  passed: errors.length === 0,\n  tmpRoot,",
+                  "  passed: errors.length === 0,\n  failedChecks: errors.map((error) => error?.code ?? 'UNKNOWN'),\n  tmpRoot,",
+              ),
+              (
+                  "    totalIncompleteNodes: entries.length,\n    messageKeys: totalKeys,",
+                  "    totalIncompleteNodes: entries.length,\n    uniqueNodeFingerprintCount: nodeFingerprintSet.length,\n    uniqueBindingFingerprintCount: bindingFingerprintSet.length,\n    messageKeys: totalKeys,",
+              ),
+              (
+                  "  orderedAdjudicationFingerprintSha256: sha256Buffer(Buffer.from(canonicalJson(orderedAdjudicationFingerprints), 'utf8')),\n  inventorySha256:",
+                  "  orderedAdjudicationFingerprintSha256: sha256Buffer(Buffer.from(canonicalJson(orderedAdjudicationFingerprints), 'utf8')),\n  nodeFingerprintSetSha256: sha256Buffer(Buffer.from(canonicalJson(nodeFingerprintSet), 'utf8')),\n  bindingFingerprintSetSha256: sha256Buffer(Buffer.from(canonicalJson(bindingFingerprintSet), 'utf8')),\n  inventorySha256:",
+              ),
+          ]
+          for old, new in replacements:
+              count = script.count(old)
+              if count != 1:
+                  raise SystemExit(f'Unexpected script replacement count {count} for {old!r}')
+              script = script.replace(old, new)
+          required = [
+              'failedChecks:',
+              'uniqueNodeFingerprintCount:',
+              'nodeFingerprintSetSha256:',
+              'bindingFingerprintSetSha256:',
+              "equal(element.target, canonical.target) && element.html === canonical.html",
+              'RELATED_OWNER_MISMATCH',
+              'RELATED_LIST_MISMATCH',
+          ]
+          missing = [token for token in required if token not in script]
+          if missing:
+              raise SystemExit(f'Missing required fingerprint contract tokens: {missing}')
+          script_path.write_text(script, encoding='utf-8')
+
+          package_path = Path('canonical/package.json')
+          package = package_path.read_text(encoding='utf-8')
+          old = '.r7e-tmp/axe-adjudication/builder-inventory.json'
+          new = '.r7e-tmp/axe-adjudication/inventory.json'
+          if package.count(old) != 1:
+              raise SystemExit(f'Unexpected package output-path count: {package.count(old)}')
+          package_path.write_text(package.replace(old, new), encoding='utf-8')
+          PY
+
+          node --check canonical/scripts/build-axe-fingerprint-adjudication.mjs
+          python3 -m json.tool canonical/package.json >/dev/null
+          grep -q 'axe-adjudication/inventory.json' canonical/package.json
+          grep -q 'nodeFingerprintSetSha256' canonical/scripts/build-axe-fingerprint-adjudication.mjs
+          grep -q 'bindingFingerprintSetSha256' canonical/scripts/build-axe-fingerprint-adjudication.mjs
+          grep -q 'RELATED_OWNER_MISMATCH' canonical/scripts/build-axe-fingerprint-adjudication.mjs
+
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-fp-pack1 --archive /tmp/r7e-fp-source1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-fp-pack2 --archive /tmp/r7e-fp-source2.zip
+          cmp /tmp/r7e-fp-source1.zip /tmp/r7e-fp-source2.zip
+          diff -ru /tmp/r7e-fp-pack1 /tmp/r7e-fp-pack2
+
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/r7e-fp-pack1/. .r7e-source/
+          cp .r7e-source/ARCHIVE_SHA256 .r7e-source/HARDENED_SOURCE_READY
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          printf 'new_source_archive_sha256=%s\n' "$(cat .r7e-source/ARCHIVE_SHA256)"
+
+      - name: Commit immutable canonical fingerprint source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .r7e-source
+          git diff --cached --check
+          git commit -m 'R7E: freeze canonical exact fingerprint source contract'
+          git push origin HEAD:r7e-fingerprint-bound-verification-20260830
