@@ -1,0 +1,86 @@
+name: R7 closure transition gate
+
+on:
+  push:
+    branches:
+      - r7-final-closure-audit-20260830
+    paths:
+      - R7_CLOSURE_DECISION.json
+      - .github/workflows/r7-closure-transition-gate.yml
+
+permissions:
+  contents: write
+
+env:
+  CLOSURE_BRANCH: r7-technical-architecture-closed-20260830
+
+jobs:
+  transition:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout audited closure branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Enforce explicit closure decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f R7_CLOSURE_DECISION.json
+          jq -e . R7_CLOSURE_DECISION.json >/dev/null
+
+          decision="$(jq -r '.decision' R7_CLOSURE_DECISION.json)"
+          passed="$(jq -r '.passed' R7_CLOSURE_DECISION.json)"
+          blocker_count="$(jq '.blockers | length' R7_CLOSURE_DECISION.json)"
+
+          if test "${decision}" = R7_CLOSED && test "${passed}" = true && test "${blocker_count}" -eq 0; then
+            verifier_head="$(jq -r '.chainOfCustody.verifier.headSha' R7_CLOSURE_DECISION.json)"
+            test "${verifier_head}" != null
+            test -n "${verifier_head}"
+
+            jq -n \
+              --arg phase R7 \
+              --arg decision R7_CLOSED \
+              --arg closureRecordCommit "${GITHUB_SHA}" \
+              --arg verifiedVerifierHead "${verifier_head}" \
+              --arg nextAuthorizedPhase 'R8 Security' \
+              '{phase:$phase,decision:$decision,closureRecordCommit:$closureRecordCommit,verifiedVerifierHead:$verifiedVerifierHead,nextAuthorizedPhase:$nextAuthorizedPhase,architectureFrozen:true}' \
+              > R7_PHASE_TRANSITION.json
+            rm -f R7_REMAINING_BLOCKERS.md
+
+            if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${CLOSURE_BRANCH}" >/dev/null 2>&1; then
+              existing="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${CLOSURE_BRANCH}" --jq '.object.sha')"
+              test "${existing}" = "${GITHUB_SHA}"
+            else
+              gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+                -f ref="refs/heads/${CLOSURE_BRANCH}" \
+                -f sha="${GITHUB_SHA}" >/dev/null
+            fi
+          else
+            jq -n \
+              --arg phase R7 \
+              --arg decision R7_NOT_CLOSED \
+              --arg closureRecordCommit "${GITHUB_SHA}" \
+              --arg nextAuthorizedAction 'Correct only listed blockers and repeat R7E plus independent R7F' \
+              --argjson blockers "$(jq '.blockers' R7_CLOSURE_DECISION.json)" \
+              '{phase:$phase,decision:$decision,closureRecordCommit:$closureRecordCommit,nextAuthorizedAction:$nextAuthorizedAction,architectureFrozen:false,blockers:$blockers}' \
+              > R7_PHASE_TRANSITION.json
+            {
+              echo '# R7 Remaining Closure Blockers'
+              echo
+              jq -r '.blockers[] | "- `" + . + "`"' R7_CLOSURE_DECISION.json
+            } > R7_REMAINING_BLOCKERS.md
+          fi
+
+          git add R7_PHASE_TRANSITION.json R7_REMAINING_BLOCKERS.md 2>/dev/null || true
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "R7: enforce ${decision} phase transition"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
