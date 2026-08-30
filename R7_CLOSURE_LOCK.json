@@ -1,0 +1,77 @@
+{
+  "schema": "R7_TECHNICAL_ARCHITECTURE_CLOSURE_V1",
+  "decision": "R7_CLOSED",
+  "passed": true,
+  "closureDate": "2026-08-30",
+  "repository": "davidanderle1/davidanderle-site",
+  "independentCheckCount": 57,
+  "blockers": [],
+  "bearingDesign": "FROZEN",
+  "architecture": {
+    "framework": "Astro strict static output",
+    "content": "typed content collections plus Markdown/JSON canonical records",
+    "css": "authored CSS",
+    "globalHydration": false,
+    "ordinaryRouteExecutableJavaScript": 0,
+    "boundedRouteEnhancement": "VCE route-local TypeScript",
+    "images": "local build-time processing",
+    "ci": "GitHub Actions",
+    "deployment": "Cloudflare Workers Static Assets, assets-only"
+  },
+  "r7e": {
+    "branch": "r7e-hardened-verification-20260829",
+    "commit": "4aec82c193ca929ebd9e4ae112524ed19cc5d34d",
+    "runId": 33309269707,
+    "artifactId": 9731512676,
+    "artifactName": "r7e-hardened-evidence-4aec82c193ca929ebd9e4ae112524ed19cc5d34d",
+    "artifactDigest": "sha256:745af71506b0ba845d7fc5774ccfc001ea38a95f86ea55d67ba212dd3ff7a309",
+    "sourceArchiveSha256": "f0da3a54989f8ab114be4f172225a769d223ecd5db9bb138cacfa40fe5d13a64",
+    "sourceTreeSha256": "46e6c8c6baee94811ea10c1df1ecb5a5337c641d7937029294159f18a3563bbd",
+    "distTreeSha256": "aa1bce26744c87aef5fb2df2457de3e3b641643f19274c88455ca39671a8f25d",
+    "stressTreeSha256": "7a238c577ff9dc9f623968a453cc690240e15cbd027e4f2801eee1410eb23d25"
+  },
+  "r7f": {
+    "branch": "r7f-hardened-independent-verification-v5-20260830",
+    "commit": "cca727ce18310fa4eb18b5bdd2fbc67921a8411b",
+    "runId": 33309885913,
+    "artifactId": 9731697549,
+    "artifactName": "r7f-hardened-independent-v5-evidence-cca727ce18310fa4eb18b5bdd2fbc67921a8411b",
+    "artifactDigest": "sha256:c6e63b98230d177812aee63bcc7d3c189453ff3a3f5217da73d29deb52432f43"
+  },
+  "closureAudit": {
+    "branch": "r7-final-closure-audit-v2-20260830",
+    "commit": "835c5fa66629be36e094dce4f2ec786806aa4927",
+    "runId": 33310812001,
+    "artifactId": 9731913329,
+    "artifactName": "r7-final-closure-v2-835c5fa66629be36e094dce4f2ec786806aa4927",
+    "artifactDigest": "sha256:0ff74a46ae41c6be3e370fa106348ad856afb795b246f586faecb7475b67a9ca"
+  },
+  "verifiedMetrics": {
+    "r7eManifestEntries": 1902,
+    "r7fManifestEntries": 1952,
+    "stressRecords": 500,
+    "noJavaScriptRoutes": 14,
+    "ordinaryRoutesWithExecutableJavaScript": 0,
+    "axeViolations": 0,
+    "axeCompensatedIncompleteNodes": 438,
+    "minimumStaticContrastRatio": 5.8,
+    "lighthouseReports": 4,
+    "lighthousePerformanceMinimum": 1.0,
+    "lighthouseAccessibilityMinimum": 1.0,
+    "thirdPartyRuntimeRequests": 0,
+    "firstPartyHttpErrors": 0,
+    "requestFailures": 0
+  },
+  "scope": {
+    "technicalArchitectureR7": "CLOSED",
+    "mainBranchModified": false,
+    "r8SecurityCertified": false,
+    "r9DiscoverabilityCertified": false,
+    "productionLaunchApproved": false
+  },
+  "carryForward": [
+    "R8-NPM-INSTALL-SCRIPTS-POLICY",
+    "R8-GITHUB-ACTIONS-NODE-RUNTIME",
+    "R10-ZOD-EMAIL-DEPRECATION"
+  ]
+}
