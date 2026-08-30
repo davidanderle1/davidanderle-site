@@ -1,0 +1,51 @@
+diff --git a/tests/accessibility.spec.ts b/tests/accessibility.spec.ts
+index d211e5bdbdc25a6da31d06aee07fbcca5a00afdd..40348db23d6465c5f7f467c44db2bad0892c97ec 100644
+--- a/tests/accessibility.spec.ts
++++ b/tests/accessibility.spec.ts
+@@ -6,15 +6,26 @@ fs.mkdirSync('.r7e-tmp/axe', { recursive: true });
+ const pages = ['/', '/work/', '/archive/', '/work/volatility-cascade-engine/', '/about/'];
+ const contrastProof = JSON.parse(fs.readFileSync('.r7e-tmp/contrast-bounds.json', 'utf8'));
+ 
++type AxeIncompleteNode = {
++  any: Array<{ id: string; data?: { messageKey?: string } }>;
++  all: unknown[];
++  none: unknown[];
++};
++
+ type AxeIncompleteResult = {
+   id: string;
+-  nodes: Array<{
+-    any: Array<{ id: string; data?: { messageKey?: string } }>;
+-    all: unknown[];
+-    none: unknown[];
+-  }>;
++  nodes: AxeIncompleteNode[];
+ };
+ 
++function isAuditedGradientIncomplete(node: AxeIncompleteNode): boolean {
++  const [check] = node.any;
++  return node.any.length === 1 &&
++    check?.id === 'color-contrast' &&
++    check.data?.messageKey === 'bgGradient' &&
++    node.all.length === 0 &&
++    node.none.length === 0;
++}
++
+ for (const width of [1280,390]) for (const url of pages) test(`axe ${url} ${width}`, async ({ page }) => {
+   await page.setViewportSize({width,height:width===390?844:900});
+   await page.goto(url, { waitUntil: 'networkidle' });
+@@ -31,13 +42,7 @@ for (const width of [1280,390]) for (const url of pages) test(`axe ${url} ${widt
+   const unexpectedIncomplete = (results.incomplete as AxeIncompleteResult[]).filter((result) =>
+     result.id !== 'color-contrast' ||
+     result.nodes.length === 0 ||
+-    result.nodes.some((node) =>
+-      node.any.length !== 1 ||
+-      node.any[0].id !== 'color-contrast' ||
+-      node.any[0].data?.messageKey !== 'bgGradient' ||
+-      node.all.length !== 0 ||
+-      node.none.length !== 0
+-    )
++    result.nodes.some((node) => !isAuditedGradientIncomplete(node))
+   );
+   expect(contrastProof.designation).toBe('R7E_STATIC_CONTRAST_BOUND_V1');
+   expect(contrastProof.passed, JSON.stringify(contrastProof,null,2)).toBe(true);
