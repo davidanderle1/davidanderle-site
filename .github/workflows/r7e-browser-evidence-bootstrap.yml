@@ -75,13 +75,21 @@ jobs:
           cd canonical
           git apply --verbose ../.github/patches/r7e-browser-evidence-fix.patch
 
-      - name: Verify browser evidence output hashes
+      - name: Verify browser test output hash
         shell: bash
         run: |
           set -euxo pipefail
-          sha256sum canonical/tests/browser.spec.ts canonical/verification/README.md
-          printf '%s  %s\n' '1498032ea2c37a7905dd78da3a401e8b0a69c318ca98bc7342cab696d49b9940' canonical/tests/browser.spec.ts | sha256sum --check --strict
-          printf '%s  %s\n' 'dfe669b2c3c8bdffacebdda70727334e3f8fee58c61c7b4c3b994959d4ebd01a' canonical/verification/README.md | sha256sum --check --strict
+          actual=$(sha256sum canonical/tests/browser.spec.ts | awk '{print $1}')
+          printf 'expected=%s\nactual=%s\n' '1498032ea2c37a7905dd78da3a401e8b0a69c318ca98bc7342cab696d49b9940' "$actual"
+          test "$actual" = '1498032ea2c37a7905dd78da3a401e8b0a69c318ca98bc7342cab696d49b9940'
+
+      - name: Verify verification README output hash
+        shell: bash
+        run: |
+          set -euxo pipefail
+          actual=$(sha256sum canonical/verification/README.md | awk '{print $1}')
+          printf 'expected=%s\nactual=%s\n' 'dfe669b2c3c8bdffacebdda70727334e3f8fee58c61c7b4c3b994959d4ebd01a' "$actual"
+          test "$actual" = 'dfe669b2c3c8bdffacebdda70727334e3f8fee58c61c7b4c3b994959d4ebd01a'
 
       - name: Verify browser evidence semantic assertions
         shell: bash
