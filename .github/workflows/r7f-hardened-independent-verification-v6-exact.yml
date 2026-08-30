@@ -1,0 +1,69 @@
+name: R7F v6 exact fingerprint independent verification
+
+on:
+  push:
+    branches:
+      - r7f-hardened-independent-verification-v6-20260830
+    paths:
+      - '.github/workflows/r7f-hardened-independent-verification-v6-exact.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7f-v6-exact-fingerprint-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  BUILDER_BRANCH: r7e-fingerprint-bound-verification-20260830
+  BUILDER_WORKFLOW_PATH: .github/workflows/r7e-fingerprint-bound-verification.yml
+  BUILDER_RUN_ID: '33335150420'
+  BUILDER_COMMIT: dc9a57220e4c7aaedc497b6a04ce9bca121c3324
+  BUILDER_ARTIFACT_ID: '9738847793'
+  BUILDER_ARTIFACT_NAME: r7e-fingerprint-bound-evidence-dc9a57220e4c7aaedc497b6a04ce9bca121c3324
+  BUILDER_ARTIFACT_DIGEST: sha256:f1e4d8e288e161cb3edcd4aecc7de94d71f55088fde23e85f878a2342d59a5c1
+  BUILDER_SOURCE_ARCHIVE_SHA256: f1d87f384f1b04110a2a9c3ef4b1835a28b22a4547a08d8dbce5018190d328a7
+  BUILDER_FROZEN_SOURCE_TREE_SHA256: 036884c1205d5dc911493f0b20a1f05e8b656c5d2f616827e7fb02b24c1d5a78
+  BUILDER_FROZEN_SOURCE_TAR_SHA256: 64cffad7e706067130915fde59d07f2c2e48b6f66111d5bd75f75cf7531e0139
+  BUILDER_VERIFIED_DIST_TREE_SHA256: aa1bce26744c87aef5fb2df2457de3e3b641643f19274c88455ca39671a8f25d
+  BUILDER_STRESS_DIST_TREE_SHA256: 7a238c577ff9dc9f623968a453cc690240e15cbd027e4f2801eee1410eb23d25
+  BUILDER_AXE_ADJUDICATION_FILE_SHA256: 544836fa02330c1347651cf11ce1431e210d59772798e8dd5f87a26699e4da77
+  BUILDER_AXE_SEMANTIC_INVENTORY_SHA256: 6c22cd8b5d94a016f3691afda7d92bb83a7e561dccd60631573c177af75d4f90
+  BUILDER_AXE_NODE_SET_SHA256: bdb1792251c0b68286bf599ffc6c39df9f4ba032aa5e1e565b11e6a3136798fb
+  BUILDER_AXE_BINDING_SET_SHA256: 698fe4468a8f13a400440b70d7e8cb3a4f669bc68896c72e77186b8153a13901
+  R7E_EXTERNAL_AUDIT_SHA256: 589539f8a3d66c6a3801264a524520035fa08adf3beea817316b401f129bb3b0
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout independent verifier branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Execute locked exact fingerprint verifier
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/r7f-v6-final-locked.sh
+
+      - name: Upload R7F v6 evidence or diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-v6-exact-fingerprint-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
