@@ -14,7 +14,7 @@ permissions:
 env:
   TZ: UTC
   SOURCE_DATE_EPOCH: '1787961600'
-  SOURCE_PAYLOAD_BLOB: 84b68b015790052e259d3dff228a6d3f78df4167
+  SOURCE_PAYLOAD_CHUNKS: bace3206c421d204e150abce6aecd6fe1b3daeef 16e986e412e755680928046bc3782ac41d462403 0c6510afb015e70cbe106c71a8c4cb9597e26213 664c6e8f87d18aaaa1a03f1b8e7349a976118d88
   SOURCE_PAYLOAD_SHA256: 24bca216cca48706647ad1fde5b49b906eb87cf8d5b6d264e65e4ad5f152dfdd
   EXPECTED_SOURCE_ARCHIVE_SHA256: 1fe71f5e0230e5d0b265b5c856fefcc9602e17a6d8f646e508b7c3d3e873059c
 
@@ -42,8 +42,13 @@ jobs:
           test "$(sha256sum /tmp/r7e-current-source.zip | awk '{print $1}')" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
           unzip -q /tmp/r7e-current-source.zip -d canonical
 
-          gh api "repos/${GITHUB_REPOSITORY}/git/blobs/${SOURCE_PAYLOAD_BLOB}" --jq .content \
-            | tr -d '\r\n' | base64 --decode > /tmp/r7e-fingerprint-source-payload.tar.gz
+          : > /tmp/r7e-fingerprint-source-payload.b64
+          for blob in ${SOURCE_PAYLOAD_CHUNKS}; do
+            gh api "repos/${GITHUB_REPOSITORY}/git/blobs/${blob}" --jq .content \
+              | tr -d '\r\n' | base64 --decode >> /tmp/r7e-fingerprint-source-payload.b64
+          done
+          test "$(wc -c < /tmp/r7e-fingerprint-source-payload.b64)" -eq 10816
+          base64 --decode /tmp/r7e-fingerprint-source-payload.b64 > /tmp/r7e-fingerprint-source-payload.tar.gz
           printf '%s  %s\n' "${SOURCE_PAYLOAD_SHA256}" /tmp/r7e-fingerprint-source-payload.tar.gz | sha256sum --check --strict
           tar -xzf /tmp/r7e-fingerprint-source-payload.tar.gz -C canonical
 
