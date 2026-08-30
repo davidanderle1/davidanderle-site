@@ -1,0 +1,104 @@
+diff --git a/scripts/run-lighthouse.mjs b/scripts/run-lighthouse.mjs
+index 1b981bb..302e3fa 100644
+--- a/scripts/run-lighthouse.mjs
++++ b/scripts/run-lighthouse.mjs
+@@ -95,10 +95,19 @@ function runLighthouse(url, output) {
+   const report = JSON.parse(fs.readFileSync(output, 'utf8'));
+   const numeric = (id) => report.audits?.[id]?.numericValue ?? null;
+   const scores = Object.fromEntries(Object.keys(thresholds).map((name) => [name, report.categories?.[name]?.score ?? 0]));
++  const failedAccessibilityAudits = (report.categories?.accessibility?.auditRefs ?? [])
++    .map(({ id }) => ({
++      id,
++      score: report.audits?.[id]?.score ?? null,
++      scoreDisplayMode: report.audits?.[id]?.scoreDisplayMode ?? null,
++      title: report.audits?.[id]?.title ?? null
++    }))
++    .filter(({ score, scoreDisplayMode }) => score === 0 && !['manual', 'notApplicable'].includes(scoreDisplayMode));
+   return {
+     url,
+     output,
+     scores,
++    failedAccessibilityAudits,
+     lcpMs: numeric('largest-contentful-paint'),
+     cls: numeric('cumulative-layout-shift'),
+     tbtMs: numeric('total-blocking-time'),
+@@ -114,7 +123,12 @@ try {
+     for (let warmupIndex = 1; warmupIndex <= warmupRunsPerUrl; warmupIndex++) {
+       const output = `.r7e-tmp/lighthouse/page-${index+1}-warmup-${warmupIndex}.json`;
+       try {
+-        warmupReports.push({ ...runLighthouse(url, output), warmup: warmupIndex });
++        const result = { ...runLighthouse(url, output), warmup: warmupIndex };
++        warmupReports.push(result);
++        if (result.scores.accessibility < thresholds.accessibility || result.failedAccessibilityAudits.length > 0) {
++          console.error(`${url} warm-up accessibility gate failed`, result.failedAccessibilityAudits);
++          exitCode = 1;
++        }
+       } catch (error) {
+         console.error(`Lighthouse warm-up failed for ${url}:`, error);
+         exitCode = 1;
+@@ -134,6 +148,10 @@ try {
+             exitCode = 1;
+           }
+         }
++        if (result.failedAccessibilityAudits.length > 0) {
++          console.error(`${url} measured run ${runIndex}: failed accessibility audits`, result.failedAccessibilityAudits);
++          exitCode = 1;
++        }
+       } catch (error) {
+         console.error(`Unable to complete ${output}:`, error);
+         exitCode = 1;
+@@ -155,7 +173,9 @@ const summary = {
+     warmupRunsPerUrl,
+     measuredRunsPerUrl: runsPerUrl,
+     warmupScored: false,
+-    measuredRunsIndividuallyGated: true
++    warmupAccessibilityGated: true,
++    measuredRunsIndividuallyGated: true,
++    failedAccessibilityAuditsGated: true
+   },
+   thresholds,
+   warmupRunsPerUrl,
+diff --git a/src/components/SiteHeader.astro b/src/components/SiteHeader.astro
+index 1f94552..8ca1bf5 100644
+--- a/src/components/SiteHeader.astro
++++ b/src/components/SiteHeader.astro
+@@ -3,7 +3,7 @@ import { site } from '../lib/site';
+ const path = Astro.url.pathname;
+ ---
+ <header class="site-header">
+-  <a class="site-mark" href="/" aria-label="David Anderle, home"><span>David</span><span>Anderle</span></a>
++  <a class="site-mark" href="/"><span>David</span><span>Anderle</span></a>
+   <nav aria-label="Primary navigation">
+     <ul class="nav-list">
+       {site.navigation.map((item) => <li><a href={item.href} aria-current={path.startsWith(item.href) ? 'page' : undefined}>{item.label}</a></li>)}
+diff --git a/src/pages/archive/index.astro b/src/pages/archive/index.astro
+index 30266a0..31a20a9 100644
+--- a/src/pages/archive/index.astro
++++ b/src/pages/archive/index.astro
+@@ -14,5 +14,5 @@ const rows = [
+ ---
+ <BaseLayout title="Archive" canonicalPath="/archive/" description="Chronological public record of work, writing, education and experience.">
+   <PageOrientation eyebrow="Chronology" title="Record." summary="Work, writing, education and selected experience ordered by date, with current status kept visible." coordinate="BEARING / ARCHIVE" />
+-  <div class="archive-wrap" tabindex="0" aria-label="Chronological record table, horizontally scrollable on narrow screens"><table class="archive-table"><thead><tr><th>Date</th><th>Type</th><th>Record</th><th>Status</th></tr></thead><tbody>{rows.map((row) => <tr><td>{row.date}</td><td>{row.type}</td><td>{row.href ? <a href={row.href}>{row.title}</a> : row.title}</td><td>{row.status}</td></tr>)}</tbody></table></div>
++  <div class="archive-wrap" role="region" tabindex="0" aria-label="Chronological record table, horizontally scrollable on narrow screens"><table class="archive-table"><thead><tr><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Record</th><th scope="col">Status</th></tr></thead><tbody>{rows.map((row) => <tr><td>{row.date}</td><td>{row.type}</td><td>{row.href ? <a href={row.href}>{row.title}</a> : row.title}</td><td>{row.status}</td></tr>)}</tbody></table></div>
+ </BaseLayout>
+diff --git a/tests/accessibility.spec.ts b/tests/accessibility.spec.ts
+index c097c67..0c583a8 100644
+--- a/tests/accessibility.spec.ts
++++ b/tests/accessibility.spec.ts
+@@ -4,6 +4,7 @@ import axe from 'axe-core';
+ 
+ fs.mkdirSync('.r7e-tmp/axe', { recursive: true });
+ const pages = ['/', '/work/', '/archive/', '/work/volatility-cascade-engine/', '/about/'];
++const allowedIncompleteRuleIds = new Set(['color-contrast']);
+ 
+ for (const width of [1280,390]) for (const url of pages) test(`axe ${url} ${width}`, async ({ page }) => {
+   await page.setViewportSize({width,height:width===390?844:900});
+@@ -18,5 +19,7 @@ for (const width of [1280,390]) for (const url of pages) test(`axe ${url} ${widt
+   }));
+   const routeName = url === '/' ? 'home' : url.replace(/^\//, '').replace(/\/$/, '').replaceAll('/', '-');
+   fs.writeFileSync(`.r7e-tmp/axe/${routeName}-${width}.json`, JSON.stringify(results, null, 2));
++  const unexpectedIncomplete = results.incomplete.filter((result: { id: string }) => !allowedIncompleteRuleIds.has(result.id));
+   expect(results.violations, JSON.stringify(results.violations,null,2)).toEqual([]);
++  expect(unexpectedIncomplete, JSON.stringify(unexpectedIncomplete,null,2)).toEqual([]);
+ });
