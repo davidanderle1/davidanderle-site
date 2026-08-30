@@ -537,9 +537,9 @@
     },
     {
       "path": "tests/browser.spec.ts",
-      "sha256": "332bf48054e923ff37b7d0021cdccd01697cfd6945b12d0a8dadb8ee7b4bd19d",
+      "sha256": "1498032ea2c37a7905dd78da3a401e8b0a69c318ca98bc7342cab696d49b9940",
       "mode": "0o644",
-      "size": 11962
+      "size": 18800
     },
     {
       "path": "tests/invalid-fixtures/01-duplicate-immutable-id.json",
@@ -645,9 +645,9 @@
     },
     {
       "path": "verification/README.md",
-      "sha256": "865f3dd9d884721a2498ecd780e6be92e729ea1c866366e6c700dea4257f425f",
+      "sha256": "dfe669b2c3c8bdffacebdda70727334e3f8fee58c61c7b4c3b994959d4ebd01a",
       "mode": "0o644",
-      "size": 1315
+      "size": 1400
     },
     {
       "path": "verification/clean-run.ps1",
