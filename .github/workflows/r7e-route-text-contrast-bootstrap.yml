@@ -1,0 +1,179 @@
+name: R7E route-text contrast source bootstrap
+
+on:
+  push:
+    branches:
+      - r7e-hardened-verification-20260829
+    paths:
+      - '.github/workflows/r7e-route-text-contrast-bootstrap.yml'
+      - '.github/r7-closure/r7e-route-text-contrast-hardening.patch'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact R7E branch state
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Derive deterministic route-text-contrast-hardened canonical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly PREDECESSOR_ARCHIVE_SHA='ff7776cfbe9db0dc0f0a2c5d6f9339c65e86706b46f52ead091203ba0e2cae80'
+          readonly RESULT_ARCHIVE_SHA='21082e1bdf0a2f15ad6f15cecb23def8e85bf9d952d3b3ad94bf87ae03c0c50b'
+          readonly PATCH_SHA='260f73280b4731ff81631da552f7a31ae4f601fe8d5aa28fd9771535699966b7'
+          readonly PATCH='.github/r7-closure/r7e-route-text-contrast-hardening.patch'
+
+          readonly BEFORE_BEARING_SHA='e688f4c9134e24d92ce6aa28d5c829f4d9d7acdfd0928aba8bcbb9dce6fa202c'
+          readonly AFTER_BEARING_SHA='37393f2b368dbf9461afa07216beba58dd7371d942cab17c0434873f333b1d26'
+          readonly BEFORE_PROOF_SHA='fbd9b1b747bd99fffdc5d89277640feada7a94807448101263f04137caec4540'
+          readonly AFTER_PROOF_SHA='207d9da7280fea093d703f9c3526d0e7fce8f79b6953c95fa3c2bc8feb6db0fa'
+          readonly BEFORE_AXE_SHA='255a823ec08ed152e0afb47b42793b6629a25d5aaf17638605a849aa93ea8caa'
+          readonly AFTER_AXE_SHA='53af3fd96cf5c6b587114a78caf3b02a1ac9c830ef4ad683a35531a6f5431364'
+          readonly PACKAGE_SHA='ca0c1211af36fd83440306c3966d952f1813aaae8c228aee098aee424a749504'
+
+          test "$(node --version)" = 'v24.20.0'
+          printf '%s  %s\n' "$PATCH_SHA" "$PATCH" | sha256sum --check --strict
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          current_archive_sha=$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)
+          if [[ "$current_archive_sha" == "$RESULT_ARCHIVE_SHA" ]]; then
+            echo 'ROUTE_TEXT_CONTRAST_SOURCE_ALREADY_CURRENT'
+            exit 0
+          fi
+          test "$current_archive_sha" = "$PREDECESSOR_ARCHIVE_SHA"
+
+          rm -rf canonical /tmp/r7e-route-pack1 /tmp/r7e-route-pack2
+          rm -f /tmp/r7e-route-predecessor.zip /tmp/r7e-route-source1.zip /tmp/r7e-route-source2.zip
+          mkdir canonical
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > /tmp/r7e-route-predecessor.zip
+          printf '%s  %s\n' "$PREDECESSOR_ARCHIVE_SHA" /tmp/r7e-route-predecessor.zip | sha256sum --check --strict
+          unzip -q /tmp/r7e-route-predecessor.zip -d canonical
+
+          printf '%s  %s\n' "$BEFORE_BEARING_SHA" canonical/src/styles/bearing.css | sha256sum --check --strict
+          printf '%s  %s\n' "$BEFORE_PROOF_SHA" canonical/scripts/verify-contrast-bounds.mjs | sha256sum --check --strict
+          printf '%s  %s\n' "$BEFORE_AXE_SHA" canonical/tests/accessibility.spec.ts | sha256sum --check --strict
+          printf '%s  %s\n' "$PACKAGE_SHA" canonical/package.json | sha256sum --check --strict
+
+          (
+            cd canonical
+            git init -q
+            git add -A
+            git -c user.name='r7e-route-contrast-bootstrap' -c user.email='r7e-route-contrast-bootstrap@example.invalid' commit -qm 'immutable type-safe contrast-proof predecessor'
+            git apply --check "$GITHUB_WORKSPACE/$PATCH"
+            git apply "$GITHUB_WORKSPACE/$PATCH"
+            git diff --check
+            git diff --name-only | sort > /tmp/r7e-route-changed.txt
+          )
+          cat > /tmp/r7e-route-expected.txt <<'EOF'
+          scripts/verify-contrast-bounds.mjs
+          src/styles/bearing.css
+          tests/accessibility.spec.ts
+          EOF
+          sed -i 's/^          //' /tmp/r7e-route-expected.txt
+          diff -u /tmp/r7e-route-expected.txt /tmp/r7e-route-changed.txt
+
+          printf '%s  %s\n' "$AFTER_BEARING_SHA" canonical/src/styles/bearing.css | sha256sum --check --strict
+          printf '%s  %s\n' "$AFTER_PROOF_SHA" canonical/scripts/verify-contrast-bounds.mjs | sha256sum --check --strict
+          printf '%s  %s\n' "$AFTER_AXE_SHA" canonical/tests/accessibility.spec.ts | sha256sum --check --strict
+          printf '%s  %s\n' "$PACKAGE_SHA" canonical/package.json | sha256sum --check --strict
+
+          node --check canonical/scripts/verify-contrast-bounds.mjs
+          grep -Fq '.bearing-list .stop-index, .bearing-list time, .bearing-list h3, .bearing-list p { position: relative; z-index: 2; width: fit-content; background: var(--bg); box-shadow: 0 0 0 .22rem var(--bg); }' canonical/src/styles/bearing.css
+          grep -Fq '.bearing-list li { position: relative; z-index: 1; display: grid;' canonical/src/styles/bearing.css
+          grep -Fq ".bearing-list::before { content: ''; position: absolute; z-index: 0;" canonical/src/styles/bearing.css
+          grep -Fq "relatedTarget[0] === 'body'" canonical/tests/accessibility.spec.ts
+          grep -Fq "relatedTarget[0] === '#limitations'" canonical/tests/accessibility.spec.ts
+          grep -Fq 'routeBackplates.elements).toHaveLength(12)' canonical/tests/accessibility.spec.ts
+          grep -Fq "check.data?.messageKey === 'bgGradient'" canonical/tests/accessibility.spec.ts
+          ! grep -Fq "messageKey === 'imgNode'" canonical/tests/accessibility.spec.ts
+          ! grep -Fq "messageKey === 'pseudoContent'" canonical/tests/accessibility.spec.ts
+          ! grep -Fq "messageKey === 'elmPartiallyObscuring'" canonical/tests/accessibility.spec.ts
+
+          (
+            cd canonical
+            node scripts/verify-contrast-bounds.mjs > /tmp/r7e-route-contrast-proof.stdout.json
+          )
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          proof=json.loads(Path('canonical/.r7e-tmp/contrast-bounds.json').read_text())
+          assert proof['designation']=='R7E_STATIC_CONTRAST_BOUND_V1'
+          assert proof['passed'] is True
+          assert proof['checkCount']==32
+          assert proof['minimumObservedRatio']>=4.5
+          assert proof['gradientOccurrenceCount']==3
+          assert len(proof['declaredBackgrounds'])==13
+          assert len(proof['declaredTextColors'])==40
+          assert proof['boxShadowMatches']==['0 0 0 .22rem var(--bg)']
+          assert proof['opacityMatches']==['.88']
+          assert proof['inlinePresentationHits']==[]
+          assert proof['embeddedStyleHits']==[]
+          assert proof['failed']==[]
+          print(json.dumps({
+              'passed': True,
+              'designation': proof['designation'],
+              'checkCount': proof['checkCount'],
+              'minimumObservedRatio': proof['minimumObservedRatio'],
+              'declaredBackgrounds': len(proof['declaredBackgrounds']),
+              'boxShadowMatches': proof['boxShadowMatches'],
+          }, indent=2))
+          PY
+          rm -rf canonical/.git canonical/.r7e-tmp
+
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-route-pack1 --archive /tmp/r7e-route-source1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-route-pack2 --archive /tmp/r7e-route-source2.zip
+          cmp /tmp/r7e-route-source1.zip /tmp/r7e-route-source2.zip
+          diff -ru /tmp/r7e-route-pack1 /tmp/r7e-route-pack2
+          printf '%s  %s\n' "$RESULT_ARCHIVE_SHA" /tmp/r7e-route-source1.zip | sha256sum --check --strict
+          test "$(cat /tmp/r7e-route-pack1/ARCHIVE_SHA256)" = "$RESULT_ARCHIVE_SHA"
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          tree=json.loads(Path('/tmp/r7e-route-pack1/SOURCE_TREE.json').read_text())
+          rows={row['path']:row for row in tree['files']}
+          expected={
+              'src/styles/bearing.css':'37393f2b368dbf9461afa07216beba58dd7371d942cab17c0434873f333b1d26',
+              'scripts/verify-contrast-bounds.mjs':'207d9da7280fea093d703f9c3526d0e7fce8f79b6953c95fa3c2bc8feb6db0fa',
+              'tests/accessibility.spec.ts':'53af3fd96cf5c6b587114a78caf3b02a1ac9c830ef4ad683a35531a6f5431364',
+              'package.json':'ca0c1211af36fd83440306c3966d952f1813aaae8c228aee098aee424a749504',
+          }
+          assert tree['fileCount']==112
+          for file,digest in expected.items():
+              assert rows[file]['sha256']==digest, (file,rows[file]['sha256'],digest)
+          print(json.dumps({
+              'passed': True,
+              'fileCount': tree['fileCount'],
+              'archiveSha256': Path('/tmp/r7e-route-pack1/ARCHIVE_SHA256').read_text().strip(),
+              'changedFiles': ['scripts/verify-contrast-bounds.mjs','src/styles/bearing.css','tests/accessibility.spec.ts'],
+          }, indent=2))
+          PY
+
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/r7e-route-pack1/. .r7e-source/
+          printf '%s\n' "$RESULT_ARCHIVE_SHA" > .r7e-source/HARDENED_SOURCE_READY
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .r7e-source
+          git commit -m 'R7E: freeze route-text-contrast-hardened canonical source'
+          git push origin HEAD:r7e-hardened-verification-20260829
