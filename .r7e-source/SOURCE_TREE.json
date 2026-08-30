@@ -231,9 +231,9 @@
     },
     {
       "path": "scripts/verify-contrast-bounds.mjs",
-      "sha256": "fbd9b1b747bd99fffdc5d89277640feada7a94807448101263f04137caec4540",
+      "sha256": "207d9da7280fea093d703f9c3526d0e7fce8f79b6953c95fa3c2bc8feb6db0fa",
       "mode": "0o644",
-      "size": 10140
+      "size": 11468
     },
     {
       "path": "scripts/verify-stress-lineage.mjs",
@@ -513,9 +513,9 @@
     },
     {
       "path": "src/styles/bearing.css",
-      "sha256": "e688f4c9134e24d92ce6aa28d5c829f4d9d7acdfd0928aba8bcbb9dce6fa202c",
+      "sha256": "37393f2b368dbf9461afa07216beba58dd7371d942cab17c0434873f333b1d26",
       "mode": "0o644",
-      "size": 3566
+      "size": 3806
     },
     {
       "path": "src/styles/global.css",
@@ -537,9 +537,9 @@
     },
     {
       "path": "tests/accessibility.spec.ts",
-      "sha256": "255a823ec08ed152e0afb47b42793b6629a25d5aaf17638605a849aa93ea8caa",
+      "sha256": "53af3fd96cf5c6b587114a78caf3b02a1ac9c830ef4ad683a35531a6f5431364",
       "mode": "0o644",
-      "size": 2364
+      "size": 4087
     },
     {
       "path": "tests/browser.spec.ts",
