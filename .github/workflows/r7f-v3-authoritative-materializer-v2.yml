@@ -1,0 +1,136 @@
+name: R7F v3 authoritative materializer v2
+
+on:
+  push:
+    branches:
+      - r7f-hardened-independent-verification-v3-20260830
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7f-v3-lock-builder-input
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    env:
+      REPOSITORY: ${{ github.repository }}
+      BUILDER_BRANCH: r7e-hardened-verification-20260829
+      VERIFIER_WORKFLOW: .github/workflows/r7f-hardened-independent-verification-v3.yml
+    steps:
+      - name: Checkout verifier branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Wait for exact successful R7E artifact and lock verifier input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          builder_head=''
+          builder_run_id=''
+          builder_artifact_id=''
+          builder_artifact_name=''
+          builder_artifact_digest=''
+
+          for attempt in $(seq 1 180); do
+            current_head="$(gh api "repos/${REPOSITORY}/branches/${BUILDER_BRANCH}" --jq '.commit.sha')"
+            runs="$(gh api "repos/${REPOSITORY}/actions/runs?branch=${BUILDER_BRANCH}&per_page=100")"
+
+            while IFS= read -r run_id; do
+              test -n "${run_id}" || continue
+              artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100")"
+              count="$(jq '[.artifacts[] | select(.expired == false) | select(.name | startswith("r7e-hardened-evidence-"))] | length' <<<"${artifacts}")"
+              if test "${count}" -eq 1; then
+                builder_head="${current_head}"
+                builder_run_id="${run_id}"
+                builder_artifact_id="$(jq -r '.artifacts[] | select(.expired == false) | select(.name | startswith("r7e-hardened-evidence-")) | .id' <<<"${artifacts}")"
+                builder_artifact_name="$(jq -r '.artifacts[] | select(.expired == false) | select(.name | startswith("r7e-hardened-evidence-")) | .name' <<<"${artifacts}")"
+                builder_artifact_digest="$(jq -r '.artifacts[] | select(.expired == false) | select(.name | startswith("r7e-hardened-evidence-")) | .digest' <<<"${artifacts}")"
+                break 2
+              fi
+            done < <(jq -r --arg head "${current_head}" '
+              [.workflow_runs[]
+                | select(.head_sha == $head)
+                | select(.status == "completed")
+                | select(.conclusion == "success")]
+              | sort_by(.created_at)
+              | reverse
+              | .[].id
+            ' <<<"${runs}")
+
+            echo "Waiting for authoritative R7E artifact at ${current_head}; attempt ${attempt}/180"
+            sleep 10
+          done
+
+          test -n "${builder_run_id}"
+          case "${builder_artifact_digest}" in sha256:*) ;; *) exit 41 ;; esac
+
+          current_head="$(gh api "repos/${REPOSITORY}/branches/${BUILDER_BRANCH}" --jq '.commit.sha')"
+          test "${current_head}" = "${builder_head}"
+          run_json="$(gh api "repos/${REPOSITORY}/actions/runs/${builder_run_id}")"
+          test "$(jq -r '.head_sha' <<<"${run_json}")" = "${builder_head}"
+          test "$(jq -r '.status' <<<"${run_json}")" = completed
+          test "$(jq -r '.conclusion' <<<"${run_json}")" = success
+          artifact_json="$(gh api "repos/${REPOSITORY}/actions/artifacts/${builder_artifact_id}")"
+          test "$(jq -r '.workflow_run.id' <<<"${artifact_json}")" = "${builder_run_id}"
+          test "$(jq -r '.name' <<<"${artifact_json}")" = "${builder_artifact_name}"
+          test "$(jq -r '.digest' <<<"${artifact_json}")" = "${builder_artifact_digest}"
+          test "$(jq -r '.expired' <<<"${artifact_json}")" = false
+
+          export builder_head builder_run_id builder_artifact_id builder_artifact_name builder_artifact_digest
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import os
+          import re
+
+          workflow = Path(os.environ['VERIFIER_WORKFLOW'])
+          text = workflow.read_text()
+          values = {
+              'BUILDER_RUN_ID': os.environ['builder_run_id'],
+              'BUILDER_ARTIFACT_ID': os.environ['builder_artifact_id'],
+              'BUILDER_ARTIFACT_NAME': os.environ['builder_artifact_name'],
+              'BUILDER_ARTIFACT_DIGEST': os.environ['builder_artifact_digest'],
+          }
+          for key, value in values.items():
+              text, count = re.subn(
+                  rf'(^\s*{re.escape(key)}\s*:\s*)[^\n#]+',
+                  lambda match: match.group(1) + value,
+                  text,
+                  flags=re.MULTILINE,
+              )
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one {key} assignment, found {count}')
+          workflow.write_text(text)
+
+          lock = {
+              'schemaVersion': 2,
+              'builderBranch': os.environ['BUILDER_BRANCH'],
+              'builderHeadSha': os.environ['builder_head'],
+              'builderRunId': int(os.environ['builder_run_id']),
+              'builderArtifactId': int(os.environ['builder_artifact_id']),
+              'builderArtifactName': os.environ['builder_artifact_name'],
+              'builderArtifactDigest': os.environ['builder_artifact_digest'],
+          }
+          Path('.github/r7f-v3-builder-input.json').write_text(json.dumps(lock, indent=2) + '\n')
+          PY
+
+          git diff --check
+          git add "${VERIFIER_WORKFLOW}" .github/r7f-v3-builder-input.json
+          if git diff --cached --quiet; then
+            echo 'Verifier is already locked to the current immutable R7E artifact.'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'R7F: lock authoritative R7E closure artifact'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
