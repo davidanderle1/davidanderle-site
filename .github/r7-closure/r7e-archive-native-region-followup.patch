@@ -1,0 +1,11 @@
+diff --git a/src/pages/archive/index.astro b/src/pages/archive/index.astro
+index 31a20a9..3e5de7c 100644
+--- a/src/pages/archive/index.astro
++++ b/src/pages/archive/index.astro
+@@ -14,5 +14,5 @@ const rows = [
+ ---
+ <BaseLayout title="Archive" canonicalPath="/archive/" description="Chronological public record of work, writing, education and experience.">
+   <PageOrientation eyebrow="Chronology" title="Record." summary="Work, writing, education and selected experience ordered by date, with current status kept visible." coordinate="BEARING / ARCHIVE" />
+-  <div class="archive-wrap" role="region" tabindex="0" aria-label="Chronological record table, horizontally scrollable on narrow screens"><table class="archive-table"><thead><tr><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Record</th><th scope="col">Status</th></tr></thead><tbody>{rows.map((row) => <tr><td>{row.date}</td><td>{row.type}</td><td>{row.href ? <a href={row.href}>{row.title}</a> : row.title}</td><td>{row.status}</td></tr>)}</tbody></table></div>
++  <section class="archive-wrap" tabindex="0" aria-label="Chronological record table, horizontally scrollable on narrow screens"><table class="archive-table"><thead><tr><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Record</th><th scope="col">Status</th></tr></thead><tbody>{rows.map((row) => <tr><td>{row.date}</td><td>{row.type}</td><td>{row.href ? <a href={row.href}>{row.title}</a> : row.title}</td><td>{row.status}</td></tr>)}</tbody></table></section>
+ </BaseLayout>
