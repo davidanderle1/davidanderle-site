@@ -537,9 +537,9 @@
     },
     {
       "path": "tests/accessibility.spec.ts",
-      "sha256": "b982663e5c5092d3df5ac38aa5067de5d860f9a8d4afee670630a935acebfa56",
+      "sha256": "255a823ec08ed152e0afb47b42793b6629a25d5aaf17638605a849aa93ea8caa",
       "mode": "0o644",
-      "size": 2213
+      "size": 2364
     },
     {
       "path": "tests/browser.spec.ts",
