@@ -1,0 +1,213 @@
+diff --git a/tests/browser.spec.ts b/tests/browser.spec.ts
+index 53cd76a..ce47beb 100644
+--- a/tests/browser.spec.ts
++++ b/tests/browser.spec.ts
+@@ -1,10 +1,34 @@
+-import { test, expect, type Page, type TestInfo } from '@playwright/test';
++import { createHash } from 'node:crypto';
++import { mkdir, readFile, writeFile } from 'node:fs/promises';
++import { test, expect, type Page, type Request, type TestInfo } from '@playwright/test';
+ 
+ const pages = [
+   ['home','/'], ['work','/work/'], ['archive','/archive/'], ['vce','/work/volatility-cascade-engine/'], ['about','/about/']
+ ] as const;
+ const widths = [1440,1280,768,430,390,360,320] as const;
+ const LONG_CZECH_TITLE = 'Dlouhý český titul: ověřování kryptografického závazku bez přetečení rozvržení';
++const NO_JS_ROUTES = [
++  { name: 'home', url: '/', heading: 'David Anderle' },
++  { name: 'work', url: '/work/', heading: 'Work.' },
++  { name: 'merkle', url: '/work/merkle-poseidon/', heading: 'Merkle Commitments with Poseidon in Rust' },
++  { name: 'vce', url: '/work/volatility-cascade-engine/', heading: 'Volatility Cascade Engine' },
++  { name: 'writing', url: '/writing/', heading: 'Writing.' },
++  { name: 'article', url: '/writing/protecting-retail-investors/', heading: 'Protecting Retail Investors: A Framework for Transparency and Risk Controls in High-Volatility Trading' },
++  { name: 'archive', url: '/archive/', heading: 'Record.' },
++  { name: 'about', url: '/about/', heading: 'Current context.' },
++  { name: 'about-no-photo', url: '/about/no-photo/', heading: 'David Anderle.' },
++  { name: 'cv', url: '/cv/', heading: 'Facts.' },
++  { name: 'contact', url: '/contact/', heading: 'Contact.' },
++  { name: 'privacy', url: '/privacy/', heading: 'Privacy.' },
++  { name: 'security', url: '/security/', heading: 'Security.' },
++  { name: '404', url: '/404.html', heading: 'Off route.' }
++] as const;
++const NO_JS_SCREENSHOT = '.r7e-tmp/screenshots/alternate-no-js-vce-390.png';
++const VCE_ENHANCEMENT_SCREENSHOT = '.r7e-tmp/screenshots/alternate-vce-enhanced-step-390.png';
++
++function sha256(value: Buffer): string {
++  return createHash('sha256').update(value).digest('hex');
++}
+ 
+ async function settleLayout(page: Page): Promise<void> {
+   await page.evaluate(async () => {
+@@ -163,25 +187,149 @@ for (const [name,url] of pages) for (const width of widths) test(`${name} ${widt
+   await page.screenshot({ path: `.r7e-tmp/screenshots/${name}-${width}.png`, fullPage: true });
+ });
+ 
+-test('no JavaScript routes retain essential content', async ({ browser }) => {
++test('no JavaScript routes retain route-specific essential content', async ({ browser }) => {
+   const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
+   const page = await context.newPage();
+-  for (const url of ['/', '/work/', '/archive/', '/work/volatility-cascade-engine/', '/about/', '/cv/', '/contact/']) {
+-    await page.goto(url);
+-    await expect(page.locator('main')).toContainText(/David|Work|Record|Volatility|Facts|Contact/i);
++  const routeEvidence: Array<{
++    name: string;
++    url: string;
++    finalPathname: string;
++    responseStatus: number | null;
++    heading: string;
++    mainTextCharacters: number;
++    scriptRequestCount: number;
++  }> = [];
++  let vceEvidence: {
++    panelCount: number;
++    visiblePanelCount: number;
++    status: string;
++    screenshotPath: string;
++    screenshotSha256: string;
++  } | null = null;
++
++  await mkdir('.r7e-tmp/screenshots', { recursive: true });
++  for (const route of NO_JS_ROUTES) {
++    const scriptRequests: string[] = [];
++    const collectScript = (request: Request) => {
++      if (request.resourceType() === 'script') scriptRequests.push(request.url());
++    };
++    page.on('request', collectScript);
++
++    const response = await page.goto(route.url, { waitUntil: 'load' });
++    expect(response?.status()).toBe(200);
++    const main = page.locator('main');
++    const heading = main.locator('h1').first();
++    await expect(main).toBeVisible();
++    await expect(heading).toHaveText(route.heading);
++    const finalPathname = new URL(page.url()).pathname;
++    expect(finalPathname).toBe(route.url);
++    const mainText = (await main.innerText()).trim();
++    expect(mainText.length).toBeGreaterThan(20);
++
++    if (route.name === 'about-no-photo') await expect(main.locator('img')).toHaveCount(0);
++    if (route.name === 'vce') {
++      const panels = main.locator('.sequence-list > li');
++      await expect(panels).toHaveCount(4);
++      for (let index = 0; index < 4; index += 1) await expect(panels.nth(index)).toBeVisible();
++      const status = main.locator('.sequence-status');
++      await expect(status).toHaveText('Static sequence: all steps visible.');
++      await settleLayout(page);
++      await page.screenshot({ path: NO_JS_SCREENSHOT, fullPage: true });
++      vceEvidence = {
++        panelCount: await panels.count(),
++        visiblePanelCount: await main.locator('.sequence-list > li:visible').count(),
++        status: (await status.innerText()).trim(),
++        screenshotPath: NO_JS_SCREENSHOT,
++        screenshotSha256: sha256(await readFile(NO_JS_SCREENSHOT))
++      };
++    }
++
++    routeEvidence.push({
++      name: route.name,
++      url: route.url,
++      finalPathname,
++      responseStatus: response?.status() ?? null,
++      heading: (await heading.innerText()).trim(),
++      mainTextCharacters: mainText.length,
++      scriptRequestCount: scriptRequests.length
++    });
++    page.off('request', collectScript);
+   }
+-  await page.screenshot({ path: '.r7e-tmp/screenshots/alternate-no-js-vce-390.png', fullPage: true });
++
++  const evidence = {
++    designation: 'NO_JAVASCRIPT_ROUTE_EVIDENCE',
++    passed: routeEvidence.length === NO_JS_ROUTES.length && vceEvidence !== null,
++    javaScriptEnabled: false,
++    routeCount: routeEvidence.length,
++    routes: routeEvidence,
++    vce: vceEvidence
++  };
++  await writeFile('.r7e-tmp/no-js-route-evidence.json', `${JSON.stringify(evidence, null, 2)}\n`);
++  expect(evidence.passed).toBeTruthy();
+   await context.close();
+ });
+ 
+-test('VCE enhancement is isolated', async ({ page }) => {
++test('VCE enhancement is isolated, operable and keyboard complete', async ({ page }) => {
++  await mkdir('.r7e-tmp/screenshots', { recursive: true });
++  await page.setViewportSize({ width: 390, height: 844 });
+   const requests: string[] = [];
+-  page.on('request', req => requests.push(req.url()));
+-  await page.goto('/work/volatility-cascade-engine/');
++  page.on('request', request => requests.push(request.url()));
++  await page.goto('/work/volatility-cascade-engine/', { waitUntil: 'networkidle' });
++
++  const component = page.locator('vce-sequence');
++  const buttons = component.locator('[data-step]');
++  const panels = component.locator('[data-panel]');
++  const status = component.locator('.sequence-status');
++  await expect(component).toHaveAttribute('data-ready', 'true');
++  await expect(buttons).toHaveCount(4);
++  await expect(panels).toHaveCount(4);
++  await expect(buttons.nth(0)).toHaveAttribute('aria-pressed', 'true');
++  await expect(panels.nth(0)).toBeVisible();
++  for (let index = 1; index < 4; index += 1) await expect(panels.nth(index)).toBeHidden();
++
++  await buttons.nth(2).click();
++  await expect(buttons.nth(2)).toHaveAttribute('aria-pressed', 'true');
++  await expect(panels.nth(2)).toBeVisible();
++  await expect(panels.nth(0)).toBeHidden();
++  await expect(status).toHaveText('Showing Forced sales. Essential content remains available without JavaScript.');
++
++  await buttons.nth(2).focus();
++  await page.keyboard.press('ArrowRight');
++  await expect(buttons.nth(3)).toBeFocused();
++  await expect(buttons.nth(3)).toHaveAttribute('aria-pressed', 'true');
++  await expect(panels.nth(3)).toBeVisible();
++  await expect(status).toHaveText('Showing Price impact. Essential content remains available without JavaScript.');
+   expect(requests.some(url => /vce-sequence\.[a-f0-9]+\.js/.test(url))).toBeTruthy();
+-  for (const url of ['/', '/work/', '/archive/', '/about/']) {
++  await settleLayout(page);
++  await page.screenshot({ path: VCE_ENHANCEMENT_SCREENSHOT, fullPage: true });
++  const screenshotSha256 = sha256(await readFile(VCE_ENHANCEMENT_SCREENSHOT));
++
++  await page.keyboard.press('Home');
++  await expect(buttons.nth(0)).toBeFocused();
++  await expect(buttons.nth(0)).toHaveAttribute('aria-pressed', 'true');
++  await expect(panels.nth(0)).toBeVisible();
++  const vceRequest = requests.find(url => /vce-sequence\.[a-f0-9]+\.js/.test(url)) ?? null;
++  const evidence = {
++    designation: 'VCE_ROUTE_LOCAL_ENHANCEMENT_EVIDENCE',
++    passed: vceRequest !== null,
++    route: '/work/volatility-cascade-engine/',
++    componentReady: await component.getAttribute('data-ready'),
++    buttonCount: await buttons.count(),
++    panelCount: await panels.count(),
++    selectedIndexAfterHome: await buttons.evaluateAll(elements => elements.findIndex(element => element.getAttribute('aria-pressed') === 'true')),
++    visiblePanelCountAfterHome: await component.locator('[data-panel]:visible').count(),
++    statusAfterHome: (await status.innerText()).trim(),
++    scriptRequest: vceRequest,
++    screenshotSelectedIndex: 3,
++    screenshotPath: VCE_ENHANCEMENT_SCREENSHOT,
++    screenshotSha256
++  };
++  await writeFile('.r7e-tmp/vce-enhancement-evidence.json', `${JSON.stringify(evidence, null, 2)}\n`);
++  expect(evidence.passed).toBeTruthy();
++
++  for (const route of ['/', '/work/', '/writing/', '/archive/', '/about/', '/cv/', '/contact/']) {
+     requests.length = 0;
+-    await page.goto(url);
++    await page.goto(route, { waitUntil: 'networkidle' });
+     expect(requests.some(request => /vce-sequence\./.test(request))).toBeFalsy();
+   }
+ });
+diff --git a/verification/README.md b/verification/README.md
+index 9ef007e..af78597 100644
+--- a/verification/README.md
++++ b/verification/README.md
+@@ -8,7 +8,7 @@ A release verifier must treat the submitted source as immutable input and must n
+ 4. In each directory, run `verification/clean-run.sh RUN_ID OUTPUT_DIR` or the PowerShell equivalent.
+ 5. Require each link report to contain generated HTML and a non-zero number of validated same-site document and asset references; a successful zero-link crawl is invalid evidence.
+ 6. Compare both production `dist/` trees by relative path, mode, bytes and SHA-256.
+-7. Confirm that only the approved VCE route emits executable JavaScript and that ordinary routes retain essential content without JavaScript.
++7. Confirm route-specific headings on every generated route without JavaScript, capture the VCE fallback while all four steps remain visible, and prove the approved VCE enhancement is isolated, clickable and keyboard operable.
+ 8. Run browser, axe-core, Lighthouse, runtime-network and Workers Static Assets checks against the actual Run 1 output.
+ 9. Authenticate the 500-record stress lineage and keep its output marked `TEST_ONLY_DO_NOT_DEPLOY`.
+ 10. Package raw evidence with a complete SHA-256 manifest.
