@@ -1,0 +1,138 @@
+name: R7E accessibility evidence source bootstrap
+
+on:
+  push:
+    branches:
+      - r7e-hardened-verification-20260829
+    paths:
+      - '.github/workflows/r7e-accessibility-evidence-bootstrap.yml'
+      - '.github/r7-closure/r7e-accessibility-evidence-hardening.patch'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact R7E branch state
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Derive deterministic accessibility-hardened canonical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly PREDECESSOR_ARCHIVE_SHA='050122d4fd11e6e61451928713d7ff8de06e4b7d8ffcd9b965677139c91eed62'
+          readonly RESULT_ARCHIVE_SHA='a4d843b19ecd6792ea3c91ed5fb3f39b38b8f14c8f62e4c649572783b3c129bc'
+          readonly PATCH_SHA='d35e326c507800ae80b69c8ee3ab242caff526b5ec99bbfcb5f26caef2ebdba3'
+          readonly PATCH='.github/r7-closure/r7e-accessibility-evidence-hardening.patch'
+
+          readonly BEFORE_LIGHTHOUSE_SHA='61a706b10c20f136079354121d9a6c616d68d129d7a500f5f298547d590fa4a6'
+          readonly AFTER_LIGHTHOUSE_SHA='9fab247608961728df41bee15b27477d81db1dccae19e6868c6f83365bfde282'
+          readonly BEFORE_HEADER_SHA='62032f3c7bf1d1c53174d2466464d15a5a9ce21348287e3ab5438a12d39fb0f0'
+          readonly AFTER_HEADER_SHA='4070fd8eba1a383948508868b124b84ce309a09ed11a57038fd7da29590270c4'
+          readonly BEFORE_ARCHIVE_SHA='e9aa905e2cbbe43d46ed8344864fa1aee1e87567d5a19fcd8dfee71df11f6ea9'
+          readonly AFTER_ARCHIVE_SHA='3c8d89953f03d43817c743ba3238471f663f9cbe09cee193153781fc5a0de825'
+          readonly BEFORE_AXE_SHA='40fe543e6aa9480805be7a42e1c5988d6f143eff5df2992061e184ac17b6d4d7'
+          readonly AFTER_AXE_SHA='54e8770680874ecf43fff81944de150ebdca434dc7c04ca75241e482c92d0180'
+
+          printf '%s  %s\n' "$PATCH_SHA" "$PATCH" | sha256sum --check --strict
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          current_archive_sha=$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)
+          if [[ "$current_archive_sha" == "$RESULT_ARCHIVE_SHA" ]]; then
+            echo 'ACCESSIBILITY_EVIDENCE_SOURCE_ALREADY_CURRENT'
+            exit 0
+          fi
+          test "$current_archive_sha" = "$PREDECESSOR_ARCHIVE_SHA"
+
+          rm -rf canonical /tmp/r7e-a11y-pack1 /tmp/r7e-a11y-pack2
+          rm -f /tmp/r7e-a11y-predecessor.zip /tmp/r7e-a11y-source1.zip /tmp/r7e-a11y-source2.zip
+          mkdir canonical
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > /tmp/r7e-a11y-predecessor.zip
+          printf '%s  %s\n' "$PREDECESSOR_ARCHIVE_SHA" /tmp/r7e-a11y-predecessor.zip | sha256sum --check --strict
+          unzip -q /tmp/r7e-a11y-predecessor.zip -d canonical
+
+          printf '%s  %s\n' "$BEFORE_LIGHTHOUSE_SHA" canonical/scripts/run-lighthouse.mjs | sha256sum --check --strict
+          printf '%s  %s\n' "$BEFORE_HEADER_SHA" canonical/src/components/SiteHeader.astro | sha256sum --check --strict
+          printf '%s  %s\n' "$BEFORE_ARCHIVE_SHA" canonical/src/pages/archive/index.astro | sha256sum --check --strict
+          printf '%s  %s\n' "$BEFORE_AXE_SHA" canonical/tests/accessibility.spec.ts | sha256sum --check --strict
+
+          (
+            cd canonical
+            git init -q
+            git add -A
+            git -c user.name='r7e-accessibility-bootstrap' -c user.email='r7e-accessibility-bootstrap@example.invalid' commit -qm 'immutable predecessor source'
+            git apply --check "$GITHUB_WORKSPACE/$PATCH"
+            git apply "$GITHUB_WORKSPACE/$PATCH"
+            git diff --check
+            git diff --name-only | sort > /tmp/r7e-a11y-changed.txt
+          )
+          cat > /tmp/r7e-a11y-expected.txt <<'EOF'
+          scripts/run-lighthouse.mjs
+          src/components/SiteHeader.astro
+          src/pages/archive/index.astro
+          tests/accessibility.spec.ts
+          EOF
+          sed -i 's/^          //' /tmp/r7e-a11y-expected.txt
+          diff -u /tmp/r7e-a11y-expected.txt /tmp/r7e-a11y-changed.txt
+
+          printf '%s  %s\n' "$AFTER_LIGHTHOUSE_SHA" canonical/scripts/run-lighthouse.mjs | sha256sum --check --strict
+          printf '%s  %s\n' "$AFTER_HEADER_SHA" canonical/src/components/SiteHeader.astro | sha256sum --check --strict
+          printf '%s  %s\n' "$AFTER_ARCHIVE_SHA" canonical/src/pages/archive/index.astro | sha256sum --check --strict
+          printf '%s  %s\n' "$AFTER_AXE_SHA" canonical/tests/accessibility.spec.ts | sha256sum --check --strict
+
+          node --check canonical/scripts/run-lighthouse.mjs
+          grep -q 'failedAccessibilityAuditsGated: true' canonical/scripts/run-lighthouse.mjs
+          grep -q 'warmupAccessibilityGated: true' canonical/scripts/run-lighthouse.mjs
+          grep -q "allowedIncompleteRuleIds = new Set(\['color-contrast'\])" canonical/tests/accessibility.spec.ts
+          grep -q 'unexpectedIncomplete' canonical/tests/accessibility.spec.ts
+          grep -q 'class="archive-wrap" role="region" tabindex="0"' canonical/src/pages/archive/index.astro
+          test "$(grep -o 'scope="col"' canonical/src/pages/archive/index.astro | wc -l)" -eq 4
+          ! grep -q 'aria-label="David Anderle, home"' canonical/src/components/SiteHeader.astro
+          grep -q '<a class="site-mark" href="/">' canonical/src/components/SiteHeader.astro
+          rm -rf canonical/.git
+
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-a11y-pack1 --archive /tmp/r7e-a11y-source1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-a11y-pack2 --archive /tmp/r7e-a11y-source2.zip
+          cmp /tmp/r7e-a11y-source1.zip /tmp/r7e-a11y-source2.zip
+          diff -ru /tmp/r7e-a11y-pack1 /tmp/r7e-a11y-pack2
+          printf '%s  %s\n' "$RESULT_ARCHIVE_SHA" /tmp/r7e-a11y-source1.zip | sha256sum --check --strict
+          test "$(cat /tmp/r7e-a11y-pack1/ARCHIVE_SHA256)" = "$RESULT_ARCHIVE_SHA"
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          tree=json.loads(Path('/tmp/r7e-a11y-pack1/SOURCE_TREE.json').read_text())
+          rows={row['path']:row for row in tree['files']}
+          expected={
+            'scripts/run-lighthouse.mjs':'9fab247608961728df41bee15b27477d81db1dccae19e6868c6f83365bfde282',
+            'src/components/SiteHeader.astro':'4070fd8eba1a383948508868b124b84ce309a09ed11a57038fd7da29590270c4',
+            'src/pages/archive/index.astro':'3c8d89953f03d43817c743ba3238471f663f9cbe09cee193153781fc5a0de825',
+            'tests/accessibility.spec.ts':'54e8770680874ecf43fff81944de150ebdca434dc7c04ca75241e482c92d0180',
+          }
+          assert tree['fileCount']==111
+          for path,digest in expected.items():
+              assert rows[path]['sha256']==digest, (path,rows[path]['sha256'],digest)
+          print(json.dumps({'passed':True,'fileCount':tree['fileCount'],'archiveSha256':Path('/tmp/r7e-a11y-pack1/ARCHIVE_SHA256').read_text().strip(),'changedFiles':sorted(expected)},indent=2))
+          PY
+
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/r7e-a11y-pack1/. .r7e-source/
+          printf '%s\n' "$RESULT_ARCHIVE_SHA" > .r7e-source/HARDENED_SOURCE_READY
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .r7e-source
+          git commit -m 'R7E: freeze accessibility-evidence-hardened canonical source'
+          git push origin HEAD:r7e-hardened-verification-20260829
