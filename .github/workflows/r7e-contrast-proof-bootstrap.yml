@@ -1,0 +1,175 @@
+name: R7E deterministic contrast-proof source bootstrap
+
+on:
+  push:
+    branches:
+      - r7e-hardened-verification-20260829
+    paths:
+      - '.github/workflows/r7e-contrast-proof-bootstrap.yml'
+      - '.github/r7-closure/r7e-contrast-proof-hardening.patch'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact R7E branch state
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Derive deterministic contrast-proof-hardened canonical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly PREDECESSOR_ARCHIVE_SHA='3407a6b2f4779a74cf1f3cae288063daaa6435d7dc46ad05106fbf2243046729'
+          readonly RESULT_ARCHIVE_SHA='e840cb7d88a1829f79ca754f78c61ef6488b008d3b45cbe9be9ec41df5ce0289'
+          readonly PATCH_SHA='a314a2af5301870eef183f418399cafbeb4f4d87cfa9fd7c984c8f2bfd956fdc'
+          readonly PATCH='.github/r7-closure/r7e-contrast-proof-hardening.patch'
+
+          readonly BEFORE_PACKAGE_SHA='b1bf17c431cf7bba29747b7bf62bfd492750791541ce57061f950a1e578e7c6b'
+          readonly AFTER_PACKAGE_SHA='ca0c1211af36fd83440306c3966d952f1813aaae8c228aee098aee424a749504'
+          readonly AFTER_CONTRAST_SCRIPT_SHA='fbd9b1b747bd99fffdc5d89277640feada7a94807448101263f04137caec4540'
+          readonly BEFORE_AXE_SHA='54e8770680874ecf43fff81944de150ebdca434dc7c04ca75241e482c92d0180'
+          readonly AFTER_AXE_SHA='b982663e5c5092d3df5ac38aa5067de5d860f9a8d4afee670630a935acebfa56'
+
+          test "$(node --version)" = 'v24.20.0'
+          printf '%s  %s\n' "$PATCH_SHA" "$PATCH" | sha256sum --check --strict
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          current_archive_sha=$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)
+          if [[ "$current_archive_sha" == "$RESULT_ARCHIVE_SHA" ]]; then
+            echo 'CONTRAST_PROOF_SOURCE_ALREADY_CURRENT'
+            exit 0
+          fi
+          test "$current_archive_sha" = "$PREDECESSOR_ARCHIVE_SHA"
+
+          rm -rf canonical /tmp/r7e-contrast-pack1 /tmp/r7e-contrast-pack2
+          rm -f /tmp/r7e-contrast-predecessor.zip /tmp/r7e-contrast-source1.zip /tmp/r7e-contrast-source2.zip
+          mkdir canonical
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > /tmp/r7e-contrast-predecessor.zip
+          printf '%s  %s\n' "$PREDECESSOR_ARCHIVE_SHA" /tmp/r7e-contrast-predecessor.zip | sha256sum --check --strict
+          unzip -q /tmp/r7e-contrast-predecessor.zip -d canonical
+
+          printf '%s  %s\n' "$BEFORE_PACKAGE_SHA" canonical/package.json | sha256sum --check --strict
+          printf '%s  %s\n' "$BEFORE_AXE_SHA" canonical/tests/accessibility.spec.ts | sha256sum --check --strict
+          test ! -e canonical/scripts/verify-contrast-bounds.mjs
+
+          (
+            cd canonical
+            git init -q
+            git add -A
+            git -c user.name='r7e-contrast-bootstrap' -c user.email='r7e-contrast-bootstrap@example.invalid' commit -qm 'immutable predecessor source'
+            git apply --check "$GITHUB_WORKSPACE/$PATCH"
+            git apply "$GITHUB_WORKSPACE/$PATCH"
+            git diff --check
+            git diff --name-only | sort > /tmp/r7e-contrast-tracked.txt
+            git ls-files --others --exclude-standard | sort > /tmp/r7e-contrast-untracked.txt
+          )
+          printf 'package.json\ntests/accessibility.spec.ts\n' > /tmp/r7e-contrast-expected-tracked.txt
+          printf 'scripts/verify-contrast-bounds.mjs\n' > /tmp/r7e-contrast-expected-untracked.txt
+          diff -u /tmp/r7e-contrast-expected-tracked.txt /tmp/r7e-contrast-tracked.txt
+          diff -u /tmp/r7e-contrast-expected-untracked.txt /tmp/r7e-contrast-untracked.txt
+
+          printf '%s  %s\n' "$AFTER_PACKAGE_SHA" canonical/package.json | sha256sum --check --strict
+          printf '%s  %s\n' "$AFTER_CONTRAST_SCRIPT_SHA" canonical/scripts/verify-contrast-bounds.mjs | sha256sum --check --strict
+          printf '%s  %s\n' "$AFTER_AXE_SHA" canonical/tests/accessibility.spec.ts | sha256sum --check --strict
+          node --check canonical/scripts/verify-contrast-bounds.mjs
+          (
+            cd canonical
+            node scripts/verify-contrast-bounds.mjs > /tmp/r7e-contrast-proof.json
+          )
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          proof=json.loads(Path('canonical/.r7e-tmp/contrast-bounds.json').read_text())
+          assert proof['designation']=='R7E_STATIC_CONTRAST_BOUND_V1'
+          assert proof['passed'] is True
+          assert proof['checkCount']==32
+          assert proof['minimumObservedRatio']>=4.5
+          assert proof['gradientOccurrenceCount']==3
+          assert len(proof['declaredBackgrounds'])==12
+          assert len(proof['declaredTextColors'])==40
+          assert proof['stylesheetInventory']==[
+              'src/styles/bearing.css',
+              'src/styles/global.css',
+              'src/styles/project.css',
+              'src/styles/tokens.css',
+          ]
+          assert proof['inlinePresentationHits']==[]
+          assert proof['embeddedStyleHits']==[]
+          assert proof['opacityMatches']==['.88']
+          assert proof['failed']==[]
+          print(json.dumps({
+              'passed':True,
+              'designation':proof['designation'],
+              'checkCount':proof['checkCount'],
+              'minimumObservedRatio':proof['minimumObservedRatio'],
+          },indent=2))
+          PY
+          node - <<'NODE'
+          const p=require('./canonical/package.json');
+          const expected={
+            'validate:contrast':'node scripts/verify-contrast-bounds.mjs',
+            'check':'npm run validate:content && npm run validate:contrast && npm run check:astro',
+            'build':'npm run prepare && npm run validate:content && npm run validate:contrast && npm run build:astro && npm run finalize:static && npm run dist:inspect',
+            'test:axe':'npm run validate:contrast && playwright test tests/accessibility.spec.ts'
+          };
+          for (const [name,value] of Object.entries(expected)) {
+            if (p.scripts[name] !== value) throw new Error(`${name} mismatch`);
+          }
+          NODE
+          rm -rf canonical/.git canonical/.r7e-tmp
+
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-contrast-pack1 --archive /tmp/r7e-contrast-source1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-contrast-pack2 --archive /tmp/r7e-contrast-source2.zip
+          cmp /tmp/r7e-contrast-source1.zip /tmp/r7e-contrast-source2.zip
+          diff -ru /tmp/r7e-contrast-pack1 /tmp/r7e-contrast-pack2
+          printf '%s  %s\n' "$RESULT_ARCHIVE_SHA" /tmp/r7e-contrast-source1.zip | sha256sum --check --strict
+          test "$(cat /tmp/r7e-contrast-pack1/ARCHIVE_SHA256)" = "$RESULT_ARCHIVE_SHA"
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          tree=json.loads(Path('/tmp/r7e-contrast-pack1/SOURCE_TREE.json').read_text())
+          rows={row['path']:row for row in tree['files']}
+          expected={
+              'package.json':'ca0c1211af36fd83440306c3966d952f1813aaae8c228aee098aee424a749504',
+              'scripts/verify-contrast-bounds.mjs':'fbd9b1b747bd99fffdc5d89277640feada7a94807448101263f04137caec4540',
+              'tests/accessibility.spec.ts':'b982663e5c5092d3df5ac38aa5067de5d860f9a8d4afee670630a935acebfa56',
+          }
+          assert tree['fileCount']==112
+          for file,digest in expected.items():
+              assert rows[file]['sha256']==digest, (file,rows[file]['sha256'],digest)
+          print(json.dumps({
+              'passed':True,
+              'fileCount':tree['fileCount'],
+              'archiveSha256':Path('/tmp/r7e-contrast-pack1/ARCHIVE_SHA256').read_text().strip(),
+              'changedFiles':sorted(expected),
+          },indent=2))
+          PY
+
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/r7e-contrast-pack1/. .r7e-source/
+          printf '%s\n' "$RESULT_ARCHIVE_SHA" > .r7e-source/HARDENED_SOURCE_READY
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .r7e-source
+          git commit -m 'R7E: freeze deterministic contrast-proof canonical source'
+          git push origin HEAD:r7e-hardened-verification-20260829
