@@ -1,0 +1,194 @@
+name: R7 final technical architecture closure audit v2
+
+on:
+  push:
+    branches:
+      - r7-final-closure-audit-v2-20260830
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7-final-closure-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  REPOSITORY: davidanderle1/davidanderle-site
+  R7E_BRANCH: r7e-hardened-verification-20260829
+  R7E_HEAD: 4aec82c193ca929ebd9e4ae112524ed19cc5d34d
+  R7E_RUN_ID: '33309269707'
+  R7E_WORKFLOW_PATH: .github/workflows/r7e-hardened-verification.yml
+  R7E_ARTIFACT_ID: '9731512676'
+  R7E_ARTIFACT_NAME: r7e-hardened-evidence-4aec82c193ca929ebd9e4ae112524ed19cc5d34d
+  R7E_ARTIFACT_DIGEST: sha256:745af71506b0ba845d7fc5774ccfc001ea38a95f86ea55d67ba212dd3ff7a309
+  R7E_SOURCE_ARCHIVE_SHA256: f0da3a54989f8ab114be4f172225a769d223ecd5db9bb138cacfa40fe5d13a64
+  R7E_SOURCE_TREE_SHA256: 46e6c8c6baee94811ea10c1df1ecb5a5337c641d7937029294159f18a3563bbd
+  R7E_DIST_TREE_SHA256: aa1bce26744c87aef5fb2df2457de3e3b641643f19274c88455ca39671a8f25d
+  R7E_STRESS_TREE_SHA256: 7a238c577ff9dc9f623968a453cc690240e15cbd027e4f2801eee1410eb23d25
+  R7F_BRANCH: r7f-hardened-independent-verification-v5-20260830
+  R7F_HEAD: cca727ce18310fa4eb18b5bdd2fbc67921a8411b
+  R7F_RUN_ID: '33309885913'
+  R7F_WORKFLOW_PATH: .github/workflows/r7f-hardened-independent-verification-v5.yml
+  R7F_ARTIFACT_ID: '9731697549'
+  R7F_ARTIFACT_NAME: r7f-hardened-independent-v5-evidence-cca727ce18310fa4eb18b5bdd2fbc67921a8411b
+  R7F_ARTIFACT_DIGEST: sha256:c6e63b98230d177812aee63bcc7d3c189453ff3a3f5217da73d29deb52432f43
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated final-audit branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Materialize and authenticate independent final auditor
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p R7_CLOSURE_EVIDENCE audit-input R7_CLOSURE_OUTPUT
+          cat .github/audit/r7-final-closure-audit-v2.py.gz.b64.part* \
+            | tr -d '\r\n' \
+            | base64 --decode \
+            | gzip --decompress \
+            > /tmp/r7-final-closure-audit-v2.py
+          printf '%s  %s\n' \
+            '107f1ec08912d904b97500aef77b326a7f7f3fb9597f7efc8dfab0352f9fed7b' \
+            '/tmp/r7-final-closure-audit-v2.py' \
+            | sha256sum --check --strict
+          python3 -m py_compile /tmp/r7-final-closure-audit-v2.py
+          sha256sum .github/audit/r7-final-closure-audit-v2.py.gz.b64.part* /tmp/r7-final-closure-audit-v2.py \
+            > R7_CLOSURE_EVIDENCE/auditor-infrastructure.sha256
+
+      - name: Authenticate and download exact R7E and R7F artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${REPOSITORY}/branches/${R7E_BRANCH}" --jq '.commit.sha')" = "${R7E_HEAD}"
+          test "$(gh api "repos/${REPOSITORY}/branches/${R7F_BRANCH}" --jq '.commit.sha')" = "${R7F_HEAD}"
+
+          gh api "repos/${REPOSITORY}/actions/runs/${R7E_RUN_ID}" > R7_CLOSURE_EVIDENCE/r7e-run-metadata.json
+          gh api "repos/${REPOSITORY}/actions/runs/${R7F_RUN_ID}" > R7_CLOSURE_EVIDENCE/r7f-run-metadata.json
+          jq -e --arg head "$R7E_HEAD" --arg branch "$R7E_BRANCH" --arg path "$R7E_WORKFLOW_PATH" \
+            '.head_sha==$head and .head_branch==$branch and .path==$path and .status=="completed" and .conclusion=="success"' \
+            R7_CLOSURE_EVIDENCE/r7e-run-metadata.json >/dev/null
+          jq -e --arg head "$R7F_HEAD" --arg branch "$R7F_BRANCH" --arg path "$R7F_WORKFLOW_PATH" \
+            '.head_sha==$head and .head_branch==$branch and .path==$path and .status=="completed" and .conclusion=="success"' \
+            R7_CLOSURE_EVIDENCE/r7f-run-metadata.json >/dev/null
+
+          gh api "repos/${REPOSITORY}/actions/artifacts/${R7E_ARTIFACT_ID}" > R7_CLOSURE_EVIDENCE/r7e-artifact-metadata.json
+          gh api "repos/${REPOSITORY}/actions/artifacts/${R7F_ARTIFACT_ID}" > R7_CLOSURE_EVIDENCE/r7f-artifact-metadata.json
+          jq -e --arg name "$R7E_ARTIFACT_NAME" --arg digest "$R7E_ARTIFACT_DIGEST" --argjson run "$R7E_RUN_ID" --arg head "$R7E_HEAD" \
+            '.name==$name and .digest==$digest and .expired==false and .workflow_run.id==$run and .workflow_run.head_sha==$head' \
+            R7_CLOSURE_EVIDENCE/r7e-artifact-metadata.json >/dev/null
+          jq -e --arg name "$R7F_ARTIFACT_NAME" --arg digest "$R7F_ARTIFACT_DIGEST" --argjson run "$R7F_RUN_ID" --arg head "$R7F_HEAD" \
+            '.name==$name and .digest==$digest and .expired==false and .workflow_run.id==$run and .workflow_run.head_sha==$head' \
+            R7_CLOSURE_EVIDENCE/r7f-artifact-metadata.json >/dev/null
+
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${R7E_ARTIFACT_ID}/zip" \
+            --output audit-input/r7e.zip
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${R7F_ARTIFACT_ID}/zip" \
+            --output audit-input/r7f.zip
+
+          test "sha256:$(sha256sum audit-input/r7e.zip | awk '{print $1}')" = "${R7E_ARTIFACT_DIGEST}"
+          test "sha256:$(sha256sum audit-input/r7f.zip | awk '{print $1}')" = "${R7F_ARTIFACT_DIGEST}"
+          mkdir audit-input/r7e audit-input/r7f
+          unzip -q audit-input/r7e.zip -d audit-input/r7e
+          unzip -q audit-input/r7f.zip -d audit-input/r7f
+
+          jq -n \
+            --arg repository "$REPOSITORY" \
+            --arg r7eBranch "$R7E_BRANCH" --arg r7eHead "$R7E_HEAD" --argjson r7eRun "$R7E_RUN_ID" \
+            --argjson r7eArtifact "$R7E_ARTIFACT_ID" --arg r7eName "$R7E_ARTIFACT_NAME" --arg r7eDigest "$R7E_ARTIFACT_DIGEST" \
+            --arg r7eSourceArchive "$R7E_SOURCE_ARCHIVE_SHA256" --arg r7eSourceTree "$R7E_SOURCE_TREE_SHA256" \
+            --arg r7eDistTree "$R7E_DIST_TREE_SHA256" --arg r7eStressTree "$R7E_STRESS_TREE_SHA256" \
+            --arg r7fBranch "$R7F_BRANCH" --arg r7fHead "$R7F_HEAD" --argjson r7fRun "$R7F_RUN_ID" \
+            --argjson r7fArtifact "$R7F_ARTIFACT_ID" --arg r7fName "$R7F_ARTIFACT_NAME" --arg r7fDigest "$R7F_ARTIFACT_DIGEST" \
+            '{repository:$repository,r7e:{branch:$r7eBranch,headSha:$r7eHead,runId:$r7eRun,runStatus:"completed",runConclusion:"success",artifactId:$r7eArtifact,artifactName:$r7eName,artifactDigest:$r7eDigest,artifactExpired:false,downloadDigest:$r7eDigest,sourceArchiveSha256:$r7eSourceArchive,sourceTreeSha256:$r7eSourceTree,distTreeSha256:$r7eDistTree,stressTreeSha256:$r7eStressTree},r7f:{branch:$r7fBranch,headSha:$r7fHead,runId:$r7fRun,runStatus:"completed",runConclusion:"success",artifactId:$r7fArtifact,artifactName:$r7fName,artifactDigest:$r7fDigest,artifactExpired:false,downloadDigest:$r7fDigest}}' \
+            > R7_CLOSURE_EVIDENCE/chain-of-custody.json
+
+      - name: Execute final independent closure audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 /tmp/r7-final-closure-audit-v2.py \
+            --r7e-root audit-input/r7e \
+            --r7f-root audit-input/r7f \
+            --chain R7_CLOSURE_EVIDENCE/chain-of-custody.json \
+            --output-dir R7_CLOSURE_OUTPUT
+          test "$(jq -r '.decision' R7_CLOSURE_OUTPUT/R7_CLOSURE_DECISION.json)" = R7_CLOSED
+          test "$(jq -r '.passed' R7_CLOSURE_OUTPUT/R7_CLOSURE_DECISION.json)" = true
+          test "$(jq '.blockers | length' R7_CLOSURE_OUTPUT/R7_CLOSURE_DECISION.json)" -eq 0
+          test "$(jq -r '.checkCount' R7_CLOSURE_OUTPUT/R7_CLOSURE_DECISION.json)" -eq 57
+
+      - name: Prove final auditor is non-vacuous
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf audit-input/negative-r7f R7_NEGATIVE_CONTROL_OUTPUT
+          cp -a audit-input/r7f audit-input/negative-r7f
+          printf 'R7F DELIBERATE FINAL-AUDITOR NEGATIVE CONTROL\n' > audit-input/negative-r7f/R7F_GATE_DECISION.txt
+          set +e
+          python3 /tmp/r7-final-closure-audit-v2.py \
+            --r7e-root audit-input/r7e \
+            --r7f-root audit-input/negative-r7f \
+            --chain R7_CLOSURE_EVIDENCE/chain-of-custody.json \
+            --output-dir R7_NEGATIVE_CONTROL_OUTPUT \
+            > R7_CLOSURE_EVIDENCE/negative-control.stdout.txt \
+            2> R7_CLOSURE_EVIDENCE/negative-control.stderr.txt
+          status=$?
+          set -e
+          test "$status" -ne 0
+          test "$(jq -r '.decision' R7_NEGATIVE_CONTROL_OUTPUT/R7_CLOSURE_DECISION.json)" = R7_NOT_CLOSED
+          jq -e '.passed==false and (.blockers | index("r7f:internal-manifest")) != null and (.blockers | index("r7f:gate-exact")) != null' \
+            R7_NEGATIVE_CONTROL_OUTPUT/R7_CLOSURE_DECISION.json >/dev/null
+          cp R7_NEGATIVE_CONTROL_OUTPUT/R7_CLOSURE_DECISION.json R7_CLOSURE_EVIDENCE/negative-control-decision.json
+          rm -rf audit-input/negative-r7f R7_NEGATIVE_CONTROL_OUTPUT
+
+      - name: Assemble immutable closure record
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf closure-artifact
+          mkdir -p closure-artifact/R7_CLOSURE_EVIDENCE
+          cp R7_CLOSURE_OUTPUT/R7_CLOSURE_DECISION.json closure-artifact/
+          cp R7_CLOSURE_OUTPUT/R7_CLOSURE_RECORD.md closure-artifact/
+          cp -a R7_CLOSURE_EVIDENCE/. closure-artifact/R7_CLOSURE_EVIDENCE/
+          printf 'R7 TECHNICAL ARCHITECTURE CLOSED — PROCEED TO R8 SECURITY AND R9 DISCOVERABILITY\n' \
+            > closure-artifact/R7_CLOSURE_GATE.txt
+          (
+            cd closure-artifact
+            find . -type f ! -name 'R7_CLOSURE_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7_CLOSURE_SHA256SUMS.txt
+            sha256sum --check --strict R7_CLOSURE_SHA256SUMS.txt
+          )
+
+      - name: Upload final R7 closure evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-final-closure-v2-${{ github.sha }}
+          path: closure-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Enforce closure transition
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat closure-artifact/R7_CLOSURE_GATE.txt)" = 'R7 TECHNICAL ARCHITECTURE CLOSED — PROCEED TO R8 SECURITY AND R9 DISCOVERABILITY'
+          jq -e '.decision=="R7_CLOSED" and .passed==true and (.blockers|length)==0 and .scope.technicalArchitectureR7=="CLOSED" and .scope.mainBranchModified==false' \
+            closure-artifact/R7_CLOSURE_DECISION.json >/dev/null
