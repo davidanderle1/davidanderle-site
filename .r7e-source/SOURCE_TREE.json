@@ -201,9 +201,9 @@
     },
     {
       "path": "scripts/run-lighthouse.mjs",
-      "sha256": "624206b359e25e33e4f150ae2ba8aa00a877aff76ab0fb207db7d94f356ba670",
+      "sha256": "61a706b10c20f136079354121d9a6c616d68d129d7a500f5f298547d590fa4a6",
       "mode": "0o644",
-      "size": 5222
+      "size": 6077
     },
     {
       "path": "scripts/serve-dist.mjs",
