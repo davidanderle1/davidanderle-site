@@ -71,7 +71,7 @@ jobs:
           cp -a /tmp/r7e-fp-pack1/. .r7e-source/
           cp .r7e-source/ARCHIVE_SHA256 .r7e-source/HARDENED_SOURCE_READY
           sha256sum --check --strict .r7e-source/SHA256SUMS
-          test "$(python3 -c \"import json; print(json.load(open('.r7e-source/SOURCE_TREE.json'))['fileCount'])\")" -eq 113
+          test "$(jq -r '.fileCount' .r7e-source/SOURCE_TREE.json)" -eq 113
           printf 'new_source_archive_sha256=%s\n' "$(cat .r7e-source/ARCHIVE_SHA256)"
 
       - name: Commit immutable fingerprint-bound source transport
