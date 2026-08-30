@@ -54,40 +54,45 @@ jobs:
           printf '%s  %s\n' '332bf48054e923ff37b7d0021cdccd01697cfd6945b12d0a8dadb8ee7b4bd19d' canonical/tests/browser.spec.ts | sha256sum --check --strict
           printf '%s  %s\n' '865f3dd9d884721a2498ecd780e6be92e729ea1c866366e6c700dea4257f425f' canonical/verification/README.md | sha256sum --check --strict
 
-      - name: Apply audited browser evidence correction
+      - name: Authenticate browser evidence patch
         shell: bash
         run: |
           set -euxo pipefail
-          echo 'CHECKPOINT_01_WORKSPACE'
-          pwd
-          test -f .github/patches/r7e-browser-evidence-fix.patch
-          test -f canonical/tests/browser.spec.ts
-          test -f canonical/verification/README.md
-          echo 'CHECKPOINT_02_INPUT_HASHES'
-          sha256sum .github/patches/r7e-browser-evidence-fix.patch canonical/tests/browser.spec.ts canonical/verification/README.md
+          sha256sum .github/patches/r7e-browser-evidence-fix.patch
           printf '%s  %s\n' "$PATCH_SHA256" .github/patches/r7e-browser-evidence-fix.patch | sha256sum --check --strict
-          echo 'CHECKPOINT_03_PATCH_CHECK'
-          (
-            cd canonical
-            git apply --check --verbose ../.github/patches/r7e-browser-evidence-fix.patch
-          )
-          echo 'CHECKPOINT_04_PATCH_APPLY'
-          (
-            cd canonical
-            git apply --verbose ../.github/patches/r7e-browser-evidence-fix.patch
-          )
-          echo 'CHECKPOINT_05_OUTPUT_HASHES'
+
+      - name: Verify browser evidence patch applicability
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd canonical
+          git apply --check --verbose ../.github/patches/r7e-browser-evidence-fix.patch
+
+      - name: Apply browser evidence patch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd canonical
+          git apply --verbose ../.github/patches/r7e-browser-evidence-fix.patch
+
+      - name: Verify browser evidence output hashes
+        shell: bash
+        run: |
+          set -euxo pipefail
           sha256sum canonical/tests/browser.spec.ts canonical/verification/README.md
           printf '%s  %s\n' '1498032ea2c37a7905dd78da3a401e8b0a69c318ca98bc7342cab696d49b9940' canonical/tests/browser.spec.ts | sha256sum --check --strict
           printf '%s  %s\n' 'dfe669b2c3c8bdffacebdda70727334e3f8fee58c61c7b4c3b994959d4ebd01a' canonical/verification/README.md | sha256sum --check --strict
-          echo 'CHECKPOINT_06_SEMANTIC_ASSERTIONS'
+
+      - name: Verify browser evidence semantic assertions
+        shell: bash
+        run: |
+          set -euxo pipefail
           grep -nF "routeCount: routeEvidence.length" canonical/tests/browser.spec.ts
           grep -nF "Static sequence: all steps visible" canonical/tests/browser.spec.ts
           grep -nF "Showing Forced sales" canonical/tests/browser.spec.ts
           grep -nF "page.keyboard.press('ArrowRight')" canonical/tests/browser.spec.ts
           grep -nF "page.keyboard.press('Home')" canonical/tests/browser.spec.ts
           grep -nF "alternate-vce-enhanced-step-390.png" canonical/tests/browser.spec.ts
-          echo 'CHECKPOINT_07_APPLY_COMPLETE'
 
       - name: Deterministically repack corrected canonical source twice
         shell: bash
