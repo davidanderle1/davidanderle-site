@@ -1,0 +1,278 @@
+name: R7E audited Axe compensation source bootstrap
+
+on:
+  push:
+    branches:
+      - r7e-hardened-verification-20260829
+    paths:
+      - '.github/workflows/r7e-axe-compensation-v1-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact R7E branch state
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Derive deterministic audited-Axe canonical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf canonical /tmp/r7e-axe-pack1 /tmp/r7e-axe-pack2 /tmp/r7e-axe-source1.zip /tmp/r7e-axe-source2.zip
+          mkdir canonical
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > /tmp/r7e-current-source.zip
+          test "$(sha256sum /tmp/r7e-current-source.zip | awk '{print $1}')" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
+          unzip -q /tmp/r7e-current-source.zip -d canonical
+          test -f canonical/tests/accessibility.spec.ts
+          test -f canonical/scripts/verify-contrast-bounds.mjs
+
+          cat > canonical/tests/accessibility.spec.ts <<'TS'
+          import fs from 'node:fs';
+          import { test, expect } from '@playwright/test';
+          import axe from 'axe-core';
+
+          fs.mkdirSync('.r7e-tmp/axe', { recursive: true });
+          fs.mkdirSync('.r7e-tmp/axe-compensation', { recursive: true });
+          const pages = ['/', '/work/', '/archive/', '/work/volatility-cascade-engine/', '/about/'];
+          const contrastProof = JSON.parse(fs.readFileSync('.r7e-tmp/contrast-bounds.json', 'utf8'));
+
+          type AxeRelatedNode = { html?: string; target?: string[] };
+
+          type AxeIncompleteNode = {
+            any: Array<{
+              id: string;
+              impact?: string | null;
+              data?: { messageKey?: string };
+              relatedNodes?: AxeRelatedNode[];
+            }>;
+            all: unknown[];
+            none: unknown[];
+            html?: string;
+            target?: string[];
+          };
+
+          type AxeIncompleteResult = {
+            id: string;
+            nodes: AxeIncompleteNode[];
+          };
+
+          type RouteBackplateElement = {
+            html: string;
+            backgroundColor: string;
+            backgroundImage: string;
+            position: string;
+            zIndex: string;
+            passed: boolean;
+          };
+
+          type RouteLayerProof = {
+            listPosition: string;
+            listZIndex: string;
+            signatureDisplay: string;
+            signaturePosition: string;
+            signatureZIndex: string;
+            listBeforeContent: string;
+            listBeforePosition: string;
+            listBeforeZIndex: string;
+            firstItemPosition: string;
+            firstItemZIndex: string;
+            firstItemBeforeContent: string;
+            firstItemBeforePosition: string;
+            firstItemBeforeZIndex: string;
+            desktopSignatureBelowList: boolean;
+            mobilePseudoBelowBackplates: boolean;
+          };
+
+          type RouteBackplateProof = {
+            designation: 'R7E_BEARING_ROUTE_BACKPLATE_V1';
+            width: number;
+            expectedBackground: string;
+            expectedElementCount: number;
+            elements: RouteBackplateElement[];
+            layers: RouteLayerProof;
+            passed: boolean;
+          };
+
+          function isAuditedGradientIncomplete(node: AxeIncompleteNode): boolean {
+            const [check] = node.any;
+            const related = check?.relatedNodes ?? [];
+            const relatedTarget = related[0]?.target ?? [];
+            const relatedHtml = related[0]?.html;
+            const auditedGradient = related.length === 1 && (
+              (relatedTarget.length === 1 && relatedTarget[0] === 'body' && relatedHtml === '<body>') ||
+              (relatedTarget.length === 1 && relatedTarget[0] === '#limitations' && relatedHtml === '<section class="limitation-block" id="limitations" aria-labelledby="limitations-title">')
+            );
+            return node.any.length === 1 &&
+              check?.id === 'color-contrast' &&
+              check.impact === 'serious' &&
+              check.data?.messageKey === 'bgGradient' &&
+              auditedGradient &&
+              node.all.length === 0 &&
+              node.none.length === 0;
+          }
+
+          function isAuditedRouteBackplateIncomplete(node: AxeIncompleteNode, proof: RouteBackplateProof | null): boolean {
+            if (!proof?.passed || !node.html) return false;
+            const [check] = node.any;
+            const messageKey = check?.data?.messageKey;
+            const related = check?.relatedNodes ?? [];
+            const exactBackplate = proof.elements.some((element) => element.passed && element.html === node.html);
+            if (!exactBackplate || node.any.length !== 1 || check?.id !== 'color-contrast' || check.impact !== 'serious' || node.all.length !== 0 || node.none.length !== 0) {
+              return false;
+            }
+            if (messageKey === 'elmPartiallyObscuring') {
+              return related.length === 0 && proof.layers.desktopSignatureBelowList;
+            }
+            if (messageKey === 'pseudoContent') {
+              const relatedTarget = related[0]?.target ?? [];
+              const relatedHtml = related[0]?.html ?? '';
+              return proof.layers.mobilePseudoBelowBackplates &&
+                related.length === 1 &&
+                relatedTarget.length === 1 &&
+                (relatedTarget[0] === 'ol' || /^ol > li:nth-child\([1-3]\)$/.test(relatedTarget[0])) &&
+                (relatedHtml === '<ol class="bearing-list">' || relatedHtml.startsWith('<li>'));
+            }
+            return false;
+          }
+
+          async function collectRouteBackplateProof(page: import('@playwright/test').Page, width: number): Promise<RouteBackplateProof> {
+            const measured = await page.locator('.bearing-list').evaluate((list) => {
+              const probe = document.createElement('span');
+              probe.style.background = 'var(--bg)';
+              document.body.append(probe);
+              const expectedBackground = getComputedStyle(probe).backgroundColor;
+              probe.remove();
+              const elements = Array.from(list.querySelectorAll('.stop-index, time, h3, p')).map((element) => {
+                const style = getComputedStyle(element);
+                return {
+                  html: element.outerHTML,
+                  backgroundColor: style.backgroundColor,
+                  backgroundImage: style.backgroundImage,
+                  position: style.position,
+                  zIndex: style.zIndex,
+                  passed: style.backgroundColor === expectedBackground &&
+                    style.backgroundImage === 'none' &&
+                    style.position === 'relative' &&
+                    style.zIndex === '2'
+                };
+              });
+              const listStyle = getComputedStyle(list);
+              const signature = document.querySelector('.bearing-signature');
+              const signatureStyle = signature ? getComputedStyle(signature) : null;
+              const listBefore = getComputedStyle(list, '::before');
+              const firstItem = list.querySelector('li');
+              const firstItemStyle = firstItem ? getComputedStyle(firstItem) : null;
+              const firstItemBefore = firstItem ? getComputedStyle(firstItem, '::before') : null;
+              const layers: RouteLayerProof = {
+                listPosition: listStyle.position,
+                listZIndex: listStyle.zIndex,
+                signatureDisplay: signatureStyle?.display ?? 'missing',
+                signaturePosition: signatureStyle?.position ?? 'missing',
+                signatureZIndex: signatureStyle?.zIndex ?? 'missing',
+                listBeforeContent: listBefore.content,
+                listBeforePosition: listBefore.position,
+                listBeforeZIndex: listBefore.zIndex,
+                firstItemPosition: firstItemStyle?.position ?? 'missing',
+                firstItemZIndex: firstItemStyle?.zIndex ?? 'missing',
+                firstItemBeforeContent: firstItemBefore?.content ?? 'missing',
+                firstItemBeforePosition: firstItemBefore?.position ?? 'missing',
+                firstItemBeforeZIndex: firstItemBefore?.zIndex ?? 'missing',
+                desktopSignatureBelowList: width > 768 &&
+                  listStyle.position === 'relative' && listStyle.zIndex === '2' &&
+                  signatureStyle?.display !== 'none' && signatureStyle?.position === 'absolute' && signatureStyle?.zIndex === '1',
+                mobilePseudoBelowBackplates: width <= 768 &&
+                  listStyle.position === 'relative' && listStyle.zIndex === '2' &&
+                  listBefore.content !== 'none' && listBefore.position === 'absolute' && listBefore.zIndex === '0' &&
+                  firstItemStyle?.position === 'relative' && firstItemStyle?.zIndex === '1' &&
+                  firstItemBefore?.content !== 'none' && firstItemBefore?.position === 'absolute'
+              };
+              return { expectedBackground, elements, layers };
+            });
+            const expectedLayering = width > 768 ? measured.layers.desktopSignatureBelowList : measured.layers.mobilePseudoBelowBackplates;
+            const proof: RouteBackplateProof = {
+              designation: 'R7E_BEARING_ROUTE_BACKPLATE_V1',
+              width,
+              expectedBackground: measured.expectedBackground,
+              expectedElementCount: 12,
+              elements: measured.elements,
+              layers: measured.layers,
+              passed: measured.elements.length === 12 && measured.elements.every((element) => element.passed) && expectedLayering
+            };
+            fs.writeFileSync(`.r7e-tmp/axe-compensation/home-route-backplates-${width}.json`, JSON.stringify(proof, null, 2));
+            return proof;
+          }
+
+          for (const width of [1280,390]) for (const url of pages) test(`axe ${url} ${width}`, async ({ page }) => {
+            await page.setViewportSize({width,height:width===390?844:900});
+            await page.goto(url, { waitUntil: 'networkidle' });
+            await page.evaluate(async () => {
+              await document.fonts.ready;
+              await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            });
+            await page.addScriptTag({ content: axe.source });
+            const results = await page.evaluate(async () => await (window as any).axe.run(document, {
+              runOnly: { type:'tag', values:['wcag2a','wcag2aa','wcag21aa','wcag22aa'] }
+            }));
+            const routeName = url === '/' ? 'home' : url.replace(/^\//, '').replace(/\/$/, '').replaceAll('/', '-');
+            fs.writeFileSync(`.r7e-tmp/axe/${routeName}-${width}.json`, JSON.stringify(results, null, 2));
+            const routeBackplates = url === '/' ? await collectRouteBackplateProof(page, width) : null;
+            const unexpectedIncomplete = (results.incomplete as AxeIncompleteResult[]).filter((result) =>
+              result.id !== 'color-contrast' ||
+              result.nodes.length === 0 ||
+              result.nodes.some((node) => !isAuditedGradientIncomplete(node) && !isAuditedRouteBackplateIncomplete(node, routeBackplates))
+            );
+            expect(contrastProof.designation).toBe('R7E_STATIC_CONTRAST_BOUND_V1');
+            expect(contrastProof.passed, JSON.stringify(contrastProof,null,2)).toBe(true);
+            expect(contrastProof.checkCount).toBe(32);
+            expect(contrastProof.minimumObservedRatio).toBeGreaterThanOrEqual(4.5);
+            if (routeBackplates) {
+              expect(routeBackplates.passed, JSON.stringify(routeBackplates,null,2)).toBe(true);
+            }
+            expect(results.violations, JSON.stringify(results.violations,null,2)).toEqual([]);
+            expect(unexpectedIncomplete, JSON.stringify(unexpectedIncomplete,null,2)).toEqual([]);
+          });
+          TS
+
+          grep -q 'R7E_BEARING_ROUTE_BACKPLATE_V1' canonical/tests/accessibility.spec.ts
+          grep -q 'elmPartiallyObscuring' canonical/tests/accessibility.spec.ts
+          grep -q 'pseudoContent' canonical/tests/accessibility.spec.ts
+          grep -q 'axe-compensation' canonical/tests/accessibility.spec.ts
+          test "$(grep -c '^          import ' canonical/tests/accessibility.spec.ts)" -eq 3
+
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-axe-pack1 --archive /tmp/r7e-axe-source1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-axe-pack2 --archive /tmp/r7e-axe-source2.zip
+          cmp /tmp/r7e-axe-source1.zip /tmp/r7e-axe-source2.zip
+          diff -ru /tmp/r7e-axe-pack1 /tmp/r7e-axe-pack2
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/r7e-axe-pack1/. .r7e-source/
+          cp .r7e-source/ARCHIVE_SHA256 .r7e-source/HARDENED_SOURCE_READY
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          printf 'new_source_archive_sha256=%s\n' "$(cat .r7e-source/ARCHIVE_SHA256)"
+
+      - name: Commit immutable audited-Axe source transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .r7e-source
+          if git diff --cached --quiet -- .r7e-source; then
+            echo 'AUDITED_AXE_SOURCE_ALREADY_CURRENT'
+            exit 0
+          fi
+          git commit -m 'R7E: freeze audited Axe compensation source'
+          git push origin HEAD:r7e-hardened-verification-20260829
