@@ -65,15 +65,13 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          cd canonical
-          git apply --check --verbose ../.github/patches/r7e-browser-evidence-fix.patch
+          git apply --check --verbose --directory=canonical .github/patches/r7e-browser-evidence-fix.patch
 
       - name: Apply browser evidence patch
         shell: bash
         run: |
           set -euxo pipefail
-          cd canonical
-          git apply --verbose ../.github/patches/r7e-browser-evidence-fix.patch
+          git apply --verbose --directory=canonical .github/patches/r7e-browser-evidence-fix.patch
 
       - name: Verify browser test output hash
         shell: bash
