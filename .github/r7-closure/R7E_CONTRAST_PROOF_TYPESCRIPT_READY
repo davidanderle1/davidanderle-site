@@ -1,0 +1,5 @@
+source_commit=dd887bacddc5f014ed6023f4f3a453adb1ff8e0b
+source_archive_sha256=ff7776cfbe9db0dc0f0a2c5d6f9339c65e86706b46f52ead091203ba0e2cae80
+patch_sha256=36c54ba12d308cba27863beb5bc04109f9be0966de9aa3ccadb632f764619b18
+changed_files=tests/accessibility.spec.ts
+reason=type-safe-narrowing-without-gate-weakening
