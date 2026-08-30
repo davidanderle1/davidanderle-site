@@ -1,0 +1,1 @@
+Final explicit trigger for the strict R7 closure audit after the R7E and R7F orchestration window. Only the audit run bound to the current verifier head and immutable artifact tuple is admissible.
