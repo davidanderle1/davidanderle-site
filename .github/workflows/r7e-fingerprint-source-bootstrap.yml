@@ -42,7 +42,7 @@ jobs:
           test "$(sha256sum /tmp/r7e-current-source.zip | awk '{print $1}')" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
           unzip -q /tmp/r7e-current-source.zip -d canonical
 
-          gh api "repos/${GITHUB_REPOSITORY}/git/blobs/${SOURCE_PAYLOAD_BLOB}" --jq -r .content \
+          gh api "repos/${GITHUB_REPOSITORY}/git/blobs/${SOURCE_PAYLOAD_BLOB}" --jq .content \
             | tr -d '\r\n' | base64 --decode > /tmp/r7e-fingerprint-source-payload.tar.gz
           printf '%s  %s\n' "${SOURCE_PAYLOAD_SHA256}" /tmp/r7e-fingerprint-source-payload.tar.gz | sha256sum --check --strict
           tar -xzf /tmp/r7e-fingerprint-source-payload.tar.gz -C canonical
