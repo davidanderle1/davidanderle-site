@@ -1,0 +1,5 @@
+source_commit=d2197410a3ceaaf8a7fc2e1e5e1e53f1321bb0be
+source_archive_sha256=3407a6b2f4779a74cf1f3cae288063daaa6435d7dc46ad05106fbf2243046729
+patch_sha256=d0c81a8212afec5ec23af9a4a4c4ddca04a4673e06ca455dc24fd5f69ff32d0d
+changed_files=src/pages/archive/index.astro
+reason=replace-aria-region-emulation-with-native-section
