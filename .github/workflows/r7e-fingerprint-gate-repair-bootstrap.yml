@@ -1,0 +1,112 @@
+name: Bootstrap exact R7E fingerprint handoff gate repair
+
+on:
+  push:
+    branches:
+      - r7e-fingerprint-bound-verification-20260830
+    paths:
+      - '.github/workflows/r7e-fingerprint-gate-repair-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-fingerprint-gate-repair-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact fingerprint branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Repair filename and semantic inventory assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/r7e-fingerprint-bound-verification.yml')
+          text = path.read_text(encoding='utf-8')
+          original = text
+
+          replacements = [
+              ('.r7e-tmp/axe-adjudication/inventory.json', '.r7e-tmp/axe-adjudication/builder-inventory.json', 3),
+              ('nodeFingerprintSetSha256', 'orderedNodeFingerprintSha256', 3),
+              ('bindingFingerprintSetSha256', 'orderedAdjudicationFingerprintSha256', 3),
+              ("'axeNodeFingerprintSetSha256'", "'axeOrderedNodeFingerprintSha256'", 1),
+              ("'axeBindingFingerprintSetSha256'", "'axeOrderedAdjudicationFingerprintSha256'", 1),
+              (
+                  "Array.isArray(x.failedChecks) && x.failedChecks.length===0 && x.metrics?.totalViolations===0 && x.metrics?.totalIncompleteNodes===438 && x.metrics?.uniqueNodeFingerprintCount===438 && hashes.every(k=>typeof x[k]==='string'&&/^[0-9a-f]{64}$/.test(x[k]))",
+                  "Array.isArray(x.errors) && x.errors.length===0 && x.metrics?.totalViolations===0 && x.metrics?.totalIncompleteNodes===438 && Array.isArray(x.entries) && x.entries.length===438 && new Set(x.entries.map((entry)=>entry.nodeFingerprint)).size===438 && new Set(x.entries.map((entry)=>entry.adjudicationFingerprint)).size===438 && x.entries.every((entry)=>entry.passed===true && Array.isArray(entry.errors) && entry.errors.length===0) && hashes.every(k=>typeof x[k]==='string'&&/^[0-9a-f]{64}$/.test(x[k]))",
+                  1,
+              ),
+              (
+                  "axe.get('failedChecks')==[]",
+                  "axe.get('errors')==[] and len(axe.get('entries') or [])==438 and len({row.get('nodeFingerprint') for row in (axe.get('entries') or [])})==438 and len({row.get('adjudicationFingerprint') for row in (axe.get('entries') or [])})==438 and all(row.get('passed') is True and row.get('errors')==[] for row in (axe.get('entries') or []))",
+                  1,
+              ),
+              (
+                  "(axe.get('metrics') or {}).get('uniqueNodeFingerprintCount')==438",
+                  "len(axe.get('entries') or [])==438",
+                  1,
+              ),
+          ]
+
+          for old, new, expected_count in replacements:
+              actual_count = text.count(old)
+              if actual_count != expected_count:
+                  raise SystemExit(f'Unexpected replacement count for {old!r}: expected {expected_count}, got {actual_count}')
+              text = text.replace(old, new)
+
+          forbidden = [
+              '.r7e-tmp/axe-adjudication/inventory.json',
+              'nodeFingerprintSetSha256',
+              'bindingFingerprintSetSha256',
+              'uniqueNodeFingerprintCount',
+              'failedChecks',
+          ]
+          remaining = [token for token in forbidden if token in text]
+          if remaining:
+              raise SystemExit(f'Stale fingerprint contract tokens remain: {remaining}')
+
+          required = [
+              '.r7e-tmp/axe-adjudication/builder-inventory.json',
+              'orderedNodeFingerprintSha256',
+              'orderedAdjudicationFingerprintSha256',
+              'new Set(x.entries.map((entry)=>entry.nodeFingerprint)).size===438',
+              "axe.get('errors')==[]",
+          ]
+          missing = [token for token in required if token not in text]
+          if missing:
+              raise SystemExit(f'Required repaired tokens missing: {missing}')
+
+          if text == original:
+              raise SystemExit('Repair produced no change')
+          path.write_text(text, encoding='utf-8')
+          print('R7E_FINGERPRINT_HANDOFF_GATE_REPAIRED')
+          PY
+
+          grep -q 'builder-inventory.json' .github/workflows/r7e-fingerprint-bound-verification.yml
+          grep -q 'orderedNodeFingerprintSha256' .github/workflows/r7e-fingerprint-bound-verification.yml
+          grep -q 'orderedAdjudicationFingerprintSha256' .github/workflows/r7e-fingerprint-bound-verification.yml
+          ! grep -q 'uniqueNodeFingerprintCount' .github/workflows/r7e-fingerprint-bound-verification.yml
+          ! grep -q 'failedChecks' .github/workflows/r7e-fingerprint-bound-verification.yml
+
+      - name: Commit repaired authoritative workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/r7e-fingerprint-bound-verification.yml
+          git diff --cached --check
+          git commit -m 'R7E: bind workflow to exact fingerprint inventory contract'
+          git push origin HEAD:r7e-fingerprint-bound-verification-20260830
