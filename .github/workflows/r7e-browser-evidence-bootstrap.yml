@@ -21,6 +21,7 @@ env:
   BUILDER_ARTIFACT_NAME: 'r7e-hardened-evidence-9304026f91e5d287ad14b2caa5f1de09e7c9e961'
   BUILDER_ARTIFACT_DIGEST: 'sha256:139d3a4af729d0bba43494982483213bf13a63ece82c051896b4c9019e5df928'
   PATCH_SHA256: 'eff5441e64a4b1575a1e38d02830749256da59d192e3ce7d8862a8b0647083f3'
+  EXPECTED_CORRECTED_SOURCE_ARCHIVE_SHA256: 'd0baa8a40b1cbe9e91c6f486a39b44b92d1873ba0f88c3cff274b9afd2346327'
   CANONICAL_BRANCH: 'r7e-hardened-verification-20260829'
 
 jobs:
@@ -105,17 +106,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/pack1 /tmp/pack2 /tmp/source1.zip /tmp/source2.zip /tmp/new-r7e-source
+          rm -rf /tmp/pack1 /tmp/pack2 /tmp/source1.zip /tmp/source2.zip /tmp/source-transport
           python3 .github/scripts/r7e-pack-source.py canonical /tmp/pack1 --archive /tmp/source1.zip
           python3 .github/scripts/r7e-pack-source.py canonical /tmp/pack2 --archive /tmp/source2.zip
           cmp /tmp/source1.zip /tmp/source2.zip
           diff -ru /tmp/pack1 /tmp/pack2
-          mkdir -p /tmp/new-r7e-source
-          cp -a /tmp/pack1/. /tmp/new-r7e-source/
-          sha256sum --check --strict /tmp/new-r7e-source/SHA256SUMS
-          test "$(cat /tmp/new-r7e-source/ARCHIVE_SHA256)" = "$(sha256sum /tmp/source1.zip | awk '{print $1}')"
-          printf '%s\n' "$(cat /tmp/new-r7e-source/ARCHIVE_SHA256)" > /tmp/new-r7e-source/HARDENED_SOURCE_READY
-          printf 'corrected_archive_sha256=%s\n' "$(cat /tmp/new-r7e-source/ARCHIVE_SHA256)"
+          mkdir -p /tmp/source-transport/.r7e-source
+          cp -a /tmp/pack1/. /tmp/source-transport/.r7e-source/
+          (
+            cd /tmp/source-transport
+            sha256sum --check --strict .r7e-source/SHA256SUMS
+          )
+          actual_archive=$(cat /tmp/source-transport/.r7e-source/ARCHIVE_SHA256)
+          test "$actual_archive" = "$(sha256sum /tmp/source1.zip | awk '{print $1}')"
+          printf 'expected=%s\nactual=%s\n' "$EXPECTED_CORRECTED_SOURCE_ARCHIVE_SHA256" "$actual_archive"
+          test "$actual_archive" = "$EXPECTED_CORRECTED_SOURCE_ARCHIVE_SHA256"
+          printf '%s\n' "$actual_archive" > /tmp/source-transport/.r7e-source/HARDENED_SOURCE_READY
 
       - name: Commit only corrected source transport on canonical branch
         shell: bash
@@ -129,7 +135,7 @@ jobs:
           git checkout --detach "refs/remotes/origin/${CANONICAL_BRANCH}"
           rm -rf .r7e-source
           mkdir .r7e-source
-          cp -a /tmp/new-r7e-source/. .r7e-source/
+          cp -a /tmp/source-transport/.r7e-source/. .r7e-source/
           git add -A .r7e-source
           if git diff --cached --quiet -- .r7e-source; then
             echo 'Corrected source transport unexpectedly matches prior transport' >&2
