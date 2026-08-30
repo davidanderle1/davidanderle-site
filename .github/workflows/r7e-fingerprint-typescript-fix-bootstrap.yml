@@ -1,0 +1,70 @@
+name: Bootstrap R7E TypeScript-safe fingerprint source
+
+on:
+  push:
+    branches:
+      - r7e-fingerprint-bound-verification-20260830
+    paths:
+      - .github/workflows/r7e-fingerprint-typescript-fix-bootstrap.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_DATE_EPOCH: '1787961600'
+  EXPECTED_SOURCE_ARCHIVE_SHA256: 7a02ba579396f95825e535d9c0f814a923e8d27430477065f106ecd14ab95a7b
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact source branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Apply exact nullability repair and repack twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf canonical /tmp/r7e-ts-pack1 /tmp/r7e-ts-pack2 /tmp/r7e-ts1.zip /tmp/r7e-ts2.zip
+          mkdir canonical
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > /tmp/r7e-current.zip
+          test "$(sha256sum /tmp/r7e-current.zip | awk '{print $1}')" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
+          unzip -q /tmp/r7e-current.zip -d canonical
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('canonical/tests/accessibility.spec.ts')
+          s=p.read_text()
+          old="firstItemBefore?.content !== 'none' && firstItemBefore.position === 'absolute'"
+          new="firstItemBefore?.content !== 'none' && firstItemBefore?.position === 'absolute'"
+          if s.count(old) != 1:
+              raise SystemExit(f'Expected one exact TypeScript repair target, got {s.count(old)}')
+          p.write_text(s.replace(old,new,1))
+          PY
+          grep -q "firstItemBefore?.content !== 'none' && firstItemBefore?.position === 'absolute'" canonical/tests/accessibility.spec.ts
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-ts-pack1 --archive /tmp/r7e-ts1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-ts-pack2 --archive /tmp/r7e-ts2.zip
+          cmp /tmp/r7e-ts1.zip /tmp/r7e-ts2.zip
+          diff -ru /tmp/r7e-ts-pack1 /tmp/r7e-ts-pack2
+          test "$(cat /tmp/r7e-ts-pack1/ARCHIVE_SHA256)" = "${EXPECTED_SOURCE_ARCHIVE_SHA256}"
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/r7e-ts-pack1/. .r7e-source/
+          cp .r7e-source/ARCHIVE_SHA256 .r7e-source/HARDENED_SOURCE_READY
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          test "$(jq -r '.fileCount' .r7e-source/SOURCE_TREE.json)" -eq 113
+
+      - name: Commit exact repaired source transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .r7e-source
+          git diff --cached --quiet -- .r7e-source && exit 0
+          git commit -m 'R7E: freeze TypeScript-safe Axe fingerprint source'
+          git push origin HEAD:r7e-fingerprint-bound-verification-20260830
