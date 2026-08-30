@@ -1,0 +1,38 @@
+name: R7F v3 materializer race cleanup
+
+on:
+  push:
+    branches:
+      - r7f-hardened-independent-verification-v3-20260830
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7f-v3-materializer-race-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout verifier branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Remove superseded materializer
+        shell: bash
+        run: |
+          set -euo pipefail
+          obsolete=.github/workflows/r7f-v3-lock-builder-input.yml
+          if ! test -e "${obsolete}"; then
+            echo 'Superseded materializer already absent.'
+            exit 0
+          fi
+          git rm "${obsolete}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'R7F: remove superseded competing materializer'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
