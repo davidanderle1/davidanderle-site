@@ -1,0 +1,400 @@
+name: R7 final fingerprint-bound technical architecture closure audit v3
+
+on:
+  push:
+    branches:
+      - r7-final-closure-audit-v2-20260830
+    paths:
+      - '.github/workflows/r7-final-fingerprint-closure-audit-v3.yml'
+      - '.github/audit/r7-final-fingerprint-closure-audit-v3.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7-final-fingerprint-closure-v3
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  REPOSITORY: ${{ github.repository }}
+  R7E_BRANCH: r7e-hardened-verification-20260829
+  R7F_BRANCH: r7f-hardened-independent-verification-v5-20260830
+  R7F_WORKFLOW_PATH: .github/workflows/r7f-hardened-independent-verification-v6.yml
+  CLOSURE_BRANCH: r7-technical-architecture-closed-fingerprint-v2-20260830
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout isolated final-audit infrastructure
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Resolve exact R7E to R7F v6 evidence chain
+        id: chain
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf audit-input R7_CLOSURE_EVIDENCE R7_CLOSURE_OUTPUT
+          mkdir -p audit-input R7_CLOSURE_EVIDENCE R7_CLOSURE_OUTPUT
+
+          verifier_head=''
+          for attempt in $(seq 1 180); do
+            candidate_head="$(gh api "repos/${REPOSITORY}/branches/${R7F_BRANCH}" --jq '.commit.sha')"
+            if gh api "repos/${REPOSITORY}/contents/.github/r7f-v6-builder-input.json?ref=${R7F_BRANCH}" -H 'Accept: application/vnd.github.raw+json' > /tmp/r7f-v6-lock.json 2>/dev/null; then
+              if jq -e '.schema == "R7F_BUILDER_INPUT_V3_FINGERPRINT_BOUND"' /tmp/r7f-v6-lock.json >/dev/null; then
+                verifier_head="${candidate_head}"
+                break
+              fi
+            fi
+            sleep 10
+          done
+          test -n "${verifier_head}"
+          test "$(gh api "repos/${REPOSITORY}/branches/${R7F_BRANCH}" --jq '.commit.sha')" = "${verifier_head}"
+          lock_json="$(cat /tmp/r7f-v6-lock.json)"
+          builder_head="$(jq -r '.builderHeadSha' <<<"${lock_json}")"
+          builder_run_id="$(jq -r '.builderRunId' <<<"${lock_json}")"
+          builder_artifact_id="$(jq -r '.builderArtifactId' <<<"${lock_json}")"
+          builder_artifact_name="$(jq -r '.builderArtifactName' <<<"${lock_json}")"
+          builder_artifact_digest="$(jq -r '.builderArtifactDigest' <<<"${lock_json}")"
+          builder_source_sha="$(jq -r '.builderSourceArchiveSha256' <<<"${lock_json}")"
+          builder_inventory_sha="$(jq -r '.builderFingerprintInventorySha256' <<<"${lock_json}")"
+          builder_multiset_sha="$(jq -r '.builderFingerprintMultisetSha256' <<<"${lock_json}")"
+          test "$(gh api "repos/${REPOSITORY}/branches/${R7E_BRANCH}" --jq '.commit.sha')" = "${builder_head}"
+
+          verifier_run_id=''
+          for attempt in $(seq 1 180); do
+            runs="$(gh api "repos/${REPOSITORY}/actions/runs?branch=${R7F_BRANCH}&per_page=100")"
+            verifier_run_id="$(jq -r --arg head "${verifier_head}" --arg path "${R7F_WORKFLOW_PATH}" '
+              [.workflow_runs[]
+                | select(.head_sha == $head)
+                | select(.path == $path)
+                | select(.status == "completed")
+                | select(.conclusion == "success")]
+              | sort_by(.created_at) | reverse | .[0].id // empty
+            ' <<<"${runs}")"
+            if [ -n "${verifier_run_id}" ]; then break; fi
+            terminal_failures="$(jq -r --arg head "${verifier_head}" --arg path "${R7F_WORKFLOW_PATH}" '
+              [.workflow_runs[]
+                | select(.head_sha == $head)
+                | select(.path == $path)
+                | select(.status == "completed")
+                | select(.conclusion != "success")]
+              | length
+            ' <<<"${runs}")"
+            active="$(jq -r --arg head "${verifier_head}" --arg path "${R7F_WORKFLOW_PATH}" '
+              [.workflow_runs[]
+                | select(.head_sha == $head)
+                | select(.path == $path)
+                | select(.status != "completed")]
+              | length
+            ' <<<"${runs}")"
+            if [ "${active}" -eq 0 ] && [ "${terminal_failures}" -gt 0 ]; then
+              echo 'Exact R7F v6 verifier failed.' >&2
+              exit 41
+            fi
+            sleep 10
+          done
+          test -n "${verifier_run_id}"
+          verifier_run_json="$(gh api "repos/${REPOSITORY}/actions/runs/${verifier_run_id}")"
+          test "$(jq -r '.head_sha' <<<"${verifier_run_json}")" = "${verifier_head}"
+          test "$(jq -r '.head_branch' <<<"${verifier_run_json}")" = "${R7F_BRANCH}"
+          test "$(jq -r '.path' <<<"${verifier_run_json}")" = "${R7F_WORKFLOW_PATH}"
+          test "$(jq -r '.conclusion' <<<"${verifier_run_json}")" = success
+
+          verifier_artifact_name="r7f-hardened-independent-v6-evidence-${verifier_head}"
+          verifier_artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${verifier_run_id}/artifacts?per_page=100")"
+          test "$(jq --arg name "${verifier_artifact_name}" '[.artifacts[] | select(.expired == false and .name == $name)] | length' <<<"${verifier_artifacts}")" -eq 1
+          verifier_artifact_id="$(jq -r --arg name "${verifier_artifact_name}" '.artifacts[] | select(.expired == false and .name == $name) | .id' <<<"${verifier_artifacts}")"
+          verifier_artifact_digest="$(jq -r --arg name "${verifier_artifact_name}" '.artifacts[] | select(.expired == false and .name == $name) | .digest' <<<"${verifier_artifacts}")"
+          case "${verifier_artifact_digest}" in sha256:*) ;; *) exit 42 ;; esac
+
+          builder_run_json="$(gh api "repos/${REPOSITORY}/actions/runs/${builder_run_id}")"
+          test "$(jq -r '.head_sha' <<<"${builder_run_json}")" = "${builder_head}"
+          test "$(jq -r '.status' <<<"${builder_run_json}")" = completed
+          test "$(jq -r '.conclusion' <<<"${builder_run_json}")" = success
+          builder_artifact_json="$(gh api "repos/${REPOSITORY}/actions/artifacts/${builder_artifact_id}")"
+          test "$(jq -r '.name' <<<"${builder_artifact_json}")" = "${builder_artifact_name}"
+          test "$(jq -r '.digest' <<<"${builder_artifact_json}")" = "${builder_artifact_digest}"
+          test "$(jq -r '.workflow_run.id' <<<"${builder_artifact_json}")" = "${builder_run_id}"
+          test "$(jq -r '.expired' <<<"${builder_artifact_json}")" = false
+
+          printf '%s\n' "${builder_run_json}" > R7_CLOSURE_EVIDENCE/r7e-run-metadata.json
+          printf '%s\n' "${builder_artifact_json}" > R7_CLOSURE_EVIDENCE/r7e-artifact-metadata.json
+          printf '%s\n' "${verifier_run_json}" > R7_CLOSURE_EVIDENCE/r7f-run-metadata.json
+          printf '%s\n' "${verifier_artifacts}" > R7_CLOSURE_EVIDENCE/r7f-artifact-list.json
+          printf '%s\n' "${lock_json}" > R7_CLOSURE_EVIDENCE/r7f-v6-builder-input-lock.json
+
+          {
+            echo "builder_head=${builder_head}"
+            echo "builder_run_id=${builder_run_id}"
+            echo "builder_artifact_id=${builder_artifact_id}"
+            echo "builder_artifact_name=${builder_artifact_name}"
+            echo "builder_artifact_digest=${builder_artifact_digest}"
+            echo "builder_source_sha=${builder_source_sha}"
+            echo "builder_inventory_sha=${builder_inventory_sha}"
+            echo "builder_multiset_sha=${builder_multiset_sha}"
+            echo "verifier_head=${verifier_head}"
+            echo "verifier_run_id=${verifier_run_id}"
+            echo "verifier_artifact_id=${verifier_artifact_id}"
+            echo "verifier_artifact_name=${verifier_artifact_name}"
+            echo "verifier_artifact_digest=${verifier_artifact_digest}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Download and authenticate exact immutable artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R7E_ARTIFACT_ID: ${{ steps.chain.outputs.builder_artifact_id }}
+          R7E_ARTIFACT_DIGEST: ${{ steps.chain.outputs.builder_artifact_digest }}
+          R7F_ARTIFACT_ID: ${{ steps.chain.outputs.verifier_artifact_id }}
+          R7F_ARTIFACT_DIGEST: ${{ steps.chain.outputs.verifier_artifact_digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p audit-input/r7e audit-input/r7f
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${R7E_ARTIFACT_ID}/zip" \
+            --output audit-input/r7e.zip
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${R7F_ARTIFACT_ID}/zip" \
+            --output audit-input/r7f.zip
+          test "sha256:$(sha256sum audit-input/r7e.zip | awk '{print $1}')" = "${R7E_ARTIFACT_DIGEST}"
+          test "sha256:$(sha256sum audit-input/r7f.zip | awk '{print $1}')" = "${R7F_ARTIFACT_DIGEST}"
+          unzip -q audit-input/r7e.zip -d audit-input/r7e
+          unzip -q audit-input/r7f.zip -d audit-input/r7f
+          (cd audit-input/r7e && sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt)
+          (cd audit-input/r7f && sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt)
+          sha256sum .github/audit/r7-final-fingerprint-closure-audit-v3.py > R7_CLOSURE_EVIDENCE/final-auditor-v3.sha256
+          python3 -m py_compile .github/audit/r7-final-fingerprint-closure-audit-v3.py
+
+      - name: Execute authentic final fingerprint-bound closure audit
+        id: authentic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/audit/r7-final-fingerprint-closure-audit-v3.py \
+            audit-input/r7e audit-input/r7f \
+            R7_CLOSURE_EVIDENCE/authentic-final-audit-v3.json
+          jq -e '.decision == "R7_CLOSED" and .passed == true and (.blockers | length) == 0' \
+            R7_CLOSURE_EVIDENCE/authentic-final-audit-v3.json >/dev/null
+
+      - name: Reject desktop target mutation with recomputed package manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a audit-input/r7f audit-input/r7f-negative-desktop
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('audit-input/r7f-negative-desktop/R7F_RUN1_TMP/axe/home-1280.json')
+          x=json.loads(p.read_text()); changed=False
+          for result in x.get('incomplete',[]):
+              for node in result.get('nodes',[]):
+                  rows=node.get('any') or []
+                  if len(rows)==1 and ((rows[0].get('data') or {}).get('messageKey'))=='elmPartiallyObscuring':
+                      node['target']=['#r7-final-mutated-desktop-target']; changed=True; break
+              if changed: break
+          if not changed: raise SystemExit('desktop mutation not applied')
+          p.write_text(json.dumps(x,indent=2)+'\n')
+          PY
+          rm audit-input/r7f-negative-desktop/R7F_ARTIFACT_SHA256SUMS.txt
+          (cd audit-input/r7f-negative-desktop && find . -type f ! -name 'R7F_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7F_ARTIFACT_SHA256SUMS.txt && sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt)
+          set +e
+          python3 .github/audit/r7-final-fingerprint-closure-audit-v3.py \
+            audit-input/r7e audit-input/r7f-negative-desktop \
+            R7_CLOSURE_EVIDENCE/negative-final-desktop-target.json
+          status=$?
+          set -e
+          test "$status" -ne 0
+          jq -e '.decision == "R7_NOT_CLOSED" and .passed == false and ((.failedChecks | index("r7f-vs-inventory-fingerprint")) != null)' \
+            R7_CLOSURE_EVIDENCE/negative-final-desktop-target.json >/dev/null
+          rm -rf audit-input/r7f-negative-desktop
+
+      - name: Reject mobile related-index mutation with recomputed package manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a audit-input/r7f audit-input/r7f-negative-mobile
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          p=Path('audit-input/r7f-negative-mobile/R7F_RUN1_TMP/axe/home-390.json')
+          x=json.loads(p.read_text()); changed=False
+          for result in x.get('incomplete',[]):
+              for node in result.get('nodes',[]):
+                  rows=node.get('any') or []
+                  if len(rows)!=1 or ((rows[0].get('data') or {}).get('messageKey'))!='pseudoContent': continue
+                  for related in rows[0].get('relatedNodes') or []:
+                      target=related.get('target') or []
+                      for i,value in enumerate(target):
+                          m=re.search(r'li:nth-child\((\d+)\)',value)
+                          if m:
+                              old=int(m.group(1)); new=2 if old==1 else 1
+                              target[i]=value[:m.start(1)]+str(new)+value[m.end(1):]
+                              related['target']=target; changed=True; break
+                      if changed: break
+                  if changed: break
+              if changed: break
+          if not changed: raise SystemExit('mobile mutation not applied')
+          p.write_text(json.dumps(x,indent=2)+'\n')
+          PY
+          rm audit-input/r7f-negative-mobile/R7F_ARTIFACT_SHA256SUMS.txt
+          (cd audit-input/r7f-negative-mobile && find . -type f ! -name 'R7F_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7F_ARTIFACT_SHA256SUMS.txt && sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt)
+          set +e
+          python3 .github/audit/r7-final-fingerprint-closure-audit-v3.py \
+            audit-input/r7e audit-input/r7f-negative-mobile \
+            R7_CLOSURE_EVIDENCE/negative-final-mobile-related-index.json
+          status=$?
+          set -e
+          test "$status" -ne 0
+          jq -e '.decision == "R7_NOT_CLOSED" and .passed == false and ((.failedChecks | index("r7f-vs-inventory-fingerprint")) != null)' \
+            R7_CLOSURE_EVIDENCE/negative-final-mobile-related-index.json >/dev/null
+          rm -rf audit-input/r7f-negative-mobile
+
+      - name: Reject compensation-proof mutation with recomputed package manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a audit-input/r7f audit-input/r7f-negative-proof
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('audit-input/r7f-negative-proof/R7F_RUN1_TMP/axe-compensation/home-route-backplates-1280.json')
+          x=json.loads(p.read_text()); x['passed']=False
+          p.write_text(json.dumps(x,indent=2)+'\n')
+          PY
+          rm audit-input/r7f-negative-proof/R7F_ARTIFACT_SHA256SUMS.txt
+          (cd audit-input/r7f-negative-proof && find . -type f ! -name 'R7F_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7F_ARTIFACT_SHA256SUMS.txt && sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt)
+          set +e
+          python3 .github/audit/r7-final-fingerprint-closure-audit-v3.py \
+            audit-input/r7e audit-input/r7f-negative-proof \
+            R7_CLOSURE_EVIDENCE/negative-final-compensation-proof.json
+          status=$?
+          set -e
+          test "$status" -ne 0
+          jq -e '.decision == "R7_NOT_CLOSED" and .passed == false and ((.failedChecks | index("r7f-raw-recompute")) != null)' \
+            R7_CLOSURE_EVIDENCE/negative-final-compensation-proof.json >/dev/null
+          rm -rf audit-input/r7f-negative-proof
+
+      - name: Assemble closure decision and record
+        shell: bash
+        env:
+          R7E_HEAD: ${{ steps.chain.outputs.builder_head }}
+          R7E_RUN_ID: ${{ steps.chain.outputs.builder_run_id }}
+          R7E_ARTIFACT_ID: ${{ steps.chain.outputs.builder_artifact_id }}
+          R7E_ARTIFACT_NAME: ${{ steps.chain.outputs.builder_artifact_name }}
+          R7E_ARTIFACT_DIGEST: ${{ steps.chain.outputs.builder_artifact_digest }}
+          R7E_SOURCE_SHA: ${{ steps.chain.outputs.builder_source_sha }}
+          R7E_INVENTORY_SHA: ${{ steps.chain.outputs.builder_inventory_sha }}
+          R7E_MULTISET_SHA: ${{ steps.chain.outputs.builder_multiset_sha }}
+          R7F_HEAD: ${{ steps.chain.outputs.verifier_head }}
+          R7F_RUN_ID: ${{ steps.chain.outputs.verifier_run_id }}
+          R7F_ARTIFACT_ID: ${{ steps.chain.outputs.verifier_artifact_id }}
+          R7F_ARTIFACT_NAME: ${{ steps.chain.outputs.verifier_artifact_name }}
+          R7F_ARTIFACT_DIGEST: ${{ steps.chain.outputs.verifier_artifact_digest }}
+        run: |
+          set -euo pipefail
+          check_count="$(jq -r '.checkCount' R7_CLOSURE_EVIDENCE/authentic-final-audit-v3.json)"
+          jq -n \
+            --arg schema 'R7_TECHNICAL_ARCHITECTURE_CLOSURE_V2_FINGERPRINT_BOUND' \
+            --arg decision 'R7_CLOSED' \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg closureDate '2026-08-30' \
+            --argjson checkCount "${check_count}" \
+            --arg r7eBranch "${R7E_BRANCH}" --arg r7eHead "${R7E_HEAD}" --argjson r7eRunId "${R7E_RUN_ID}" --argjson r7eArtifactId "${R7E_ARTIFACT_ID}" --arg r7eArtifactName "${R7E_ARTIFACT_NAME}" --arg r7eArtifactDigest "${R7E_ARTIFACT_DIGEST}" --arg sourceSha "${R7E_SOURCE_SHA}" --arg inventorySha "${R7E_INVENTORY_SHA}" --arg multisetSha "${R7E_MULTISET_SHA}" \
+            --arg r7fBranch "${R7F_BRANCH}" --arg r7fHead "${R7F_HEAD}" --argjson r7fRunId "${R7F_RUN_ID}" --argjson r7fArtifactId "${R7F_ARTIFACT_ID}" --arg r7fArtifactName "${R7F_ARTIFACT_NAME}" --arg r7fArtifactDigest "${R7F_ARTIFACT_DIGEST}" \
+            '{schema:$schema,decision:$decision,passed:true,repository:$repository,closureDate:$closureDate,independentCheckCount:$checkCount,blockers:[],bearingDesign:"FROZEN",architectureStatus:"SELECTED_AND_FROZEN",r7e:{branch:$r7eBranch,headSha:$r7eHead,runId:$r7eRunId,artifactId:$r7eArtifactId,artifactName:$r7eArtifactName,artifactDigest:$r7eArtifactDigest,sourceArchiveSha256:$sourceSha,axeFingerprintInventorySha256:$inventorySha,axeFingerprintMultisetSha256:$multisetSha},r7f:{branch:$r7fBranch,headSha:$r7fHead,runId:$r7fRunId,artifactId:$r7fArtifactId,artifactName:$r7fArtifactName,artifactDigest:$r7fArtifactDigest,version:"R7F-v6-fingerprint-bound-locked-v2"},negativeControls:{desktopTargetMutation:"REJECTED",mobileRelatedIndexMutation:"REJECTED",compensationProofMutation:"REJECTED",allWithRecomputedInternalManifests:true},scope:{technicalArchitectureR7:"CLOSED",mainBranchModified:false,r8SecurityCertified:false,r9DiscoverabilityCertified:false,productionLaunchApproved:false},supersedes:"R7_TECHNICAL_ARCHITECTURE_CLOSURE_V1",carryForward:["R8-NPM-INSTALL-SCRIPTS-POLICY","R8-GITHUB-ACTIONS-NODE-RUNTIME","R10-ZOD-EMAIL-DEPRECATION"]}' \
+            > R7_CLOSURE_OUTPUT/R7_CLOSURE_LOCK_V2.json
+          cat > R7_CLOSURE_OUTPUT/R7_CLOSURE_RECORD_V2.md <<EOF
+          # R7 Technical Architecture Closure Record V2
+
+          **Decision:** R7_CLOSED  
+          **Closure date:** 2026-08-30  
+          **Independent final checks:** ${check_count}  
+          **Blocking findings:** 0  
+          **BEARING:** FROZEN
+
+          This record supersedes the earlier V1 closure. The selected Astro architecture is unchanged. R7 was narrowly reopened because the former final auditor accepted a semantically modified Axe target/related-target binding after internal checksums were recomputed.
+
+          V2 closes that exact gap by binding all 438 Axe incomplete nodes to canonical SHA-256 fingerprints over report identity, affected target, affected HTML, rule/check identity, message key, related target and related HTML. R7F independently recomputed the complete multiset from both builder and verifier raw reports. Three required negative controls changed the desktop target, the mobile related list-item index and the compensation proof; every modified package retained a freshly valid internal checksum manifest and was rejected.
+
+          ## Authoritative chain
+
+          - R7E branch: ${R7E_BRANCH}
+          - R7E commit: ${R7E_HEAD}
+          - R7E run: ${R7E_RUN_ID}
+          - R7E artifact: ${R7E_ARTIFACT_ID}
+          - R7E artifact digest: ${R7E_ARTIFACT_DIGEST}
+          - Canonical source archive SHA-256: ${R7E_SOURCE_SHA}
+          - Axe inventory SHA-256: ${R7E_INVENTORY_SHA}
+          - Axe fingerprint multiset SHA-256: ${R7E_MULTISET_SHA}
+          - R7F branch: ${R7F_BRANCH}
+          - R7F commit: ${R7F_HEAD}
+          - R7F run: ${R7F_RUN_ID}
+          - R7F artifact: ${R7F_ARTIFACT_ID}
+          - R7F artifact digest: ${R7F_ARTIFACT_DIGEST}
+
+          ## Boundary
+
+          This closes R7 technical architecture only. It does not modify main, certify R8 security, certify R9 discoverability, approve final public content or authorize production launch.
+          EOF
+          sed -i 's/^          //' R7_CLOSURE_OUTPUT/R7_CLOSURE_RECORD_V2.md
+          cp R7_CLOSURE_OUTPUT/R7_CLOSURE_LOCK_V2.json R7_CLOSURE_EVIDENCE/
+          cp R7_CLOSURE_OUTPUT/R7_CLOSURE_RECORD_V2.md R7_CLOSURE_EVIDENCE/
+          printf '{"decision":"PROCEED_TO_R8_SECURITY_RESEARCH_AND_THREAT_MODEL","r7":"CLOSED","mainModified":false}\n' > R7_CLOSURE_OUTPUT/R7_PHASE_TRANSITION_V2.json
+          cp R7_CLOSURE_OUTPUT/R7_PHASE_TRANSITION_V2.json R7_CLOSURE_EVIDENCE/
+          (
+            cd R7_CLOSURE_EVIDENCE
+            find . -type f ! -name 'R7_CLOSURE_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7_CLOSURE_SHA256SUMS.txt
+            sha256sum --check --strict R7_CLOSURE_SHA256SUMS.txt
+          )
+
+      - name: Upload final fingerprint-bound R7 closure evidence
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-final-fingerprint-bound-closure-v3-${{ github.sha }}
+          path: R7_CLOSURE_EVIDENCE/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Persist immutable superseding closure branch
+        shell: bash
+        env:
+          CLOSURE_ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          CLOSURE_ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+          CLOSURE_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          cp R7_CLOSURE_OUTPUT/R7_CLOSURE_LOCK_V2.json R7_CLOSURE_LOCK_V2.json
+          cp R7_CLOSURE_OUTPUT/R7_CLOSURE_RECORD_V2.md R7_CLOSURE_RECORD_V2.md
+          cp R7_CLOSURE_OUTPUT/R7_PHASE_TRANSITION_V2.json R7_PHASE_TRANSITION_V2.json
+          jq --argjson artifactId "${CLOSURE_ARTIFACT_ID}" --arg artifactDigest "${CLOSURE_ARTIFACT_DIGEST}" --arg artifactUrl "${CLOSURE_ARTIFACT_URL}" \
+            '.closureAudit={branch:"r7-final-closure-audit-v2-20260830",headSha:env.GITHUB_SHA,runId:(env.GITHUB_RUN_ID|tonumber),artifactId:$artifactId,artifactDigest:$artifactDigest,artifactUrl:$artifactUrl}' \
+            R7_CLOSURE_LOCK_V2.json > /tmp/lock && mv /tmp/lock R7_CLOSURE_LOCK_V2.json
+          printf '# Supersession notice\n\nR7 closure V1 is superseded by fingerprint-bound R7 closure V2. The earlier architecture choice remains unchanged; only the evidence-semantic closure was repaired.\n' > SUPERSEDES_R7_CLOSURE_V1.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B "${CLOSURE_BRANCH}"
+          git add R7_CLOSURE_LOCK_V2.json R7_CLOSURE_RECORD_V2.md R7_PHASE_TRANSITION_V2.json SUPERSEDES_R7_CLOSURE_V1.md
+          git commit -m 'R7: close fingerprint-bound technical architecture verification'
+          git push origin HEAD:"${CLOSURE_BRANCH}"
+
+      - name: Enforce closure transition
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.decision == "R7_CLOSED" and .passed == true and (.blockers | length) == 0' R7_CLOSURE_OUTPUT/R7_CLOSURE_LOCK_V2.json >/dev/null
+          jq -e '.decision == "PROCEED_TO_R8_SECURITY_RESEARCH_AND_THREAT_MODEL" and .r7 == "CLOSED" and .mainModified == false' R7_CLOSURE_OUTPUT/R7_PHASE_TRANSITION_V2.json >/dev/null
