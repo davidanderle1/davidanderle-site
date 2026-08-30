@@ -1,0 +1,100 @@
+name: R7E route-specific browser evidence bootstrap
+
+on:
+  push:
+    branches:
+      - r7e-browser-evidence-hardening-20260830
+    paths:
+      - '.github/patches/r7e-browser-evidence-fix.patch'
+      - '.github/workflows/r7e-browser-evidence-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  BUILDER_RUN_ID: '33280863106'
+  BUILDER_ARTIFACT_ID: '9722975936'
+  BUILDER_ARTIFACT_NAME: 'r7e-hardened-evidence-9304026f91e5d287ad14b2caa5f1de09e7c9e961'
+  BUILDER_ARTIFACT_DIGEST: 'sha256:139d3a4af729d0bba43494982483213bf13a63ece82c051896b4c9019e5df928'
+  PATCH_SHA256: 'eff5441e64a4b1575a1e38d02830749256da59d192e3ce7d8862a8b0647083f3'
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated staging branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Authenticate prior hardened builder artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          actual=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${BUILDER_ARTIFACT_ID}" --jq '.digest')
+          printf 'expected=%s\nactual=%s\n' "$BUILDER_ARTIFACT_DIGEST" "$actual"
+          test "$actual" = "$BUILDER_ARTIFACT_DIGEST"
+          rm -rf builder canonical
+          mkdir -p builder canonical
+          gh run download "$BUILDER_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$BUILDER_ARTIFACT_NAME" --dir builder
+          if [ -d "builder/$BUILDER_ARTIFACT_NAME" ] && [ ! -f builder/R7E_GATE_DECISION.txt ]; then
+            cp -a "builder/$BUILDER_ARTIFACT_NAME/." builder/
+            rm -rf "builder/$BUILDER_ARTIFACT_NAME"
+          fi
+          test "$(cat builder/R7E_GATE_DECISION.txt)" = 'R7E BUILD EVIDENCE COMPLETE — READY FOR HARDENED INDEPENDENT R7F AUDIT'
+          (cd builder && sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt)
+          cp -a builder/BEARING_PRODUCTION_SOURCE/. canonical/
+          printf '%s  %s\n' '332bf48054e923ff37b7d0021cdccd01697cfd6945b12d0a8dadb8ee7b4bd19d' canonical/tests/browser.spec.ts | sha256sum --check --strict
+          printf '%s  %s\n' '865f3dd9d884721a2498ecd780e6be92e729ea1c866366e6c700dea4257f425f' canonical/verification/README.md | sha256sum --check --strict
+
+      - name: Apply audited browser evidence correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' "$PATCH_SHA256" .github/patches/r7e-browser-evidence-fix.patch | sha256sum --check --strict
+          (
+            cd canonical
+            git apply --check ../.github/patches/r7e-browser-evidence-fix.patch
+            git apply ../.github/patches/r7e-browser-evidence-fix.patch
+          )
+          printf '%s  %s\n' '1498032ea2c37a7905dd78da3a401e8b0a69c318ca98bc7342cab696d49b9940' canonical/tests/browser.spec.ts | sha256sum --check --strict
+          printf '%s  %s\n' 'dfe669b2c3c8bdffacebdda70727334e3f8fee58c61c7b4c3b994959d4ebd01a' canonical/verification/README.md | sha256sum --check --strict
+          grep -q "routeCount: routeEvidence.length" canonical/tests/browser.spec.ts
+          grep -q "Static sequence: all steps visible" canonical/tests/browser.spec.ts
+          grep -q "Showing Forced sales" canonical/tests/browser.spec.ts
+          grep -q "page.keyboard.press('ArrowRight')" canonical/tests/browser.spec.ts
+          grep -q "page.keyboard.press('Home')" canonical/tests/browser.spec.ts
+          grep -q "alternate-vce-enhanced-step-390.png" canonical/tests/browser.spec.ts
+
+      - name: Deterministically repack corrected canonical source twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/pack1 /tmp/pack2 /tmp/source1.zip /tmp/source2.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/pack1 --archive /tmp/source1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/pack2 --archive /tmp/source2.zip
+          cmp /tmp/source1.zip /tmp/source2.zip
+          diff -ru /tmp/pack1 /tmp/pack2
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/pack1/. .r7e-source/
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          test "$(cat .r7e-source/ARCHIVE_SHA256)" = "$(sha256sum /tmp/source1.zip | awk '{print $1}')"
+          printf '%s\n' "$(cat .r7e-source/ARCHIVE_SHA256)" > .r7e-source/HARDENED_SOURCE_READY
+
+      - name: Commit corrected source transport to canonical R7E branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .r7e-source
+          git commit -m 'R7E: freeze route-specific browser evidence source'
+          git push origin HEAD:r7e-hardened-verification-20260829
