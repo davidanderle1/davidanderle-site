@@ -87,9 +87,9 @@
     },
     {
       "path": "package.json",
-      "sha256": "25254b251362b0e7418a1c45517e92dd6bacbe6fc68108027646679ee5aea42e",
+      "sha256": "be2dcb85c050ad038243199c329a77658f0dc0a22e167ae4a5aa8f2b6a7f948b",
       "mode": "0o644",
-      "size": 3590
+      "size": 3582
     },
     {
       "path": "playwright.config.ts",
@@ -135,9 +135,9 @@
     },
     {
       "path": "scripts/build-axe-fingerprint-adjudication.mjs",
-      "sha256": "e6e3920f1608959dba939e78dd7fb9359a40d58703541262344a32646267345b",
+      "sha256": "0b3105c8f8f499385c546e0c70745dd99bb7cd757e2da6f1d9338b88fcfaf5f3",
       "mode": "0o644",
-      "size": 14930
+      "size": 15478
     },
     {
       "path": "scripts/build-images.mjs",
