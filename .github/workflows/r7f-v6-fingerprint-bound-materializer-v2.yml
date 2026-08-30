@@ -1,0 +1,175 @@
+name: R7F v6 materialize fingerprint-bound verifier v2 expression-safe
+
+on:
+  push:
+    branches:
+      - r7f-hardened-independent-verification-v5-20260830
+    paths:
+      - '.github/workflows/r7f-v6-fingerprint-bound-materializer-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7f-v6-fingerprint-materializer-v2
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  REPOSITORY: ${{ github.repository }}
+  BUILDER_BRANCH: r7e-hardened-verification-20260829
+  BUILDER_WORKFLOW_PATH: .github/workflows/r7e-axe-fingerprint-bound-evidence.yml
+  VERIFIER_BRANCH: r7f-hardened-independent-verification-v5-20260830
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact independent verifier infrastructure
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Resolve exact fingerprint-bound builder tuple
+        id: builder
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          builder_head="$(gh api "repos/${REPOSITORY}/branches/${BUILDER_BRANCH}" --jq '.commit.sha')"
+          run_id=''
+          for attempt in $(seq 1 180); do
+            runs="$(gh api "repos/${REPOSITORY}/actions/runs?branch=${BUILDER_BRANCH}&per_page=100")"
+            run_id="$(jq -r --arg head "${builder_head}" --arg path "${BUILDER_WORKFLOW_PATH}" '[.workflow_runs[]|select(.head_sha==$head and .path==$path and .status=="completed" and .conclusion=="success")]|sort_by(.created_at)|reverse|.[0].id//empty' <<<"${runs}")"
+            if [ -n "${run_id}" ]; then break; fi
+            failed="$(jq -r --arg head "${builder_head}" --arg path "${BUILDER_WORKFLOW_PATH}" '[.workflow_runs[]|select(.head_sha==$head and .path==$path and .status=="completed" and .conclusion!="success")]|length' <<<"${runs}")"
+            active="$(jq -r --arg head "${builder_head}" --arg path "${BUILDER_WORKFLOW_PATH}" '[.workflow_runs[]|select(.head_sha==$head and .path==$path and .status!="completed")]|length' <<<"${runs}")"
+            if [ "${active}" -eq 0 ] && [ "${failed}" -gt 0 ]; then exit 51; fi
+            sleep 10
+          done
+          test -n "${run_id}"
+          artifact_name="r7e-fingerprint-bound-evidence-${builder_head}"
+          artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100")"
+          test "$(jq --arg name "${artifact_name}" '[.artifacts[]|select(.expired==false and .name==$name)]|length' <<<"${artifacts}")" -eq 1
+          artifact_id="$(jq -r --arg name "${artifact_name}" '.artifacts[]|select(.expired==false and .name==$name)|.id' <<<"${artifacts}")"
+          artifact_digest="$(jq -r --arg name "${artifact_name}" '.artifacts[]|select(.expired==false and .name==$name)|.digest' <<<"${artifacts}")"
+          case "${artifact_digest}" in sha256:*) ;; *) exit 52 ;; esac
+          rm -rf /tmp/r7f-v6-v2-builder && mkdir -p /tmp/r7f-v6-v2-builder
+          curl --fail --silent --show-error --location -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${artifact_id}/zip" -o /tmp/r7f-v6-v2-builder.zip
+          test "sha256:$(sha256sum /tmp/r7f-v6-v2-builder.zip|awk '{print $1}')" = "${artifact_digest}"
+          unzip -q /tmp/r7f-v6-v2-builder.zip -d /tmp/r7f-v6-v2-builder
+          (cd /tmp/r7f-v6-v2-builder && sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt)
+          test "$(cat /tmp/r7f-v6-v2-builder/R7E_FINGERPRINT_BOUND_GATE_DECISION.txt)" = 'R7E FINGERPRINT-BOUND EVIDENCE VERIFIED — READY FOR R7F V6'
+          inventory=/tmp/r7f-v6-v2-builder/R7E_EVIDENCE/axe-node-fingerprint-inventory-v1.json
+          test "$(jq -r '.passed' "$inventory")" = true
+          inventory_sha="$(jq -r '.inventorySha256' "$inventory")"
+          multiset_sha="$(jq -r '.fingerprintMultisetSha256' "$inventory")"
+          source_sha="$(awk -F= '$1=="actual"{print $2}' /tmp/r7f-v6-v2-builder/R7E_EVIDENCE/source-archive-identity.txt|tr -d '\r\n')"
+          for value in "$inventory_sha" "$multiset_sha" "$source_sha"; do test "${#value}" -eq 64; done
+          {
+            echo "head=${builder_head}"; echo "run_id=${run_id}"; echo "artifact_id=${artifact_id}"; echo "artifact_name=${artifact_name}"; echo "artifact_digest=${artifact_digest}"; echo "source_sha=${source_sha}"; echo "inventory_sha=${inventory_sha}"; echo "multiset_sha=${multiset_sha}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate exact lock and expression-safe verifier workflow
+        shell: bash
+        env:
+          BUILDER_HEAD: ${{ steps.builder.outputs.head }}
+          BUILDER_RUN_ID: ${{ steps.builder.outputs.run_id }}
+          BUILDER_ARTIFACT_ID: ${{ steps.builder.outputs.artifact_id }}
+          BUILDER_ARTIFACT_NAME: ${{ steps.builder.outputs.artifact_name }}
+          BUILDER_ARTIFACT_DIGEST: ${{ steps.builder.outputs.artifact_digest }}
+          BUILDER_SOURCE_SHA: ${{ steps.builder.outputs.source_sha }}
+          BUILDER_INVENTORY_SHA: ${{ steps.builder.outputs.inventory_sha }}
+          BUILDER_MULTISET_SHA: ${{ steps.builder.outputs.multiset_sha }}
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/r7f-independent-axe-fingerprint-audit.py
+          bash -n .github/scripts/r7f-v6.sh
+          bash -n .github/scripts/r7f-v6-locked-v2.sh
+          jq -n --arg schema 'R7F_BUILDER_INPUT_V3_FINGERPRINT_BOUND' --arg repository "$GITHUB_REPOSITORY" --arg builderBranch "$BUILDER_BRANCH" --arg builderHeadSha "$BUILDER_HEAD" --argjson builderRunId "$BUILDER_RUN_ID" --argjson builderArtifactId "$BUILDER_ARTIFACT_ID" --arg builderArtifactName "$BUILDER_ARTIFACT_NAME" --arg builderArtifactDigest "$BUILDER_ARTIFACT_DIGEST" --arg builderSourceArchiveSha256 "$BUILDER_SOURCE_SHA" --arg builderFingerprintInventorySha256 "$BUILDER_INVENTORY_SHA" --arg builderFingerprintMultisetSha256 "$BUILDER_MULTISET_SHA" '{schema:$schema,materializerVersion:"v2-expression-safe",repository:$repository,builderBranch:$builderBranch,builderHeadSha:$builderHeadSha,builderRunId:$builderRunId,builderArtifactId:$builderArtifactId,builderArtifactName:$builderArtifactName,builderArtifactDigest:$builderArtifactDigest,builderSourceArchiveSha256:$builderSourceArchiveSha256,builderFingerprintInventorySha256:$builderFingerprintInventorySha256,builderFingerprintMultisetSha256:$builderFingerprintMultisetSha256,builderFingerprintGate:{passed:true,blockers:[]},selectionRule:"Exact successful fingerprint-bound R7E workflow head and sole authenticated artifact."}' > .github/r7f-v6-builder-input.json
+          cat > .github/workflows/r7f-hardened-independent-verification-v6.yml <<YAML
+          name: R7F hardened independent Astro verification v6 fingerprint-bound
+          on:
+            push:
+              branches:
+                - r7f-hardened-independent-verification-v5-20260830
+              paths:
+                - '.github/workflows/r7f-hardened-independent-verification-v6.yml'
+                - '.github/r7f-v6-builder-input.json'
+            workflow_dispatch:
+          permissions:
+            contents: read
+            actions: read
+          concurrency:
+            group: __GH_REF_GROUP__
+            cancel-in-progress: true
+          env:
+            TZ: UTC
+            SOURCE_DATE_EPOCH: '1787961600'
+            NODE_OPTIONS: --max-old-space-size=4096
+            MATERIALIZER_VERSION: v2-expression-safe
+            BUILDER_RUN_ID: '${BUILDER_RUN_ID}'
+            BUILDER_COMMIT: '${BUILDER_HEAD}'
+            BUILDER_ARTIFACT_ID: '${BUILDER_ARTIFACT_ID}'
+            BUILDER_ARTIFACT_NAME: '${BUILDER_ARTIFACT_NAME}'
+            BUILDER_ARTIFACT_DIGEST: '${BUILDER_ARTIFACT_DIGEST}'
+            BUILDER_SOURCE_ARCHIVE_SHA256: '${BUILDER_SOURCE_SHA}'
+            BUILDER_FINGERPRINT_INVENTORY_SHA256: '${BUILDER_INVENTORY_SHA}'
+            BUILDER_FINGERPRINT_MULTISET_SHA256: '${BUILDER_MULTISET_SHA}'
+          jobs:
+            verify:
+              runs-on: ubuntu-24.04
+              timeout-minutes: 110
+              steps:
+                - name: Checkout exact fingerprint-bound verifier
+                  uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+                - name: Install exact Node runtime
+                  uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+                  with:
+                    node-version: 24.20.0
+                - name: Execute locked independent fingerprint verifier v6
+                  shell: bash
+                  env:
+                    GH_TOKEN: __GH_TOKEN_EXPR__
+                  run: bash .github/scripts/r7f-v6-locked-v2.sh
+                - name: Upload R7F v6 evidence or diagnostics
+                  if: always()
+                  uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+                  with:
+                    name: __GH_ARTIFACT_NAME__
+                    path: artifact/
+                    if-no-files-found: error
+                    retention-days: 90
+                    compression-level: 6
+                    include-hidden-files: true
+          YAML
+          sed -i 's/^          //' .github/workflows/r7f-hardened-independent-verification-v6.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/r7f-hardened-independent-verification-v6.yml')
+          s=p.read_text()
+          dollar='$'
+          s=s.replace('__GH_REF_GROUP__','r7f-hardened-v6-'+dollar+'{{ github.ref }}')
+          s=s.replace('__GH_TOKEN_EXPR__',dollar+'{{ github.token }}')
+          s=s.replace('__GH_ARTIFACT_NAME__','r7f-hardened-independent-v6-evidence-'+dollar+'{{ github.sha }}')
+          p.write_text(s)
+          PY
+          grep -q 'MATERIALIZER_VERSION: v2-expression-safe' .github/workflows/r7f-hardened-independent-verification-v6.yml
+          jq -e '.materializerVersion == "v2-expression-safe"' .github/r7f-v6-builder-input.json >/dev/null
+
+      - name: Commit exact v2 materialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7f-v6-builder-input.json .github/workflows/r7f-hardened-independent-verification-v6.yml
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'R7F v6: expression-safe fingerprint-bound materialization'
+          git push origin HEAD:${VERIFIER_BRANCH}
