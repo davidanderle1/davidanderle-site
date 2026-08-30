@@ -1,0 +1,47 @@
+{
+  "schema": "R7E_EXTERNAL_FINGERPRINT_AUDIT_V2",
+  "decision": "R7E_EXTERNAL_FINGERPRINT_AUDIT_PASS",
+  "repository": "davidanderle1/davidanderle-site",
+  "builder": {
+    "branch": "r7e-fingerprint-bound-verification-20260830",
+    "headSha": "dc9a57220e4c7aaedc497b6a04ce9bca121c3324",
+    "runId": 33335150420,
+    "artifactId": 9738847793,
+    "artifactName": "r7e-fingerprint-bound-evidence-dc9a57220e4c7aaedc497b6a04ce9bca121c3324",
+    "artifactDigest": "sha256:f1e4d8e288e161cb3edcd4aecc7de94d71f55088fde23e85f878a2342d59a5c1",
+    "downloadedZipSha256": "f1e4d8e288e161cb3edcd4aecc7de94d71f55088fde23e85f878a2342d59a5c1"
+  },
+  "identity": {
+    "sourceArchiveSha256": "f1d87f384f1b04110a2a9c3ef4b1835a28b22a4547a08d8dbce5018190d328a7",
+    "frozenSourceTreeSha256": "036884c1205d5dc911493f0b20a1f05e8b656c5d2f616827e7fb02b24c1d5a78",
+    "frozenSourceTarSha256": "64cffad7e706067130915fde59d07f2c2e48b6f66111d5bd75f75cf7531e0139",
+    "verifiedDistTreeSha256": "aa1bce26744c87aef5fb2df2457de3e3b641643f19274c88455ca39671a8f25d",
+    "stressDistTreeSha256": "7a238c577ff9dc9f623968a453cc690240e15cbd027e4f2801eee1410eb23d25",
+    "axeAdjudicationInventorySha256": "544836fa02330c1347651cf11ce1431e210d59772798e8dd5f87a26699e4da77",
+    "axeSemanticInventorySha256": "6c22cd8b5d94a016f3691afda7d92bb83a7e561dccd60631573c177af75d4f90",
+    "axeNodeFingerprintSetSha256": "bdb1792251c0b68286bf599ffc6c39df9f4ba032aa5e1e565b11e6a3136798fb",
+    "axeBindingFingerprintSetSha256": "698fe4468a8f13a400440b70d7e8cb3a4f669bc68896c72e77186b8153a13901"
+  },
+  "checks": {
+    "githubArtifactDigestMatchesDownload": true,
+    "gateDecisionExact": true,
+    "packageValidationPassed": true,
+    "candidateIdentityBound": true,
+    "inventoryPassed": true,
+    "independentRecomputationPassed": true,
+    "desktopTargetMutationRejected": true,
+    "mobileRelatedOwnerMutationRejected": true,
+    "proofBindingMutationRejected": true,
+    "builderInventoryMutationRejected": true
+  },
+  "metrics": {
+    "artifactManifestEntryCount": 1907,
+    "axeNodeCount": 438,
+    "axeViolationCount": 0,
+    "uniqueNodeFingerprintCount": 438,
+    "uniqueBindingFingerprintCount": 438,
+    "minimumStaticContrastRatio": 5.8
+  },
+  "blockers": [],
+  "passed": true
+}

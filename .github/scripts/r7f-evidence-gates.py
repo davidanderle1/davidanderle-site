@@ -48,7 +48,7 @@ def builder_gate(args: argparse.Namespace) -> dict[str, Any]:
     stress_tree = load(args.stress_tree)
     checks: dict[str, bool] = {}
 
-    record(checks, "gate-ready", (root / "R7E_GATE_DECISION.txt").read_text().strip() == "R7E BUILD EVIDENCE COMPLETE — READY FOR HARDENED INDEPENDENT R7F AUDIT")
+    record(checks, "gate-ready", (root / "R7E_GATE_DECISION.txt").read_text().strip() == "R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F V6 AUDIT")
     record(checks, "package-validation-passed", package_validation.get("passed") is True and all(package_validation.get("checks", {}).values()))
     record(checks, "repository-bound", identity.get("repository") == args.repository)
     record(checks, "builder-run-bound", str(identity.get("runId")) == args.expected_run)
@@ -63,7 +63,7 @@ def builder_gate(args: argparse.Namespace) -> dict[str, Any]:
     record(checks, "package-lock-bound", sha256(root / "BEARING_PRODUCTION_SOURCE/package-lock.json") == identity.get("packageLockSha256"))
     record(checks, "stress-input-bound", sha256(evidence / "stress-input-manifest.json") == identity.get("stressInputManifestSha256"))
     record(checks, "stress-lineage-bound", sha256(evidence / "stress-lineage.json") == identity.get("stressLineageSha256"))
-    record(checks, "artifact-metadata-bound", args.expected_artifact_name.startswith("r7e-hardened-evidence-") and args.expected_artifact_digest.startswith("sha256:") and len(args.expected_artifact_digest) == 71)
+    record(checks, "artifact-metadata-bound", args.expected_artifact_name.startswith("r7e-fingerprint-bound-evidence-") and args.expected_artifact_digest.startswith("sha256:") and len(args.expected_artifact_digest) == 71)
 
     lineage = load(evidence / "stress-lineage.json")
     for key in ("inputRecordCount", "normalizedUniqueIds", "normalizedUniqueSlugs", "normalizedUniqueRoutes", "emittedDetailPageCount", "workIndexCoverage", "archiveCoverage"):
