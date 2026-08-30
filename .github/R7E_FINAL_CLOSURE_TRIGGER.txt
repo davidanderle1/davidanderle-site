@@ -1,5 +1,5 @@
-R7E FINAL CLOSURE RUN
+R7E FINAL CLOSURE RUN — ROUTE-SPECIFIC BROWSER EVIDENCE
 
-Canonical source transport commit: 8bb96e9f9336593055c43a990eb49b9faf109acc
-Canonical source archive SHA-256: 678753575cbf9628c1f4ee943fa2b257bcff4e34f27250e802e815523937d746
-Purpose: explicitly trigger a fresh hardened builder run after the GitHub Actions bootstrap froze the corrected canonical source. GitHub does not recursively trigger workflows for commits pushed with GITHUB_TOKEN.
+Canonical source transport commit: afce237d2bb164080dca12cd706a489db461022b
+Canonical source archive SHA-256: d0baa8a40b1cbe9e91c6f486a39b44b92d1873ba0f88c3cff274b9afd2346327
+Purpose: explicitly trigger a fresh hardened builder run after the canonical source gained exact no-JavaScript route assertions, correctly targeted VCE fallback evidence and full VCE interaction/keyboard evidence. GitHub does not recursively trigger workflows for commits pushed with GITHUB_TOKEN.
