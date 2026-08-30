@@ -1,0 +1,41 @@
+name: Export R7E authoritative verification infrastructure
+
+on:
+  push:
+    branches:
+      - r7e-authoritative-export-20260830
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout R7E branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Assemble authoritative source export
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export/.github
+          cp -a .github/scripts export/.github/
+          cp -a .github/workflows export/.github/
+          cp -a .r7e-source export/
+          (
+            cd export
+            find . -type f ! -name 'SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+            sha256sum --check --strict SHA256SUMS.txt
+          )
+
+      - name: Upload R7E source export
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-authoritative-infrastructure-export-${{ github.sha }}
+          path: export/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
+          include-hidden-files: true
