@@ -1,0 +1,93 @@
+name: R7F v4 authenticated browser-verifier bootstrap
+
+on:
+  push:
+    branches:
+      - r7f-hardened-independent-verification-v4-20260830
+    paths:
+      - '.github/bootstrap/r7f-v4-bundle.part*'
+      - '.github/workflows/r7f-v4-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: UTC
+  EXPECTED_BUNDLE_SHA256: 'aee8a5e0550671452041e86d82e685c52e63d3499eff4fadfa413af21d9c265f'
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout isolated verifier branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Reassemble and authenticate verifier bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find .github/bootstrap -maxdepth 1 -type f -name 'r7f-v4-bundle.part*' | wc -l)" -eq 2
+          cat .github/bootstrap/r7f-v4-bundle.part* | tr -d '\r\n' | base64 --decode > /tmp/r7f-v4-bundle.tgz
+          actual=$(sha256sum /tmp/r7f-v4-bundle.tgz | awk '{print $1}')
+          printf 'expected=%s\nactual=%s\n' "$EXPECTED_BUNDLE_SHA256" "$actual"
+          test "$actual" = "$EXPECTED_BUNDLE_SHA256"
+          rm -rf /tmp/r7f-v4-unpacked
+          mkdir -p /tmp/r7f-v4-unpacked
+          python3 - <<'PY'
+          import tarfile
+          from pathlib import Path, PurePosixPath
+          archive=Path('/tmp/r7f-v4-bundle.tgz')
+          target=Path('/tmp/r7f-v4-unpacked')
+          with tarfile.open(archive, 'r:gz') as tf:
+              members=tf.getmembers()
+              for member in members:
+                  path=PurePosixPath(member.name)
+                  if path.is_absolute() or '..' in path.parts:
+                      raise SystemExit(f'Unsafe archive path: {member.name}')
+                  if not (member.isfile() or member.isdir()):
+                      raise SystemExit(f'Unsupported archive entry: {member.name}')
+              tf.extractall(target, members=members, filter='data')
+          PY
+          (
+            cd /tmp/r7f-v4-unpacked
+            cat > /tmp/r7f-v4-expected.sha256 <<'EOF'
+          fc729f15a4b569fd1ee8d304f8fd146b362e0614d4f57f6b9b3495be1e28bdd5  ./.github/scripts/r7f-candidate-browser-evidence-gate.py
+          0d2b0a9f73d8e0c1a5e076f8e4f011b74807315e26b5d35d0646c419e8d0e572  ./.github/scripts/r7f-independent-browser-audit.mjs
+          7cb99dac719a7be93e9da3ec232a99d3d15cd8b5566ad70bc4e6d328d3111e49  ./.github/scripts/r7f-v4.sh
+          EOF
+            sha256sum --check --strict /tmp/r7f-v4-expected.sha256
+          )
+
+      - name: Install and syntax-check authenticated verifier scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a /tmp/r7f-v4-unpacked/.github/scripts/. .github/scripts/
+          chmod 755 \
+            .github/scripts/r7f-candidate-browser-evidence-gate.py \
+            .github/scripts/r7f-independent-browser-audit.mjs \
+            .github/scripts/r7f-v4.sh
+          python3 -m py_compile .github/scripts/r7f-candidate-browser-evidence-gate.py
+          node --check .github/scripts/r7f-independent-browser-audit.mjs
+          bash -n .github/scripts/r7f-v4.sh
+          rm -rf .github/scripts/__pycache__ .github/bootstrap
+          git add -A .github/scripts .github/bootstrap
+          git diff --cached --check
+
+      - name: Commit authenticated verifier scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git update-index --chmod=+x \
+            .github/scripts/r7f-candidate-browser-evidence-gate.py \
+            .github/scripts/r7f-independent-browser-audit.mjs \
+            .github/scripts/r7f-v4.sh
+          git commit -m 'R7F v4: install authenticated independent browser verifier'
+          git push origin HEAD:r7f-hardened-independent-verification-v4-20260830
