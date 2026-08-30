@@ -1,0 +1,173 @@
+name: R7E fingerprint-bound Axe evidence
+
+on:
+  push:
+    branches:
+      - r7e-hardened-verification-20260829
+    paths:
+      - '.github/workflows/r7e-axe-fingerprint-bound-evidence.yml'
+      - '.github/scripts/r7e-axe-node-fingerprint-inventory.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7e-axe-fingerprint-bound-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  REPOSITORY: ${{ github.repository }}
+  BUILDER_BRANCH: r7e-hardened-verification-20260829
+  BUILDER_WORKFLOW_PATH: .github/workflows/r7e-hardened-verification.yml
+
+jobs:
+  bind:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact R7E evidence-infrastructure head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve exact successful R7E build for this head
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          run_id=''
+          for attempt in $(seq 1 120); do
+            runs="$(gh api "repos/${REPOSITORY}/actions/runs?branch=${BUILDER_BRANCH}&per_page=100")"
+            run_id="$(jq -r --arg head "${GITHUB_SHA}" --arg path "${BUILDER_WORKFLOW_PATH}" '
+              [.workflow_runs[]
+                | select(.head_sha == $head)
+                | select(.path == $path)
+                | select(.status == "completed")
+                | select(.conclusion == "success")]
+              | sort_by(.created_at) | reverse | .[0].id // empty
+            ' <<<"${runs}")"
+            if [ -n "${run_id}" ]; then break; fi
+            failed="$(jq -r --arg head "${GITHUB_SHA}" --arg path "${BUILDER_WORKFLOW_PATH}" '
+              [.workflow_runs[]
+                | select(.head_sha == $head)
+                | select(.path == $path)
+                | select(.status == "completed")
+                | select(.conclusion != "success")]
+              | length
+            ' <<<"${runs}")"
+            active="$(jq -r --arg head "${GITHUB_SHA}" --arg path "${BUILDER_WORKFLOW_PATH}" '
+              [.workflow_runs[]
+                | select(.head_sha == $head)
+                | select(.path == $path)
+                | select(.status != "completed")]
+              | length
+            ' <<<"${runs}")"
+            if [ "${active}" -eq 0 ] && [ "${failed}" -gt 0 ]; then
+              echo 'No successful R7E build remains active for the exact fingerprint-bound head.' >&2
+              exit 21
+            fi
+            sleep 10
+          done
+          test -n "${run_id}"
+          run_json="$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}")"
+          test "$(jq -r '.head_sha' <<<"${run_json}")" = "${GITHUB_SHA}"
+          test "$(jq -r '.head_branch' <<<"${run_json}")" = "${BUILDER_BRANCH}"
+          test "$(jq -r '.path' <<<"${run_json}")" = "${BUILDER_WORKFLOW_PATH}"
+          test "$(jq -r '.status' <<<"${run_json}")" = completed
+          test "$(jq -r '.conclusion' <<<"${run_json}")" = success
+
+          artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100")"
+          expected_name="r7e-hardened-evidence-${GITHUB_SHA}"
+          count="$(jq --arg name "${expected_name}" '[.artifacts[] | select(.expired == false and .name == $name)] | length' <<<"${artifacts}")"
+          test "${count}" -eq 1
+          artifact_id="$(jq -r --arg name "${expected_name}" '.artifacts[] | select(.expired == false and .name == $name) | .id' <<<"${artifacts}")"
+          artifact_digest="$(jq -r --arg name "${expected_name}" '.artifacts[] | select(.expired == false and .name == $name) | .digest' <<<"${artifacts}")"
+          case "${artifact_digest}" in sha256:*) ;; *) exit 22 ;; esac
+
+          {
+            echo "run_id=${run_id}"
+            echo "artifact_id=${artifact_id}"
+            echo "artifact_name=${expected_name}"
+            echo "artifact_digest=${artifact_digest}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Authenticate, enrich and independently validate R7E artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_RUN_ID: ${{ steps.resolve.outputs.run_id }}
+          BASE_ARTIFACT_ID: ${{ steps.resolve.outputs.artifact_id }}
+          BASE_ARTIFACT_NAME: ${{ steps.resolve.outputs.artifact_name }}
+          BASE_ARTIFACT_DIGEST: ${{ steps.resolve.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          rm -rf input artifact
+          mkdir -p input artifact
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${BASE_ARTIFACT_ID}/zip" \
+            --output input/base-r7e.zip
+          actual="sha256:$(sha256sum input/base-r7e.zip | awk '{print $1}')"
+          test "${actual}" = "${BASE_ARTIFACT_DIGEST}"
+          unzip -q input/base-r7e.zip -d artifact
+          test "$(cat artifact/R7E_GATE_DECISION.txt)" = 'R7E HARDENED BUILD VERIFIED — READY FOR INDEPENDENT R7F'
+          (
+            cd artifact
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
+          test "$(jq -r '.passed' artifact/R7E_PACKAGE_VALIDATION.json)" = true
+
+          mkdir -p artifact/R7E_RUN1_TMP/axe-adjudication
+          python3 .github/scripts/r7e-axe-node-fingerprint-inventory.py \
+            artifact \
+            artifact/R7E_RUN1_TMP/axe-adjudication/axe-node-fingerprint-inventory-v1.json
+          cp artifact/R7E_RUN1_TMP/axe-adjudication/axe-node-fingerprint-inventory-v1.json \
+            artifact/R7E_EVIDENCE/axe-node-fingerprint-inventory-v1.json
+          sha256sum .github/scripts/r7e-axe-node-fingerprint-inventory.py \
+            > artifact/R7E_EVIDENCE/axe-fingerprint-builder-infrastructure.sha256
+          jq -n \
+            --arg schema 'R7E_FINGERPRINT_BOUND_PACKAGE_V1' \
+            --arg head "${GITHUB_SHA}" \
+            --arg branch "${BUILDER_BRANCH}" \
+            --argjson baseRunId "${BASE_RUN_ID}" \
+            --argjson baseArtifactId "${BASE_ARTIFACT_ID}" \
+            --arg baseArtifactName "${BASE_ARTIFACT_NAME}" \
+            --arg baseArtifactDigest "${BASE_ARTIFACT_DIGEST}" \
+            --arg inventorySha256 "$(jq -r '.inventorySha256' artifact/R7E_EVIDENCE/axe-node-fingerprint-inventory-v1.json)" \
+            --arg fingerprintMultisetSha256 "$(jq -r '.fingerprintMultisetSha256' artifact/R7E_EVIDENCE/axe-node-fingerprint-inventory-v1.json)" \
+            --arg recordsSha256 "$(jq -r '.recordsSha256' artifact/R7E_EVIDENCE/axe-node-fingerprint-inventory-v1.json)" \
+            '{schema:$schema,passed:true,headSha:$head,branch:$branch,baseBuilder:{runId:$baseRunId,artifactId:$baseArtifactId,artifactName:$baseArtifactName,artifactDigest:$baseArtifactDigest},axeFingerprintInventory:{inventorySha256:$inventorySha256,fingerprintMultisetSha256:$fingerprintMultisetSha256,recordsSha256:$recordsSha256,nodeCount:438,reportCount:10},failedChecks:[]}' \
+            > artifact/R7E_FINGERPRINT_PACKAGE_VALIDATION.json
+          printf 'R7E FINGERPRINT-BOUND EVIDENCE VERIFIED — READY FOR R7F V6\n' \
+            > artifact/R7E_FINGERPRINT_BOUND_GATE_DECISION.txt
+
+          rm artifact/R7E_ARTIFACT_SHA256SUMS.txt
+          (
+            cd artifact
+            find . -type f ! -name 'R7E_ARTIFACT_SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > R7E_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
+          test "$(jq -r '.passed' artifact/R7E_FINGERPRINT_PACKAGE_VALIDATION.json)" = true
+          test "$(jq -r '.passed' artifact/R7E_EVIDENCE/axe-node-fingerprint-inventory-v1.json)" = true
+          test "$(jq -r '.metrics.nodeCount' artifact/R7E_EVIDENCE/axe-node-fingerprint-inventory-v1.json)" -eq 438
+
+      - name: Upload fingerprint-bound R7E evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-fingerprint-bound-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
