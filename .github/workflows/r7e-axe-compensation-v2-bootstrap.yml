@@ -1,0 +1,94 @@
+name: R7E audited Axe compensation source bootstrap v2
+
+on:
+  push:
+    branches:
+      - r7e-hardened-verification-20260829
+    paths:
+      - '.github/workflows/r7e-axe-compensation-v2-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact R7E branch state
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Extract, validate and deterministically pack audited Axe source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf canonical /tmp/r7e-axe-pack1 /tmp/r7e-axe-pack2 /tmp/r7e-axe-source1.zip /tmp/r7e-axe-source2.zip
+          mkdir canonical
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > /tmp/r7e-current-source.zip
+          test "$(sha256sum /tmp/r7e-current-source.zip | awk '{print $1}')" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
+          unzip -q /tmp/r7e-current-source.zip -d canonical
+
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/r7e-axe-compensation-v1-bootstrap.yml').read_text()
+          begin = "          cat > canonical/tests/accessibility.spec.ts <<'TS'\n"
+          end = "\n          TS\n"
+          if source.count(begin) != 1:
+              raise SystemExit('audited Axe source begin marker is not unique')
+          payload = source.split(begin, 1)[1].split(end, 1)[0]
+          rows = []
+          for line in payload.splitlines():
+              if line and not line.startswith('          '):
+                  raise SystemExit(f'unexpected source indentation: {line!r}')
+              rows.append(line[10:] if line else '')
+          output = '\n'.join(rows) + '\n'
+          path = Path('canonical/tests/accessibility.spec.ts')
+          path.write_text(output)
+          if output.count("import ") < 3:
+              raise SystemExit('source extraction was incomplete')
+          for needle in (
+              'R7E_BEARING_ROUTE_BACKPLATE_V1',
+              'elmPartiallyObscuring',
+              'pseudoContent',
+              'axe-compensation',
+              'desktopSignatureBelowList',
+              'mobilePseudoBelowBackplates',
+          ):
+              if needle not in output:
+                  raise SystemExit(f'missing audited Axe marker: {needle}')
+          print({'bytes': len(output.encode()), 'lines': len(output.splitlines())})
+          PY
+
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-axe-pack1 --archive /tmp/r7e-axe-source1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-axe-pack2 --archive /tmp/r7e-axe-source2.zip
+          cmp /tmp/r7e-axe-source1.zip /tmp/r7e-axe-source2.zip
+          diff -ru /tmp/r7e-axe-pack1 /tmp/r7e-axe-pack2
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/r7e-axe-pack1/. .r7e-source/
+          cp .r7e-source/ARCHIVE_SHA256 .r7e-source/HARDENED_SOURCE_READY
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          printf 'new_source_archive_sha256=%s\n' "$(cat .r7e-source/ARCHIVE_SHA256)"
+
+      - name: Commit immutable audited-Axe source transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .r7e-source
+          if git diff --cached --quiet -- .r7e-source; then
+            echo 'AUDITED_AXE_SOURCE_ALREADY_CURRENT'
+            exit 0
+          fi
+          git commit -m 'R7E: freeze audited Axe compensation source'
+          git push origin HEAD:r7e-hardened-verification-20260829
