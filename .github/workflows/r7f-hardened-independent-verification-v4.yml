@@ -1,0 +1,56 @@
+name: R7F hardened independent Astro verification v4
+
+on:
+  push:
+    branches:
+      - r7f-hardened-independent-verification-v4-20260830
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7f-hardened-v4-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  BUILDER_RUN_ID: '33283377635'
+  BUILDER_COMMIT: '8f25756cbce960396bf31e17f099d07f63697964'
+  BUILDER_ARTIFACT_ID: '9723684902'
+  BUILDER_ARTIFACT_NAME: 'r7e-hardened-evidence-8f25756cbce960396bf31e17f099d07f63697964'
+  BUILDER_ARTIFACT_DIGEST: 'sha256:5754674951ea1e420de1977b3acae89bebc779422a0aed829a6a1dc41e1078f3'
+  BUILDER_SOURCE_ARCHIVE_SHA256: '5dd1b86fb4d9e29be64645a475e3daf9b8fd5653bda8388457a5f2321c7bf4a9'
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout independent verifier branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Execute readable hardened independent verifier v4
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/r7f-v4.sh
+
+      - name: Upload R7F v4 evidence or diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-hardened-independent-v4-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
