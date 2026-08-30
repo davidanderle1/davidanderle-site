@@ -1,0 +1,137 @@
+diff --git a/scripts/verify-contrast-bounds.mjs b/scripts/verify-contrast-bounds.mjs
+index 275e052..98cb28d 100644
+--- a/scripts/verify-contrast-bounds.mjs
++++ b/scripts/verify-contrast-bounds.mjs
+@@ -78,9 +78,15 @@ const expectedBodyRadialGradient = 'radial-gradient(circle at 90% 0%, rgba(145,2
+ const expectedBodyBackground = `${expectedBodyRadialGradient}, var(--bg)`;
+ const expectedLimitationGradient = 'linear-gradient(145deg, rgba(228,183,172,.055), transparent 65%)';
+ const expectedDecorativeRouteGradient = 'linear-gradient(var(--accent), var(--line))';
++const expectedRouteTextBackplateRule = '.bearing-list .stop-index, .bearing-list time, .bearing-list h3, .bearing-list p { position: relative; z-index: 2; width: fit-content; background: var(--bg); box-shadow: 0 0 0 .22rem var(--bg); }';
++const expectedRouteItemStackingRule = '.bearing-list li { position: relative; z-index: 1; display: grid; grid-template-columns: 2rem 1fr; gap: .75rem; align-items: start; }';
++const expectedMobileRoutePseudoRule = ".bearing-list::before { content: ''; position: absolute; z-index: 0; left: .35rem; top: 2.2rem; bottom: .5rem; width: 1px; background: linear-gradient(var(--accent), var(--line)); }";
+ if (!globalCss.includes(`background: ${expectedBodyBackground};`)) throw new Error('Body gradient contract changed');
+ if (!projectCss.includes(`background: ${expectedLimitationGradient};`)) throw new Error('Limitation gradient contract changed');
+ if (!bearingCss.includes(`background: ${expectedDecorativeRouteGradient};`)) throw new Error('Decorative route gradient contract changed');
++if (!bearingCss.includes(expectedRouteTextBackplateRule)) throw new Error('Route text backplate contract changed');
++if (!bearingCss.includes(expectedRouteItemStackingRule)) throw new Error('Route item stacking contract changed');
++if (!bearingCss.includes(expectedMobileRoutePseudoRule)) throw new Error('Mobile route pseudo-element stacking contract changed');
+ 
+ const expectedGradients = [expectedBodyRadialGradient, expectedDecorativeRouteGradient, expectedLimitationGradient];
+ const gradientOccurrenceCount = [...combinedStyles.matchAll(/\b(?:radial|linear)-gradient\(/g)].length;
+@@ -155,6 +161,12 @@ if (embeddedStyleHits.length) {
+   throw new Error(`Embedded Astro styles are outside the audited stylesheet inventory: ${embeddedStyleHits.join(', ')}`);
+ }
+ 
++const boxShadowMatches = [...combinedStyles.matchAll(/(?:^|[;{])\s*box-shadow\s*:\s*([^;]+);/gm)]
++  .map((match) => match[1].trim());
++if (JSON.stringify(boxShadowMatches) !== JSON.stringify(['0 0 0 .22rem var(--bg)'])) {
++  throw new Error(`Box-shadow contract changed: ${JSON.stringify(boxShadowMatches)}`);
++}
++
+ const opacityMatches = [...combinedStyles.matchAll(/(?:^|[;{])\s*opacity\s*:\s*([^;]+);/gm)]
+   .map((match) => match[1].trim());
+ const expectedDecorativeOpacityRule = ".bearing-signature { position: absolute; z-index: 1; left: 0; bottom: 2rem; width: 100%; height: auto; opacity: .88; }";
+@@ -232,6 +244,7 @@ const result = {
+   declaredTextColors,
+   inlinePresentationHits,
+   embeddedStyleHits,
++  boxShadowMatches,
+   opacityMatches,
+   checkCount: checks.length,
+   minimumObservedRatio: Math.min(...checks.map((check) => check.ratio)),
+diff --git a/src/styles/bearing.css b/src/styles/bearing.css
+index 5ec3eac..eb1468c 100644
+--- a/src/styles/bearing.css
++++ b/src/styles/bearing.css
+@@ -9,9 +9,10 @@
+ .home-hero .current-stage { grid-column: 1 / -1; }
+ .bearing-route { position: relative; padding: var(--space-7) 0; overflow: clip; }
+ .bearing-list { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; list-style: none; padding: 7rem 0 0; margin: 0; }
+-.bearing-list li { display: grid; grid-template-columns: 2rem 1fr; gap: .75rem; align-items: start; }
++.bearing-list li { position: relative; z-index: 1; display: grid; grid-template-columns: 2rem 1fr; gap: .75rem; align-items: start; }
+ .bearing-list li:nth-child(2), .bearing-list li:nth-child(4) { transform: translateY(2.8rem); }
+ .stop-index { color: var(--accent); font: 700 .67rem/1.4 var(--mono); }
++.bearing-list .stop-index, .bearing-list time, .bearing-list h3, .bearing-list p { position: relative; z-index: 2; width: fit-content; background: var(--bg); box-shadow: 0 0 0 .22rem var(--bg); }
+ .bearing-list time { color: var(--muted); font: 650 .65rem/1.3 var(--mono); }
+ .bearing-list h3 { font-size: .96rem; line-height: 1.2; margin: .35rem 0; }
+ .bearing-list p { color: var(--muted); font-size: .78rem; line-height: 1.45; margin: 0; }
+@@ -24,7 +25,7 @@
+   .home-name { font-size: clamp(4.7rem, 18vw, 7rem); }
+   .home-intro { max-width: 38rem; }
+   .bearing-list { grid-template-columns: 1fr; gap: 0; padding: 2rem 0 0 1.1rem; }
+-  .bearing-list::before { content: ''; position: absolute; left: .35rem; top: 2.2rem; bottom: .5rem; width: 1px; background: linear-gradient(var(--accent), var(--line)); }
++  .bearing-list::before { content: ''; position: absolute; z-index: 0; left: .35rem; top: 2.2rem; bottom: .5rem; width: 1px; background: linear-gradient(var(--accent), var(--line)); }
+   .bearing-list li, .bearing-list li:nth-child(2), .bearing-list li:nth-child(4) { transform: none; min-height: 8.5rem; grid-template-columns: 2.8rem 1fr; }
+   .bearing-list li::before { content: ''; position: absolute; left: .03rem; width: .65rem; height: .65rem; margin-top: .17rem; border: 2px solid var(--accent); border-radius: 50%; background: var(--bg); }
+   .bearing-list h3 { font-size: 1.12rem; }
+diff --git a/tests/accessibility.spec.ts b/tests/accessibility.spec.ts
+index 40348db..3f7a1a4 100644
+--- a/tests/accessibility.spec.ts
++++ b/tests/accessibility.spec.ts
+@@ -6,8 +6,15 @@ fs.mkdirSync('.r7e-tmp/axe', { recursive: true });
+ const pages = ['/', '/work/', '/archive/', '/work/volatility-cascade-engine/', '/about/'];
+ const contrastProof = JSON.parse(fs.readFileSync('.r7e-tmp/contrast-bounds.json', 'utf8'));
+ 
++type AxeRelatedNode = { html?: string; target?: string[] };
++
+ type AxeIncompleteNode = {
+-  any: Array<{ id: string; data?: { messageKey?: string } }>;
++  any: Array<{
++    id: string;
++    impact?: string | null;
++    data?: { messageKey?: string };
++    relatedNodes?: AxeRelatedNode[];
++  }>;
+   all: unknown[];
+   none: unknown[];
+ };
+@@ -19,9 +26,18 @@ type AxeIncompleteResult = {
+ 
+ function isAuditedGradientIncomplete(node: AxeIncompleteNode): boolean {
+   const [check] = node.any;
++  const related = check?.relatedNodes ?? [];
++  const relatedTarget = related[0]?.target ?? [];
++  const relatedHtml = related[0]?.html;
++  const auditedGradient = related.length === 1 && (
++    (relatedTarget.length === 1 && relatedTarget[0] === 'body' && relatedHtml === '<body>') ||
++    (relatedTarget.length === 1 && relatedTarget[0] === '#limitations' && relatedHtml === '<section class=\"limitation-block\" id=\"limitations\" aria-labelledby=\"limitations-title\">')
++  );
+   return node.any.length === 1 &&
+     check?.id === 'color-contrast' &&
++    check.impact === 'serious' &&
+     check.data?.messageKey === 'bgGradient' &&
++    auditedGradient &&
+     node.all.length === 0 &&
+     node.none.length === 0;
+ }
+@@ -48,6 +64,30 @@ for (const width of [1280,390]) for (const url of pages) test(`axe ${url} ${widt
+   expect(contrastProof.passed, JSON.stringify(contrastProof,null,2)).toBe(true);
+   expect(contrastProof.checkCount).toBe(32);
+   expect(contrastProof.minimumObservedRatio).toBeGreaterThanOrEqual(4.5);
++  if (url === '/') {
++    const routeBackplates = await page.locator('.bearing-list .stop-index, .bearing-list time, .bearing-list h3, .bearing-list p').evaluateAll((elements) => {
++      const probe = document.createElement('span');
++      probe.style.background = 'var(--bg)';
++      document.body.append(probe);
++      const expectedBackground = getComputedStyle(probe).backgroundColor;
++      probe.remove();
++      return {
++        expectedBackground,
++        elements: elements.map((element) => ({
++          target: element.outerHTML,
++          backgroundColor: getComputedStyle(element).backgroundColor,
++          position: getComputedStyle(element).position,
++          zIndex: getComputedStyle(element).zIndex
++        }))
++      };
++    });
++    expect(routeBackplates.elements).toHaveLength(12);
++    expect(routeBackplates.elements.every((element) =>
++      element.backgroundColor === routeBackplates.expectedBackground &&
++      element.position === 'relative' &&
++      element.zIndex === '2'
++    ), JSON.stringify(routeBackplates,null,2)).toBe(true);
++  }
+   expect(results.violations, JSON.stringify(results.violations,null,2)).toEqual([]);
+   expect(unexpectedIncomplete, JSON.stringify(unexpectedIncomplete,null,2)).toEqual([]);
+ });
