@@ -1,0 +1,84 @@
+name: Bootstrap R7E exact Axe fingerprint source
+
+on:
+  push:
+    branches:
+      - r7e-fingerprint-bound-verification-20260830
+    paths:
+      - .github/workflows/r7e-fingerprint-source-bootstrap.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  SOURCE_PAYLOAD_BLOB: 84b68b015790052e259d3dff228a6d3f78df4167
+  SOURCE_PAYLOAD_SHA256: 24bca216cca48706647ad1fde5b49b906eb87cf8d5b6d264e65e4ad5f152dfdd
+  EXPECTED_SOURCE_ARCHIVE_SHA256: 1fe71f5e0230e5d0b265b5c856fefcc9602e17a6d8f646e508b7c3d3e873059c
+
+jobs:
+  bootstrap:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact R7E baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+
+      - name: Derive deterministic fingerprint-bound canonical source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf canonical /tmp/r7e-fp-pack1 /tmp/r7e-fp-pack2 /tmp/r7e-fp-source1.zip /tmp/r7e-fp-source2.zip
+          mkdir canonical
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > /tmp/r7e-current-source.zip
+          test "$(sha256sum /tmp/r7e-current-source.zip | awk '{print $1}')" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
+          unzip -q /tmp/r7e-current-source.zip -d canonical
+
+          gh api "repos/${GITHUB_REPOSITORY}/git/blobs/${SOURCE_PAYLOAD_BLOB}" --jq -r .content \
+            | tr -d '\r\n' | base64 --decode > /tmp/r7e-fingerprint-source-payload.tar.gz
+          printf '%s  %s\n' "${SOURCE_PAYLOAD_SHA256}" /tmp/r7e-fingerprint-source-payload.tar.gz | sha256sum --check --strict
+          tar -xzf /tmp/r7e-fingerprint-source-payload.tar.gz -C canonical
+
+          test -f canonical/tests/accessibility.spec.ts
+          test -f canonical/scripts/build-axe-fingerprint-adjudication.mjs
+          node --check canonical/scripts/build-axe-fingerprint-adjudication.mjs
+          grep -q 'R7E_BEARING_ROUTE_BACKPLATE_V2' canonical/tests/accessibility.spec.ts
+          grep -q 'R7E_AXE_FINGERPRINT_ADJUDICATION_V1' canonical/scripts/build-axe-fingerprint-adjudication.mjs
+          grep -q 'relatedNodes.target' canonical/scripts/build-axe-fingerprint-adjudication.mjs
+          node -e "const x=require('./canonical/package.json'); if(!x.scripts['test:axe'].includes('build-axe-fingerprint-adjudication.mjs')) process.exit(1)"
+
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-fp-pack1 --archive /tmp/r7e-fp-source1.zip
+          python3 .github/scripts/r7e-pack-source.py canonical /tmp/r7e-fp-pack2 --archive /tmp/r7e-fp-source2.zip
+          cmp /tmp/r7e-fp-source1.zip /tmp/r7e-fp-source2.zip
+          diff -ru /tmp/r7e-fp-pack1 /tmp/r7e-fp-pack2
+          test "$(cat /tmp/r7e-fp-pack1/ARCHIVE_SHA256)" = "${EXPECTED_SOURCE_ARCHIVE_SHA256}"
+
+          rm -rf .r7e-source
+          mkdir .r7e-source
+          cp -a /tmp/r7e-fp-pack1/. .r7e-source/
+          cp .r7e-source/ARCHIVE_SHA256 .r7e-source/HARDENED_SOURCE_READY
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          test "$(python3 -c \"import json; print(json.load(open('.r7e-source/SOURCE_TREE.json'))['fileCount'])\")" -eq 113
+          printf 'new_source_archive_sha256=%s\n' "$(cat .r7e-source/ARCHIVE_SHA256)"
+
+      - name: Commit immutable fingerprint-bound source transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A .r7e-source
+          if git diff --cached --quiet -- .r7e-source; then
+            echo 'FINGERPRINT_SOURCE_ALREADY_CURRENT'
+            exit 0
+          fi
+          git commit -m 'R7E: freeze exact Axe fingerprint source'
+          git push origin HEAD:r7e-fingerprint-bound-verification-20260830
