@@ -1,0 +1,1 @@
+Trigger for R7F v3 independent verification. The verifier input is the immutable R7E closure artifact identified by the branch's pinned builder-input record.
