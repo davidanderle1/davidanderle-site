@@ -1,0 +1,3 @@
+R7 closure candidate branch marker.
+This file is outside the frozen candidate source package and exists only to record and trigger the canonical closure execution branch.
+Date: 2026-08-30
