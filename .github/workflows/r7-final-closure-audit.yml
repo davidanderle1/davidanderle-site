@@ -1,0 +1,578 @@
+name: R7 final external closure audit
+
+on:
+  push:
+    branches:
+      - r7-final-closure-audit-20260830
+    paths-ignore:
+      - R7_CLOSURE_DECISION.json
+      - R7_CLOSURE_RECORD.md
+      - R7_CLOSURE_EVIDENCE/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7-final-closure-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    env:
+      TZ: UTC
+      REPOSITORY: ${{ github.repository }}
+      VERIFIER_BRANCH: r7f-hardened-independent-verification-v3-20260830
+      VERIFIER_WORKFLOW_PATH: .github/workflows/r7f-hardened-independent-verification-v3.yml
+    steps:
+      - name: Checkout independent closure-audit branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Resolve and authenticate exact R7E to R7F evidence chain
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf audit-input R7_CLOSURE_EVIDENCE
+          mkdir -p audit-input R7_CLOSURE_EVIDENCE
+
+          verifier_head="$(gh api "repos/${REPOSITORY}/branches/${VERIFIER_BRANCH}" --jq '.commit.sha')"
+          lock_json="$(gh api "repos/${REPOSITORY}/contents/.github/r7f-v3-builder-input.json?ref=${VERIFIER_BRANCH}" -H 'Accept: application/vnd.github.raw+json')"
+          jq -e . >/dev/null <<<"${lock_json}"
+
+          builder_run_id="$(jq -r '.builderRunId' <<<"${lock_json}")"
+          builder_artifact_id="$(jq -r '.builderArtifactId' <<<"${lock_json}")"
+          builder_artifact_name="$(jq -r '.builderArtifactName' <<<"${lock_json}")"
+          builder_artifact_digest="$(jq -r '.builderArtifactDigest' <<<"${lock_json}")"
+          builder_head="$(jq -r '.builderHeadSha' <<<"${lock_json}")"
+          builder_branch="$(jq -r '.builderBranch' <<<"${lock_json}")"
+          case "${builder_artifact_digest}" in sha256:*) ;; *) exit 31 ;; esac
+
+          current_builder_head="$(gh api "repos/${REPOSITORY}/branches/${builder_branch}" --jq '.commit.sha')"
+          test "${current_builder_head}" = "${builder_head}"
+          builder_run_json="$(gh api "repos/${REPOSITORY}/actions/runs/${builder_run_id}")"
+          test "$(jq -r '.head_sha' <<<"${builder_run_json}")" = "${builder_head}"
+          test "$(jq -r '.status' <<<"${builder_run_json}")" = completed
+          test "$(jq -r '.conclusion' <<<"${builder_run_json}")" = success
+          builder_artifact_json="$(gh api "repos/${REPOSITORY}/actions/artifacts/${builder_artifact_id}")"
+          test "$(jq -r '.name' <<<"${builder_artifact_json}")" = "${builder_artifact_name}"
+          test "$(jq -r '.digest' <<<"${builder_artifact_json}")" = "${builder_artifact_digest}"
+          test "$(jq -r '.expired' <<<"${builder_artifact_json}")" = false
+          test "$(jq -r '.workflow_run.id' <<<"${builder_artifact_json}")" = "${builder_run_id}"
+
+          verifier_runs="$(gh api "repos/${REPOSITORY}/actions/runs?branch=${VERIFIER_BRANCH}&per_page=100")"
+          verifier_run_id="$(jq -r --arg head "${verifier_head}" --arg path "${VERIFIER_WORKFLOW_PATH}" '
+            [.workflow_runs[]
+              | select(.head_sha == $head)
+              | select(.path == $path)
+              | select(.status == "completed")
+              | select(.conclusion == "success")]
+            | sort_by(.created_at)
+            | reverse
+            | .[0].id // empty
+          ' <<<"${verifier_runs}")"
+          test -n "${verifier_run_id}"
+          verifier_run_json="$(gh api "repos/${REPOSITORY}/actions/runs/${verifier_run_id}")"
+          test "$(jq -r '.head_sha' <<<"${verifier_run_json}")" = "${verifier_head}"
+          test "$(jq -r '.path' <<<"${verifier_run_json}")" = "${VERIFIER_WORKFLOW_PATH}"
+          test "$(jq -r '.status' <<<"${verifier_run_json}")" = completed
+          test "$(jq -r '.conclusion' <<<"${verifier_run_json}")" = success
+
+          verifier_artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${verifier_run_id}/artifacts?per_page=100")"
+          verifier_artifact_count="$(jq '[.artifacts[] | select(.expired == false) | select((.name | ascii_downcase | contains("r7f")) and (.name | ascii_downcase | contains("evidence")))] | length' <<<"${verifier_artifacts}")"
+          test "${verifier_artifact_count}" -eq 1
+          verifier_artifact_id="$(jq -r '.artifacts[] | select(.expired == false) | select((.name | ascii_downcase | contains("r7f")) and (.name | ascii_downcase | contains("evidence"))) | .id' <<<"${verifier_artifacts}")"
+          verifier_artifact_name="$(jq -r '.artifacts[] | select(.expired == false) | select((.name | ascii_downcase | contains("r7f")) and (.name | ascii_downcase | contains("evidence"))) | .name' <<<"${verifier_artifacts}")"
+          verifier_artifact_digest="$(jq -r '.artifacts[] | select(.expired == false) | select((.name | ascii_downcase | contains("r7f")) and (.name | ascii_downcase | contains("evidence"))) | .digest' <<<"${verifier_artifacts}")"
+          case "${verifier_artifact_digest}" in sha256:*) ;; *) exit 32 ;; esac
+
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${verifier_artifact_id}/zip" \
+            --output audit-input/r7f-evidence.zip
+          actual_digest="sha256:$(sha256sum audit-input/r7f-evidence.zip | awk '{print $1}')"
+          test "${actual_digest}" = "${verifier_artifact_digest}"
+          unzip -q audit-input/r7f-evidence.zip -d audit-input/artifact
+
+          jq -n \
+            --arg repository "${REPOSITORY}" \
+            --arg builderBranch "${builder_branch}" \
+            --arg builderHeadSha "${builder_head}" \
+            --argjson builderRunId "${builder_run_id}" \
+            --argjson builderArtifactId "${builder_artifact_id}" \
+            --arg builderArtifactName "${builder_artifact_name}" \
+            --arg builderArtifactDigest "${builder_artifact_digest}" \
+            --arg verifierBranch "${VERIFIER_BRANCH}" \
+            --arg verifierHeadSha "${verifier_head}" \
+            --argjson verifierRunId "${verifier_run_id}" \
+            --argjson verifierArtifactId "${verifier_artifact_id}" \
+            --arg verifierArtifactName "${verifier_artifact_name}" \
+            --arg verifierArtifactDigest "${verifier_artifact_digest}" \
+            '{repository:$repository,builder:{branch:$builderBranch,headSha:$builderHeadSha,runId:$builderRunId,artifactId:$builderArtifactId,artifactName:$builderArtifactName,artifactDigest:$builderArtifactDigest},verifier:{branch:$verifierBranch,headSha:$verifierHeadSha,runId:$verifierRunId,artifactId:$verifierArtifactId,artifactName:$verifierArtifactName,artifactDigest:$verifierArtifactDigest}}' \
+            > R7_CLOSURE_EVIDENCE/chain-of-custody.json
+
+          echo "verifier_run_id=${verifier_run_id}" >> "${GITHUB_OUTPUT}"
+          echo "verifier_artifact_id=${verifier_artifact_id}" >> "${GITHUB_OUTPUT}"
+          echo "verifier_artifact_digest=${verifier_artifact_digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Execute strict external closure audit
+        id: strict
+        shell: bash
+        run: |
+          set -uo pipefail
+          cat > audit-input/audit.py <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import re
+          import sys
+          from pathlib import Path
+          from typing import Any
+
+          root = Path('audit-input/artifact').resolve()
+          out = Path('R7_CLOSURE_EVIDENCE')
+          custody = json.loads((out / 'chain-of-custody.json').read_text())
+          checks: dict[str, bool] = {}
+          evidence: dict[str, Any] = {}
+          blockers: list[str] = []
+
+          files = [p for p in root.rglob('*') if p.is_file()]
+          checks['artifact_nonempty'] = len(files) >= 100
+          evidence['artifactFileCount'] = len(files)
+
+          def rel(p: Path) -> str:
+              return p.relative_to(root).as_posix()
+
+          def load(p: Path):
+              try:
+                  return json.loads(p.read_text(errors='replace'))
+              except Exception:
+                  return None
+
+          def walk(value: Any, path: str = 'root'):
+              yield path, value
+              if isinstance(value, dict):
+                  for key, child in value.items():
+                      yield from walk(child, f'{path}.{key}')
+              elif isinstance(value, list):
+                  for index, child in enumerate(value):
+                      yield from walk(child, f'{path}[{index}]')
+
+          # Internal package decision and validation.
+          gate_files = [p for p in files if 'GATE_DECISION' in p.name.upper()]
+          gate_rows = []
+          for p in gate_files:
+              text = p.read_text(errors='replace')
+              positive = bool(re.search(r'PASS(?:ED)?|SUCCESS|VERIFIED|GREEN', text, re.I))
+              negative = bool(re.search(r'FAIL(?:ED|URE)?|BLOCKED|NOT VERIFIED|REJECT(?:ED)?', text, re.I))
+              gate_rows.append({'path': rel(p), 'passed': positive and not negative, 'text': text[:3000]})
+          checks['internal_gate_decision'] = bool(gate_rows) and all(row['passed'] for row in gate_rows)
+          evidence['gateDecisions'] = gate_rows
+
+          validation_files = [p for p in files if 'PACKAGE_VALIDATION' in p.name.upper() and p.suffix.lower() == '.json']
+          validation_rows = []
+          for p in validation_files:
+              obj = load(p)
+              passed_fields = []
+              for path, node in walk(obj):
+                  if isinstance(node, dict) and isinstance(node.get('passed'), bool):
+                      passed_fields.append({'path': path, 'passed': node['passed']})
+              validation_rows.append({'path': rel(p), 'readable': obj is not None, 'passedFields': passed_fields, 'passed': obj is not None and bool(passed_fields) and all(x['passed'] for x in passed_fields)})
+          checks['package_validation'] = bool(validation_rows) and all(row['passed'] for row in validation_rows)
+          evidence['packageValidation'] = validation_rows
+
+          # Builder identity, chain of custody, source immutability, parity and lineage.
+          proof_terms = ('authenticity', 'identity', 'parity', 'immutability', 'lineage', 'source-tar-directory', 'staged-source', 'staged-dist', 'staged-stress')
+          proof_rows = []
+          for p in files:
+              if p.suffix.lower() != '.json' or not any(term in p.name.lower() for term in proof_terms):
+                  continue
+              obj = load(p)
+              passed = []
+              for path, node in walk(obj):
+                  if isinstance(node, dict) and isinstance(node.get('passed'), bool):
+                      passed.append({'path': path, 'passed': node['passed']})
+              proof_rows.append({'path': rel(p), 'readable': obj is not None, 'passedFields': passed, 'passed': obj is not None and (not passed or all(x['passed'] for x in passed))})
+          checks['custody_immutability_parity'] = len(proof_rows) >= 8 and all(row['passed'] for row in proof_rows)
+          evidence['custodyParityProofs'] = proof_rows
+
+          # Require the exact locked R7E tuple to occur in R7F evidence.
+          needles = [
+              str(custody['builder']['runId']),
+              str(custody['builder']['artifactId']),
+              custody['builder']['artifactName'],
+              custody['builder']['artifactDigest'],
+          ]
+          tuple_hits = []
+          for p in files:
+              if p.suffix.lower() not in ('.json', '.txt', '.md') or p.stat().st_size > 5_000_000:
+                  continue
+              text = p.read_text(errors='replace')
+              if all(needle in text for needle in needles):
+                  tuple_hits.append(rel(p))
+          checks['exact_builder_tuple_in_evidence'] = bool(tuple_hits)
+          evidence['exactBuilderTupleFiles'] = tuple_hits
+
+          # Verify SHA-256 manifests where present.
+          manifest_rows = []
+          for manifest in [p for p in files if p.suffix.lower() == '.sha256']:
+              checked = 0
+              bad = []
+              for line in manifest.read_text(errors='replace').splitlines():
+                  match = re.match(r'^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$', line.strip())
+                  if not match:
+                      continue
+                  checked += 1
+                  candidate = match.group(2).lstrip('./')
+                  targets = [manifest.parent / candidate, root / candidate]
+                  target = next((p for p in targets if p.exists() and p.is_file()), None)
+                  if target is None:
+                      bad.append({'path': candidate, 'reason': 'missing'})
+                  else:
+                      actual = hashlib.sha256(target.read_bytes()).hexdigest()
+                      if actual.lower() != match.group(1).lower():
+                          bad.append({'path': candidate, 'reason': 'digest', 'expected': match.group(1).lower(), 'actual': actual})
+              if checked:
+                  manifest_rows.append({'path': rel(manifest), 'checked': checked, 'bad': bad, 'passed': not bad})
+          checks['checksum_manifests'] = bool(manifest_rows) and all(row['passed'] for row in manifest_rows)
+          evidence['checksumManifests'] = manifest_rows
+
+          # Axe: violations must be empty; serious or critical incomplete is a blocker.
+          axe_files = [p for p in files if p.suffix.lower() == '.json' and ('axe-raw' in rel(p).lower() or p.name == 'axe-playwright-results.json')]
+          axe_bad = []
+          axe_stats = {'files': len(axe_files), 'readable': 0, 'violations': 0, 'incomplete': 0, 'seriousCriticalIncomplete': 0}
+          for p in axe_files:
+              obj = load(p)
+              if obj is None:
+                  continue
+              axe_stats['readable'] += 1
+              for path, node in walk(obj):
+                  if not isinstance(node, dict):
+                      continue
+                  for kind in ('violations', 'incomplete'):
+                      rows = node.get(kind)
+                      if not isinstance(rows, list):
+                          continue
+                      axe_stats[kind] += len(rows)
+                      for row in rows:
+                          impact = row.get('impact') if isinstance(row, dict) else None
+                          if kind == 'violations' or impact in ('serious', 'critical'):
+                              if kind == 'incomplete':
+                                  axe_stats['seriousCriticalIncomplete'] += 1
+                              axe_bad.append({'file': rel(p), 'path': path, 'kind': kind, 'id': row.get('id') if isinstance(row, dict) else None, 'impact': impact})
+          checks['axe_strict'] = axe_stats['readable'] >= 10 and not axe_bad
+          evidence['axe'] = {'stats': axe_stats, 'bad': axe_bad}
+
+          # Lighthouse: inspect raw reports, not category score alone.
+          lighthouse_raw = []
+          lighthouse_bad = []
+          lighthouse_scores = []
+          for p in files:
+              if p.suffix.lower() != '.json' or 'lighthouse' not in rel(p).lower():
+                  continue
+              obj = load(p)
+              if not isinstance(obj, dict) or not isinstance(obj.get('audits'), dict):
+                  continue
+              lighthouse_raw.append(p)
+              label_audit = obj['audits'].get('label-content-name-mismatch')
+              if isinstance(label_audit, dict) and label_audit.get('score') == 0:
+                  lighthouse_bad.append({'file': rel(p), 'audit': 'label-content-name-mismatch', 'score': 0})
+              for audit_id in ('errors-in-console', 'http-status-code'):
+                  audit = obj['audits'].get(audit_id)
+                  if isinstance(audit, dict) and audit.get('score') == 0:
+                      lighthouse_bad.append({'file': rel(p), 'audit': audit_id, 'score': 0})
+              categories = obj.get('categories', {})
+              scores = {key: value.get('score') for key, value in categories.items() if isinstance(value, dict)}
+              lighthouse_scores.append({'file': rel(p), 'scores': scores})
+              for key in ('performance', 'accessibility', 'best-practices', 'seo'):
+                  if scores.get(key) is not None and scores[key] < 0.95:
+                      lighthouse_bad.append({'file': rel(p), 'category': key, 'score': scores[key]})
+          summary_files = [p for p in files if p.name == 'lighthouse-summary.json']
+          summary_false = []
+          for p in summary_files:
+              obj = load(p)
+              for path, node in walk(obj):
+                  if isinstance(node, dict) and node.get('passed') is False:
+                      summary_false.append({'file': rel(p), 'path': path})
+          checks['lighthouse_strict'] = len(lighthouse_raw) >= 4 and not lighthouse_bad and not summary_false and bool(summary_files)
+          evidence['lighthouse'] = {'rawReports': [rel(p) for p in lighthouse_raw], 'scores': lighthouse_scores, 'bad': lighthouse_bad, 'summaryFalse': summary_false}
+
+          # Playwright result must contain no unexpected or failed result.
+          browser_results = [p for p in files if p.name == 'browser-playwright-results.json']
+          browser_failures = []
+          browser_tests = 0
+          for p in browser_results:
+              obj = load(p)
+              for path, node in walk(obj):
+                  if isinstance(node, dict):
+                      if isinstance(node.get('expectedStatus'), str):
+                          browser_tests += 1
+                          if node.get('expectedStatus') != 'passed':
+                              browser_failures.append({'file': rel(p), 'path': path, 'expectedStatus': node.get('expectedStatus')})
+                      if node.get('status') in ('failed', 'timedOut', 'interrupted', 'unexpected'):
+                          browser_failures.append({'file': rel(p), 'path': path, 'status': node.get('status')})
+                      if isinstance(node.get('errors'), list) and node.get('errors'):
+                          browser_failures.append({'file': rel(p), 'path': path, 'errors': len(node['errors'])})
+          checks['browser_results'] = bool(browser_results) and browser_tests > 0 and not browser_failures
+          evidence['browserResults'] = {'files': [rel(p) for p in browser_results], 'testNodes': browser_tests, 'failures': browser_failures}
+
+          # Locate frozen production source and verified dist.
+          source_roots = []
+          for p in root.rglob('package.json'):
+              if (p.parent / 'src' / 'pages').exists():
+                  source_roots.append(p.parent)
+          source_roots = sorted(set(source_roots), key=lambda p: len(p.parts))
+          dist_roots = [p for p in root.rglob('VERIFIER_DIST') if p.is_dir()]
+          if not dist_roots:
+              dist_roots = [p for p in root.rglob('BEARING_VERIFIED_DIST') if p.is_dir()]
+          checks['source_and_dist_present'] = bool(source_roots) and bool(dist_roots)
+          source = source_roots[0] if source_roots else None
+          dist = dist_roots[0] if dist_roots else None
+          evidence['sourceRoot'] = rel(source) if source else None
+          evidence['distRoot'] = rel(dist) if dist else None
+
+          # Strict no-JS source proof, including screenshot route locality.
+          browser_spec = source / 'tests' / 'browser.spec.ts' if source else None
+          spec_text = browser_spec.read_text(errors='replace') if browser_spec and browser_spec.exists() else ''
+          screenshot_name = 'alternate-no-js-vce-390.png'
+          shot_index = spec_text.find(screenshot_name)
+          preceding = spec_text[max(0, shot_index - 5000):shot_index] if shot_index >= 0 else ''
+          route_literals = set(re.findall(r"['\"](/(?:[^'\"]*)?)['\"]", spec_text))
+          exact_static = 'Static sequence: all steps visible.' in preceding
+          exact_vce_route = '/work/volatility-cascade-engine/' in preceding
+          exact_h1 = bool(re.search(r'toHaveText\([^\n]+Volatility Cascade Engine|Volatility Cascade Engine[^\n]+toHaveText', preceding))
+          exact_status = 'status()' in preceding or '.status' in preceding
+          checks['strict_no_js_test_source'] = bool(spec_text) and len(route_literals) >= 10 and shot_index >= 0 and exact_static and exact_vce_route and exact_status
+          evidence['noJsTestSource'] = {'routeLiteralCount': len(route_literals), 'screenshotFound': shot_index >= 0, 'vceRouteBeforeScreenshot': exact_vce_route, 'staticAssertionBeforeScreenshot': exact_static, 'h1AssertionHeuristic': exact_h1, 'statusAssertionBeforeScreenshot': exact_status}
+
+          # The corrected screenshot must exist as a nontrivial PNG.
+          screenshot_files = [p for p in files if p.name == screenshot_name]
+          screenshot_ok = False
+          if len(screenshot_files) == 1:
+              data = screenshot_files[0].read_bytes()
+              screenshot_ok = data.startswith(b'\x89PNG\r\n\x1a\n') and len(data) > 5000
+          checks['no_js_vce_screenshot'] = len(screenshot_files) == 1 and screenshot_ok
+          evidence['noJsVceScreenshot'] = {'files': [rel(p) for p in screenshot_files], 'validPng': screenshot_ok}
+
+          # Progressive enhancement: no-JS HTML exposes all content while controls are hidden until init.
+          vce_html_file = dist / 'work' / 'volatility-cascade-engine' / 'index.html' if dist else None
+          vce_html = vce_html_file.read_text(errors='replace') if vce_html_file and vce_html_file.exists() else ''
+          static_text = 'Static sequence: all steps visible.' in vce_html
+          hidden_controls = bool(re.search(r'<[^>]*(?:data-[\w-]*controls|class=["\'][^"\']*controls?[^"\']*)[^>]*\bhidden\b', vce_html, re.I))
+          panel_count = max(len(re.findall(r'data-[\w-]*panel', vce_html, re.I)), len(re.findall(r'data-step=', vce_html, re.I)))
+          vce_source_text = ''
+          if source:
+              for p in source.rglob('*'):
+                  if p.is_file() and 'vce' in p.name.lower() and p.suffix.lower() in ('.ts', '.js', '.astro'):
+                      vce_source_text += '\n' + p.read_text(errors='replace')
+          reveal_controls = bool(re.search(r'removeAttribute\(["\']hidden["\']\)|\.hidden\s*=\s*false', vce_source_text))
+          checks['vce_progressive_enhancement'] = bool(vce_html) and static_text and hidden_controls and panel_count >= 4 and reveal_controls
+          evidence['vceProgressiveEnhancement'] = {'staticText': static_text, 'hiddenControls': hidden_controls, 'panelCountHeuristic': panel_count, 'javascriptRevealsControls': reveal_controls}
+
+          # Executable-JS invariant: ordinary routes zero; VCE bounded to one route-local external script.
+          js_rows = []
+          if dist:
+              for html in dist.rglob('*.html'):
+                  text = html.read_text(errors='replace')
+                  executable = []
+                  for tag in re.findall(r'<script\b[^>]*>', text, re.I):
+                      type_match = re.search(r'type=["\']([^"\']+)', tag, re.I)
+                      script_type = type_match.group(1).lower() if type_match else ''
+                      if script_type in ('application/ld+json', 'application/json', 'importmap'):
+                          continue
+                      executable.append(tag)
+                  route = html.relative_to(dist).as_posix()
+                  js_rows.append({'route': route, 'count': len(executable), 'tags': executable})
+          ordinary_bad = [row for row in js_rows if row['route'] != 'work/volatility-cascade-engine/index.html' and row['count'] != 0]
+          vce_rows = [row for row in js_rows if row['route'] == 'work/volatility-cascade-engine/index.html']
+          checks['bounded_executable_javascript'] = bool(js_rows) and not ordinary_bad and len(vce_rows) == 1 and vce_rows[0]['count'] == 1
+          evidence['executableJavascript'] = {'ordinaryBad': ordinary_bad, 'vce': vce_rows}
+
+          # Network audit and Wrangler dry run.
+          network_files = [p for p in files if p.name == 'network-audit.json']
+          network_bad = []
+          for p in network_files:
+              obj = load(p)
+              for path, node in walk(obj):
+                  if isinstance(node, dict):
+                      if node.get('passed') is False:
+                          network_bad.append({'file': rel(p), 'path': path, 'kind': 'passed_false'})
+                      for key, value in node.items():
+                          label = key.lower()
+                          if any(term in label for term in ('thirdparty', 'third-party', 'unexpectedrequest', 'externalrequest')) and isinstance(value, list) and value:
+                              network_bad.append({'file': rel(p), 'path': f'{path}.{key}', 'kind': 'nonempty', 'count': len(value)})
+          checks['network_audit'] = bool(network_files) and not network_bad
+          evidence['networkAudit'] = {'files': [rel(p) for p in network_files], 'bad': network_bad}
+
+          wrangler_files = [p for p in files if 'wrangler' in p.name.lower() and p.suffix.lower() in ('.txt', '.json', '.log')]
+          wrangler_text = '\n'.join(p.read_text(errors='replace') for p in wrangler_files)
+          checks['wrangler_dry_run'] = bool(wrangler_files) and not bool(re.search(r'(^|\s)(error|failed|failure)(:|\s)', wrangler_text, re.I))
+          evidence['wranglerFiles'] = [rel(p) for p in wrangler_files]
+
+          # 500-record native lineage and reproducible output.
+          lineage_files = [p for p in files if p.name == 'stress-lineage.json']
+          lineage_ok = False
+          lineage_rows = []
+          for p in lineage_files:
+              obj = load(p)
+              row = {'file': rel(p), 'object': obj}
+              lineage_rows.append(row)
+              if isinstance(obj, dict):
+                  lineage_ok = lineage_ok or (
+                      obj.get('passed') is True
+                      and obj.get('inputRecordCount') == 500
+                      and obj.get('normalizedUniqueIds') == 500
+                      and obj.get('normalizedUniqueSlugs') == 500
+                      and obj.get('normalizedUniqueRoutes') == 500
+                      and obj.get('emittedDetailPageCount') == 500
+                      and obj.get('workIndexCoverage') == 500
+                      and obj.get('archiveCoverage') == 500
+                      and obj.get('directHtmlWriters') == []
+                  )
+          checks['native_500_record_lineage'] = lineage_ok
+          evidence['stressLineage'] = lineage_rows
+
+          reproducibility_files = [p for p in files if 'run1-run2-parity' in p.name.lower()]
+          reproducibility_ok = False
+          for p in reproducibility_files:
+              obj = load(p)
+              if isinstance(obj, dict) and obj.get('passed') is True and obj.get('first', {}).get('treeSha256') == obj.get('second', {}).get('treeSha256'):
+                  reproducibility_ok = True
+          checks['byte_reproducible_builds'] = reproducibility_ok
+          evidence['reproducibilityFiles'] = [rel(p) for p in reproducibility_files]
+
+          # Toolchain and deprecation guard.
+          environment_files = [p for p in files if p.name == 'environment.txt']
+          environment_text = '\n'.join(p.read_text(errors='replace') for p in environment_files)
+          checks['exact_node_toolchain'] = 'node=v24.20.0' in environment_text and 'npm=11.19.0' in environment_text
+          deprecated_hits = []
+          for p in files:
+              if p.suffix.lower() not in ('.txt', '.log') or p.stat().st_size > 5_000_000:
+                  continue
+              text = p.read_text(errors='replace')
+              if re.search(r'z\.string\(\)\.email|deprecated[^\n]*email', text, re.I):
+                  deprecated_hits.append(rel(p))
+          legacy_source = False
+          if source:
+              for p in source.rglob('*'):
+                  if p.is_file() and p.suffix.lower() in ('.ts', '.js', '.mjs', '.astro') and 'z.string().email()' in p.read_text(errors='replace'):
+                      legacy_source = True
+          checks['zod_email_deprecation_removed'] = not deprecated_hits and not legacy_source
+          evidence['zodEmailDeprecation'] = {'logHits': deprecated_hits, 'legacySourceCall': legacy_source}
+
+          required = [
+              'artifact_nonempty',
+              'internal_gate_decision',
+              'package_validation',
+              'custody_immutability_parity',
+              'exact_builder_tuple_in_evidence',
+              'checksum_manifests',
+              'axe_strict',
+              'lighthouse_strict',
+              'browser_results',
+              'source_and_dist_present',
+              'strict_no_js_test_source',
+              'no_js_vce_screenshot',
+              'vce_progressive_enhancement',
+              'bounded_executable_javascript',
+              'network_audit',
+              'wrangler_dry_run',
+              'native_500_record_lineage',
+              'byte_reproducible_builds',
+              'exact_node_toolchain',
+              'zod_email_deprecation_removed',
+          ]
+          blockers = [name for name in required if checks.get(name) is not True]
+          report = {
+              'decision': 'R7_CLOSED' if not blockers else 'R7_NOT_CLOSED',
+              'date': '2026-08-30',
+              'scope': 'BEARING R7 technical architecture closure only',
+              'chainOfCustody': custody,
+              'checks': checks,
+              'requiredChecks': required,
+              'blockers': blockers,
+              'evidence': evidence,
+              'passed': not blockers,
+              'nextPhase': 'R8 Security' if not blockers else 'Correct only the listed closure blockers and rerun R7E plus independent R7F',
+          }
+          (out / 'strict-audit.json').write_text(json.dumps(report, indent=2) + '\n')
+          Path('R7_CLOSURE_DECISION.json').write_text(json.dumps(report, indent=2) + '\n')
+
+          lines = [
+              '# R7 Technical Architecture Closure Record',
+              '',
+              f"**Decision:** `{report['decision']}`",
+              '',
+              '**Scope:** BEARING R7 technical architecture only. This does not approve final public copy, photography, R8 security, R9 discoverability or R10 production convergence.',
+              '',
+              '## Immutable evidence chain',
+              '',
+              f"- R7E branch: `{custody['builder']['branch']}`",
+              f"- R7E head SHA: `{custody['builder']['headSha']}`",
+              f"- R7E run ID: `{custody['builder']['runId']}`",
+              f"- R7E artifact ID: `{custody['builder']['artifactId']}`",
+              f"- R7E artifact digest: `{custody['builder']['artifactDigest']}`",
+              f"- R7F branch: `{custody['verifier']['branch']}`",
+              f"- R7F head SHA: `{custody['verifier']['headSha']}`",
+              f"- R7F run ID: `{custody['verifier']['runId']}`",
+              f"- R7F artifact ID: `{custody['verifier']['artifactId']}`",
+              f"- R7F artifact digest: `{custody['verifier']['artifactDigest']}`",
+              '',
+              '## Required checks',
+              '',
+          ]
+          for name in required:
+              lines.append(f"- [{'x' if checks.get(name) else ' '}] `{name}`")
+          if blockers:
+              lines += ['', '## Blocking findings', ''] + [f'- `{name}`' for name in blockers]
+          else:
+              lines += ['', '## Closure', '', 'All required builder, custody, reproducibility, scale, browser, accessibility, Lighthouse, network, deployment and strict external-audit checks passed. R7 is closed and the technical architecture is frozen. The next authorized programme phase is R8 Security.']
+          Path('R7_CLOSURE_RECORD.md').write_text('\n'.join(lines) + '\n')
+          print(json.dumps({'decision': report['decision'], 'blockers': blockers}, indent=2))
+          raise SystemExit(0 if not blockers else 2)
+          PY
+
+          set +e
+          python audit-input/audit.py
+          audit_rc=$?
+          set -e
+          echo "audit_rc=${audit_rc}" >> "${GITHUB_OUTPUT}"
+
+          cp R7_CLOSURE_DECISION.json R7_CLOSURE_EVIDENCE/
+          cp R7_CLOSURE_RECORD.md R7_CLOSURE_EVIDENCE/
+          sha256sum R7_CLOSURE_EVIDENCE/* > R7_CLOSURE_EVIDENCE/closure-files.sha256
+
+          git add R7_CLOSURE_DECISION.json R7_CLOSURE_RECORD.md R7_CLOSURE_EVIDENCE
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "R7: record strict final closure decision"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+          exit "${audit_rc}"
+
+      - name: Upload strict closure evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-final-closure-audit-${{ github.sha }}
+          path: |
+            R7_CLOSURE_DECISION.json
+            R7_CLOSURE_RECORD.md
+            R7_CLOSURE_EVIDENCE/
+          if-no-files-found: error
+          retention-days: 90
+          include-hidden-files: true
+
+      - name: Enforce closure decision
+        if: always()
+        shell: bash
+        run: |
+          test "${{ steps.strict.outputs.audit_rc }}" = "0"
