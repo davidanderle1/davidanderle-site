@@ -1,0 +1,7 @@
+source_commit=507eda081be43e8f448e86e16aa25a44e551ae4c
+source_archive_sha256=21082e1bdf0a2f15ad6f15cecb23def8e85bf9d952d3b3ad94bf87ae03c0c50b
+patch_sha256=260f73280b4731ff81631da552f7a31ae4f601fe8d5aa28fd9771535699966b7
+changed_files=scripts/verify-contrast-bounds.mjs,src/styles/bearing.css,tests/accessibility.spec.ts
+reason=remove-svg-and-pseudo-element-influence-from-route-text-backgrounds
+static_contrast_check_count=32
+static_contrast_minimum_ratio=5.8
