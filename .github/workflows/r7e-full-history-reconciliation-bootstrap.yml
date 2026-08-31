@@ -77,11 +77,12 @@ jobs:
           jq -e '.errorCount == 0 and .recordCount == 12' /tmp/content-validation.json >/dev/null
           (
             cd candidate
-            node scripts/run-invalid-fixtures.mjs | tee /tmp/invalid-fixtures.log
             npm run preflight:source | tee /tmp/source-preflight.json
+            node scripts/run-invalid-fixtures.mjs | tee /tmp/invalid-fixtures.log
+            rm -rf .r7e-tmp
           )
-          grep -q '28/28 invalid fixtures failed as expected' /tmp/invalid-fixtures.log
           jq -e '.passed == true and .errorCount == 0' /tmp/source-preflight.json >/dev/null
+          grep -q '28/28 invalid fixtures failed as expected' /tmp/invalid-fixtures.log
           node --check candidate/scripts/build-axe-fingerprint-adjudication.mjs
           node --check candidate/scripts/source-preflight.mjs
           node --check candidate/scripts/validate-content.mjs
