@@ -82,7 +82,8 @@ jobs:
             rm -rf .r7e-tmp
           )
           jq -e '.passed == true and .errorCount == 0' /tmp/source-preflight.json >/dev/null
-          grep -q '28/28 invalid fixtures failed as expected' /tmp/invalid-fixtures.log
+          test "$(grep -c 'EXPECTED FAILURE (exit 1)' /tmp/invalid-fixtures.log)" -eq 28
+          ! grep -q 'UNEXPECTED' /tmp/invalid-fixtures.log
           node --check candidate/scripts/build-axe-fingerprint-adjudication.mjs
           node --check candidate/scripts/source-preflight.mjs
           node --check candidate/scripts/validate-content.mjs
