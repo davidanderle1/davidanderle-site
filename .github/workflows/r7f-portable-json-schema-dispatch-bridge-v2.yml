@@ -1,0 +1,38 @@
+name: Dispatch R7F portable JSON Schema authoritative verifier v2
+
+on:
+  push:
+    branches:
+      - r7f-portable-json-schema-verification-20260831
+    paths:
+      - '.github/workflows/r7f-portable-json-schema-dispatch-bridge-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Wait for immutable verifier materialization and dispatch exact branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          branch='r7f-portable-json-schema-verification-20260831'
+          workflow='.github/workflows/r7f-portable-json-schema-authoritative.yml'
+          for attempt in $(seq 1 120); do
+            if gh api "repos/$repo/contents/$workflow?ref=$branch" >/tmp/workflow.json 2>/dev/null; then
+              break
+            fi
+            sleep 15
+          done
+          test -s /tmp/workflow.json
+          head_sha="$(gh api "repos/$repo/branches/$branch" --jq '.commit.sha')"
+          gh workflow run "$workflow" --repo "$repo" --ref "$branch"
+          printf 'dispatched_branch=%s\ndispatched_head_at_request=%s\nworkflow=%s\n' "$branch" "$head_sha" "$workflow"
