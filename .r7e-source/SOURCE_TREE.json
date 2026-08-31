@@ -651,13 +651,13 @@
     },
     {
       "path": "tests/invalid-fixtures/16-profile-private-temporal-field.json",
-      "sha256": "4336d8000e961dcaec2d95bf76939c9174599d662701a1d77d0464bdb1f39f2c",
+      "sha256": "a62869e228fb670eafcd2334ac5ab131006f6fbe520c1a8904b7d3d1d5a391f2",
       "mode": "0o644",
       "size": 1044
     },
     {
       "path": "tests/invalid-fixtures/17-profile-overprecise-completion.json",
-      "sha256": "0ef0e8481ea52048cfb330752659bdb57f3c3a9c9e568b3f53c8632d2517cdcd",
+      "sha256": "1f6316e17914577f659ff026da608f34a4820ecd4da09cfbf06e7b93938134c3",
       "mode": "0o644",
       "size": 973
     },
