@@ -1,0 +1,214 @@
+name: Bootstrap authoritative portable JSON Schema R7E v2
+
+on:
+  push:
+    branches:
+      - r7e-portable-json-schema-verification-20260831
+    paths:
+      - '.github/workflows/r7e-portable-schema-authoritative-bootstrap-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-portable-schema-authoritative-bootstrap-v2
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout portable-schema branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Generate authoritative workflow from full-history baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source=Path('.github/workflows/r7e-full-history-reconciled-verification.yml')
+          target=Path('.github/workflows/r7e-portable-json-schema-authoritative.yml')
+          text=source.read_text(encoding='utf-8')
+
+          replacements=[
+            ('name: R7E full-history reconciled native Astro verification', 'name: R7E portable JSON Schema authoritative native Astro verification'),
+            ('      - r7e-full-history-reconciled-verification-20260831', '      - r7e-portable-json-schema-verification-20260831'),
+            ("      - '.github/workflows/r7e-full-history-reconciled-verification.yml'", "      - '.github/workflows/r7e-portable-json-schema-authoritative.yml'"),
+            ('  group: r7e-full-history-reconciled-${{ github.ref }}', '  group: r7e-portable-json-schema-authoritative-${{ github.ref }}'),
+            ('    timeout-minutes: 75', '    timeout-minutes: 90'),
+            ('.github/workflows/r7e-full-history-reconciled-verification.yml | tee evidence/builder-infrastructure.sha256', '.github/workflows/r7e-portable-json-schema-authoritative.yml | tee evidence/builder-infrastructure.sha256'),
+            ('R7E FULL-HISTORY RECONCILED BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F', 'R7E PORTABLE JSON SCHEMA BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F'),
+          ]
+          for old,new in replacements:
+              count=text.count(old)
+              if count < 1:
+                  raise SystemExit(f'authoritative workflow anchor missing: {old!r}')
+              text=text.replace(old,new)
+
+          run1_anchor="""          /usr/bin/time -v -o ../evidence/run1-npm-ci.time.txt npm ci --audit=false --fund=false > ../evidence/run1-npm-ci.stdout.txt 2> ../evidence/run1-npm-ci.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-check.time.txt npm run check > ../evidence/run1-check.stdout.txt 2> ../evidence/run1-check.stderr.txt
+"""
+          run1_insert="""          /usr/bin/time -v -o ../evidence/run1-npm-ci.time.txt npm ci --audit=false --fund=false > ../evidence/run1-npm-ci.stdout.txt 2> ../evidence/run1-npm-ci.stderr.txt
+          schema_verify=$(node -e \"const s=require('./package.json').scripts||{};const k=Object.keys(s).filter(k=>/schema/i.test(k)&&/(verify|check)/i.test(k));if(k.length!==1)process.exit(2);process.stdout.write(k[0])\")
+          schema_validate=$(node -e \"const s=require('./package.json').scripts||{};const k=Object.keys(s).filter(k=>/schema/i.test(k)&&/validate/i.test(k));if(k.length!==1)process.exit(2);process.stdout.write(k[0])\")
+          npm run \"$schema_verify\" > ../evidence/run1-schema-verify.stdout.txt 2> ../evidence/run1-schema-verify.stderr.txt
+          npm run \"$schema_validate\" > ../evidence/run1-schema-validate.stdout.txt 2> ../evidence/run1-schema-validate.stderr.txt
+          /usr/bin/time -v -o ../evidence/run1-check.time.txt npm run check > ../evidence/run1-check.stdout.txt 2> ../evidence/run1-check.stderr.txt
+"""
+          if text.count(run1_anchor)!=1:
+              raise SystemExit('Clean Run 1 insertion anchor mismatch')
+          text=text.replace(run1_anchor,run1_insert,1)
+
+          run2_anchor="""          /usr/bin/time -v -o ../evidence/run2-npm-ci.time.txt npm ci --audit=false --fund=false > ../evidence/run2-npm-ci.stdout.txt 2> ../evidence/run2-npm-ci.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-check.time.txt npm run check > ../evidence/run2-check.stdout.txt 2> ../evidence/run2-check.stderr.txt
+"""
+          run2_insert="""          /usr/bin/time -v -o ../evidence/run2-npm-ci.time.txt npm ci --audit=false --fund=false > ../evidence/run2-npm-ci.stdout.txt 2> ../evidence/run2-npm-ci.stderr.txt
+          schema_verify=$(node -e \"const s=require('./package.json').scripts||{};const k=Object.keys(s).filter(k=>/schema/i.test(k)&&/(verify|check)/i.test(k));if(k.length!==1)process.exit(2);process.stdout.write(k[0])\")
+          schema_validate=$(node -e \"const s=require('./package.json').scripts||{};const k=Object.keys(s).filter(k=>/schema/i.test(k)&&/validate/i.test(k));if(k.length!==1)process.exit(2);process.stdout.write(k[0])\")
+          npm run \"$schema_verify\" > ../evidence/run2-schema-verify.stdout.txt 2> ../evidence/run2-schema-verify.stderr.txt
+          npm run \"$schema_validate\" > ../evidence/run2-schema-validate.stdout.txt 2> ../evidence/run2-schema-validate.stderr.txt
+          /usr/bin/time -v -o ../evidence/run2-check.time.txt npm run check > ../evidence/run2-check.stdout.txt 2> ../evidence/run2-check.stderr.txt
+"""
+          if text.count(run2_anchor)!=1:
+              raise SystemExit('Clean Run 2 insertion anchor mismatch')
+          text=text.replace(run2_anchor,run2_insert,1)
+
+          step_anchor="""      - name: 500-record native Astro lineage gate
+"""
+          portable_step=r'''      - name: Portable JSON Schema Draft 2020-12 independent gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_SCHEMA_DISCOVERY'
+          import hashlib,json,re
+          from pathlib import Path
+          root=Path('run1')
+          package=json.loads((root/'package.json').read_text())
+          scripts=package.get('scripts') or {}
+          schema_scripts={k:v for k,v in scripts.items() if 'schema' in k.lower()}
+          def pick(pattern):
+              rows=[k for k in schema_scripts if re.search(pattern,k,re.I)]
+              if len(rows)!=1: raise SystemExit(f'Expected one script for {pattern}: {rows}')
+              return rows[0]
+          selected={'generate':pick(r'(schema.*generate|generate.*schema)'),'verify':pick(r'(schema.*(verify|check)|(verify|check).*schema)'),'validate':pick(r'(schema.*validate|validate.*schema)')}
+          files=sorted(p for p in root.rglob('*.schema.json') if 'node_modules' not in p.parts)
+          if len(files)<4: raise SystemExit(f'Expected >=4 committed schemas, found {len(files)}')
+          rows=[]
+          for p in files:
+              x=json.loads(p.read_text())
+              if x.get('$schema')!='https://json-schema.org/draft/2020-12/schema': raise SystemExit(f'{p}: wrong draft')
+              if not x.get('$id'): raise SystemExit(f'{p}: missing $id')
+              rows.append({'path':p.relative_to(root).as_posix(),'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'size':p.stat().st_size,'id':x['$id']})
+          manifests=sorted(p for p in root.rglob('*.json') if 'schema' in p.as_posix().lower() and 'manifest' in p.name.lower() and 'node_modules' not in p.parts)
+          if not manifests: raise SystemExit('Schema manifest missing')
+          generators=sorted(p for p in root.rglob('*') if p.is_file() and 'schema' in p.name.lower() and p.suffix in {'.mjs','.js','.ts'} and 'node_modules' not in p.parts)
+          gtext='\n'.join(p.read_text(errors='replace') for p in generators)
+          if 'content.config' not in gtext or not re.search(r'(toJSONSchema|toJsonSchema)',gtext): raise SystemExit('Generator is not derived from typed content config')
+          deps={**(package.get('dependencies') or {}),**(package.get('devDependencies') or {})}
+          ajv=deps.get('ajv')
+          if not isinstance(ajv,str) or re.match(r'^[~^*]|^(latest|next)$',ajv): raise SystemExit(f'Ajv not exactly pinned: {ajv!r}')
+          out={'schema':'R7E_PORTABLE_SCHEMA_DISCOVERY_V1','passed':True,'selectedScripts':selected,'schemaFiles':rows,'manifestFiles':[p.relative_to(root).as_posix() for p in manifests],'generatorFiles':[p.relative_to(root).as_posix() for p in generators],'ajvVersion':ajv}
+          Path('evidence/portable-schema-discovery.json').write_text(json.dumps(out,indent=2)+'\n')
+          Path('/tmp/portable-generate').write_text(selected['generate']); Path('/tmp/portable-verify').write_text(selected['verify']); Path('/tmp/portable-validate').write_text(selected['validate']); Path('/tmp/portable-first-schema').write_text(str(files[0]))
+          PY_SCHEMA_DISCOVERY
+
+          GEN=$(cat /tmp/portable-generate)
+          VERIFY=$(cat /tmp/portable-verify)
+          VALIDATE=$(cat /tmp/portable-validate)
+
+          python3 - <<'PY_SCHEMA_TREE'
+          import hashlib,json
+          from pathlib import Path
+          root=Path('run1'); rows=[]
+          for p in sorted(x for x in root.rglob('*.schema.json') if 'node_modules' not in x.parts): rows.append({'path':p.relative_to(root).as_posix(),'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'size':p.stat().st_size})
+          Path('evidence/portable-schema-tree-before.json').write_text(json.dumps(rows,indent=2)+'\n')
+          PY_SCHEMA_TREE
+          (cd run1 && npm run "$GEN") > evidence/portable-schema-generate.stdout.txt 2> evidence/portable-schema-generate.stderr.txt
+          (cd run1 && npm run "$VERIFY") > evidence/portable-schema-verify.stdout.txt 2> evidence/portable-schema-verify.stderr.txt
+          (cd run1 && npm run "$VALIDATE") > evidence/portable-schema-validate.stdout.txt 2> evidence/portable-schema-validate.stderr.txt
+          python3 - <<'PY_SCHEMA_PARITY'
+          import hashlib,json
+          from pathlib import Path
+          root=Path('run1'); before=json.loads(Path('evidence/portable-schema-tree-before.json').read_text()); after=[]
+          for p in sorted(x for x in root.rglob('*.schema.json') if 'node_modules' not in x.parts): after.append({'path':p.relative_to(root).as_posix(),'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'size':p.stat().st_size})
+          result={'passed':before==after,'before':before,'after':after}; Path('evidence/portable-schema-determinism.json').write_text(json.dumps(result,indent=2)+'\n')
+          if not result['passed']: raise SystemExit('Portable schema generation drift')
+          PY_SCHEMA_PARITY
+
+          schema=$(cat /tmp/portable-first-schema); cp "$schema" /tmp/portable-schema-backup.json
+          python3 - "$schema" <<'PY_STALE'
+          import json,sys
+          from pathlib import Path
+          p=Path(sys.argv[1]); x=json.loads(p.read_text()); x['x-r7-stale-negative-control']=True; p.write_text(json.dumps(x,indent=2)+'\n')
+          PY_STALE
+          set +e
+          (cd run1 && npm run "$VERIFY") > evidence/portable-schema-stale-negative.stdout.txt 2> evidence/portable-schema-stale-negative.stderr.txt
+          stale_status=$?
+          set -e
+          cp /tmp/portable-schema-backup.json "$schema"; test "$stale_status" -ne 0
+          (cd run1 && npm run "$VERIFY") > evidence/portable-schema-restored-verify.stdout.txt 2> evidence/portable-schema-restored-verify.stderr.txt
+
+          profile=run1/src/content/profile/profile-david-anderle.json; cp "$profile" /tmp/portable-profile-backup.json
+          python3 - "$profile" <<'PY_INVALID'
+          import json,sys
+          from pathlib import Path
+          p=Path(sys.argv[1]); x=json.loads(p.read_text()); x['expectedCompletion']='June 2099'; x['startDate']='2099-01-02'; p.write_text(json.dumps(x,indent=2)+'\n')
+          PY_INVALID
+          set +e
+          (cd run1 && npm run "$VALIDATE") > evidence/portable-schema-invalid-record-negative.stdout.txt 2> evidence/portable-schema-invalid-record-negative.stderr.txt
+          invalid_status=$?
+          set -e
+          cp /tmp/portable-profile-backup.json "$profile"; test "$invalid_status" -ne 0
+          (cd run1 && npm run "$VALIDATE") > evidence/portable-schema-restored-validate.stdout.txt 2> evidence/portable-schema-restored-validate.stderr.txt
+
+          (cd run1 && node --input-type=module - <<'NODE_AJV') > evidence/portable-schema-independent-ajv.json
+          import fs from 'node:fs'; import path from 'node:path'; import Ajv2020 from 'ajv/dist/2020.js';
+          const walk=(d)=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>e.name==='node_modules'?[]:e.isDirectory()?walk(path.join(d,e.name)):[path.join(d,e.name)]);
+          const files=walk('.').filter(p=>p.endsWith('.schema.json')).sort(); const schemas=files.map(file=>({file,schema:JSON.parse(fs.readFileSync(file,'utf8'))}));
+          const ajv=new Ajv2020({allErrors:true,strict:true}); for(const {schema} of schemas) ajv.addSchema(schema); for(const {schema} of schemas) ajv.compile(schema);
+          console.log(JSON.stringify({passed:true,schemaCount:schemas.length,files},null,2));
+          NODE_AJV
+
+          python3 - <<'PY_GATE'
+          import hashlib,json,os
+          from pathlib import Path
+          evidence=Path('evidence'); discovery=json.loads((evidence/'portable-schema-discovery.json').read_text()); det=json.loads((evidence/'portable-schema-determinism.json').read_text()); ajv=json.loads((evidence/'portable-schema-independent-ajv.json').read_text())
+          checks={'draft202012':discovery.get('passed') is True,'typedSourceDerivation':bool(discovery.get('generatorFiles')),'committedSchemaManifest':bool(discovery.get('manifestFiles')),'exactAjvPin':bool(discovery.get('ajvVersion')),'deterministicRegeneration':det.get('passed') is True,'staleSchemaRejected':True,'invalidRepositoryRecordRejected':True,'independentAjvCompile':ajv.get('passed') is True and int(ajv.get('schemaCount',0))>=4}
+          result={'schema':'R7E_PORTABLE_JSON_SCHEMA_GATE_V1','decision':'PORTABLE_JSON_SCHEMA_GATE_PASS' if all(checks.values()) else 'PORTABLE_JSON_SCHEMA_GATE_FAIL','passed':all(checks.values()),'checks':checks,'failedChecks':[k for k,v in checks.items() if not v],'sourceArchiveSha256':Path('.r7e-source/ARCHIVE_SHA256').read_text().strip(),'schemaFiles':discovery.get('schemaFiles'),'schemaManifestFiles':discovery.get('manifestFiles')}
+          (evidence/'portable-json-schema-gate.json').write_text(json.dumps(result,indent=2)+'\n'); print(json.dumps(result,indent=2))
+          if not result['passed']: raise SystemExit(1)
+          PY_GATE
+
+          python3 .github/scripts/r7e-tree-guard.py compare frozen run1 evidence/run1-source-after-portable-schema.json --source
+
+''' + step_anchor
+          if text.count(step_anchor)!=1:
+              raise SystemExit('Portable schema step insertion anchor mismatch')
+          text=text.replace(step_anchor,portable_step,1)
+
+          target.write_text(text,encoding='utf-8')
+          if 'Portable JSON Schema Draft 2020-12 independent gate' not in text:
+              raise SystemExit('Portable gate absent after workflow generation')
+          if 'r7e-full-history-reconciled-verification-20260831' in text:
+              raise SystemExit('Old branch remains in generated authoritative workflow')
+          PY
+          git diff --check -- .github/workflows/r7e-portable-json-schema-authoritative.yml
+
+      - name: Commit generated authoritative workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/r7e-portable-json-schema-authoritative.yml
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'R7E: materialize portable JSON Schema authoritative verifier'
+          git push origin HEAD:r7e-portable-json-schema-verification-20260831
