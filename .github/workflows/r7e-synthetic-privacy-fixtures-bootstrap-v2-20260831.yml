@@ -1,0 +1,90 @@
+name: Bootstrap fully synthetic R7E privacy fixtures v2
+
+on:
+  push:
+    branches:
+      - r7e-fingerprint-bound-verification-20260830
+    paths:
+      - '.github/workflows/r7e-synthetic-privacy-fixtures-bootstrap-v2-20260831.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-synthetic-privacy-fixtures-bootstrap-v2-20260831
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout current hardened source transport
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Remove real personal values from regression fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf candidate r7e-native-source.zip
+          mkdir -p candidate
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > r7e-native-source.zip
+          test "$(sha256sum r7e-native-source.zip | awk '{print $1}')" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
+          unzip -q r7e-native-source.zip -d candidate
+
+          python3 - <<'PY'
+          from pathlib import Path
+          replacements = {
+              'tests/invalid-fixtures/16-profile-private-temporal-field.json': [('2004-10-03', '2099-01-02')],
+              'tests/invalid-fixtures/17-profile-overprecise-completion.json': [('June 2027', 'June 2099')],
+          }
+          root = Path('candidate')
+          for relative, pairs in replacements.items():
+              path = root / relative
+              text = path.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  if text.count(old) != 1:
+                      raise SystemExit(f'{relative}: expected one fixture value {old!r}, found {text.count(old)}')
+                  text = text.replace(old, new, 1)
+              path.write_text(text, encoding='utf-8')
+          PY
+
+          if grep -RIn --binary-files=without-match -E '2004-10-03|June 2027' candidate; then
+            echo 'Real or historically ambiguous personal value remains in canonical source' >&2
+            exit 1
+          fi
+          grep -q '2099-01-02' candidate/tests/invalid-fixtures/16-profile-private-temporal-field.json
+          grep -q 'June 2099' candidate/tests/invalid-fixtures/17-profile-overprecise-completion.json
+          test "$(find candidate/tests/invalid-fixtures -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 17
+          node candidate/scripts/validate-content.mjs --mode production --content-root candidate/src/content
+          (
+            cd candidate
+            node scripts/run-invalid-fixtures.mjs
+          )
+          rm -rf candidate/.r7e-tmp
+
+          python3 .github/scripts/r7e-pack-source.py candidate .r7e-source --archive r7e-native-source.zip --chunk-size 60000
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          test "$(jq -r '.fileCount' .r7e-source/SOURCE_TREE.json)" -eq 116
+
+      - name: Commit fully synthetic canonical fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .r7e-source
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7E: remove real personal values from regression fixtures'
+          git push origin HEAD:r7e-fingerprint-bound-verification-20260830
