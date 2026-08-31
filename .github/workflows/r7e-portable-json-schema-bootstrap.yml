@@ -51,7 +51,7 @@ jobs:
           printf '%s  %s\n' '5d05a27a3f7ea236c6cb83ccd4b8ba30540fd70a77349f6a0f4dde991100e5d2' portable-schema-patch.tar.gz | sha256sum --check --strict
           python3 - <<'PY'
           import tarfile
-          from pathlib import Path, PurePosixPath
+          from pathlib import PurePosixPath
           with tarfile.open('portable-schema-patch.tar.gz','r:gz') as tf:
               members=tf.getmembers()
               for member in members:
@@ -96,10 +96,16 @@ jobs:
           test "$(npm --version)" = '11.19.0'
           npm ci --audit=false --fund=false
           npm run schema:generate
+
+          # npm's prepare lifecycle intentionally generates build-time outputs.
+          # Remove them before the frozen-source preflight while retaining the
+          # exact installed dependency tree required by preflight:workspace.
+          rm -rf dist .astro .r7e-tmp public/assets/portrait public/assets/js public/artifacts src/data/generated
+          npm run preflight:workspace
+
           test "$(find schemas -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 9
           jq -e '.contractVersion=="1.0.0" and (.schemas|length)==8' schemas/index.json >/dev/null
           for file in schemas/*.schema.json; do jq -e '."$schema"=="https://json-schema.org/draft/2020-12/schema" and ."x-contract-version"=="1.0.0"' "$file" >/dev/null; done
-          npm run preflight:workspace
           npm run schema:contract
           npm run validate:fixtures | tee /tmp/fixtures.log
           test "$(grep -c 'EXPECTED FAILURE (exit 1)' /tmp/fixtures.log)" -eq 29
