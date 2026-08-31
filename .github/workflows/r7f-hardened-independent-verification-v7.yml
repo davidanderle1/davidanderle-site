@@ -1,4 +1,4 @@
-name: Bootstrap R7F full-history reconciled verifier
+name: Bootstrap R7F full-history residual hardening
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: r7f-full-history-bootstrap
+  group: r7f-full-history-residual-hardening
   cancel-in-progress: false
 
 jobs:
@@ -27,122 +27,49 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
-      - name: Deterministically adapt verifier contracts
+      - name: Remove residual legacy references and validate contracts
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
-          def replace_once(path: str, old: str, new: str) -> None:
-              p = Path(path)
-              text = p.read_text(encoding='utf-8')
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{path}: expected exactly one occurrence, found {count}: {old!r}')
-              p.write_text(text.replace(old, new, 1), encoding='utf-8')
-
-          old_gate = 'R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F V6 AUDIT'
-          new_gate = 'R7E FULL-HISTORY RECONCILED BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F'
-
-          replace_once('.github/scripts/r7f-v3.sh', old_gate, new_gate)
-          replace_once('.github/scripts/r7f-evidence-gates.py', old_gate, new_gate)
-          replace_once(
-              '.github/scripts/r7f-evidence-gates.py',
-              'identity.get("sourceCorrectionLayer") == "NONE — corrections folded into canonical packed source"',
-              'identity.get("sourceCorrectionLayer") == "NONE — full-history reconciliation folded into canonical packed source"',
-          )
-          replace_once(
-              '.github/scripts/r7f-evidence-gates.py',
-              'args.expected_artifact_name.startswith("r7e-fingerprint-bound-evidence-")',
-              'args.expected_artifact_name.startswith("r7e-full-history-reconciled-evidence-")',
-          )
-
-          source_audit = Path('.github/scripts/r7f-independent-source-audit.py')
-          text = source_audit.read_text(encoding='utf-8')
-          required_anchor = '    "src/content.config.ts",\n'
-          required_insert = (
-              '    "src/content.config.ts",\n'
-              '    "docs/R7_HISTORY_RECONCILIATION.md",\n'
-              '    "src/components/HomepageRecordPreview.astro",\n'
-              '    "src/components/WritingRecordPreview.astro",\n'
-              '    "src/lib/profile-copy.ts",\n'
-          )
-          if text.count(required_anchor) != 1:
-              raise SystemExit('source audit required-path anchor mismatch')
-          text = text.replace(required_anchor, required_insert, 1)
-          old_check = '    checks["bearing-three-real-stops"] = "milestones.slice(0, 3)" in index_source\n'
-          new_checks = '''    content_source = read(root / "src/lib/content.ts") if (root / "src/lib/content.ts").is_file() else ""\n    profile_copy_source = read(root / "src/lib/profile-copy.ts") if (root / "src/lib/profile-copy.ts").is_file() else ""\n    writing_record = read(root / "src/content/writing/writing-protecting-retail-investors.md") if (root / "src/content/writing/writing-protecting-retail-investors.md").is_file() else ""\n    checks["history-reconciliation-document"] = (root / "docs/R7_HISTORY_RECONCILIATION.md").is_file()\n    checks["history-reconciled-homepage-selection"] = all(token in index_source for token in ("getHomepageSelection", "HomepageRecordPreview", "homepageSelection.map"))\n    checks["history-reconciled-generic-milestones"] = all(token in index_source for token in ("getBearingMilestones", "workRouteById", "bearingMilestones.map")) and "work-vce" not in index_source\n    checks["history-reconciled-public-indexability"] = all(token in content_source for token in ("isPublicRecord", "isIndexableRecord", "data.indexability === 'index'"))\n    checks["history-reconciled-profile-copy"] = all(token in profile_copy_source for token in ("stageSentence", "directionSentence", "firstPersonEducationSentence"))\n    checks["history-reconciled-writing-credit"] = "structuredDataCredit: contributor" in writing_record\n'''
-          if text.count(old_check) != 1:
-              raise SystemExit('source audit legacy Bearing check mismatch')
-          source_audit.write_text(text.replace(old_check, new_checks, 1), encoding='utf-8')
-
-          final = Path('.github/scripts/r7f-v6-final.sh')
-          text = final.read_text(encoding='utf-8')
-          replacements = [
-              ('INDEPENDENT_AUDITOR="$SCRIPTS/r7f-independent-axe-fingerprint-audit-v3.py"', 'INDEPENDENT_AUDITOR="$SCRIPTS/r7f-independent-axe-fingerprint-dynamic.py"'),
-              ("identity.get('axeAdjudicationInventorySha256')", "identity.get('axeAdjudicationFileSha256')"),
-              ('  BUILDER_AXE_NODE_SET_SHA256 BUILDER_AXE_BINDING_SET_SHA256\n', '  BUILDER_AXE_NODE_SET_SHA256 BUILDER_AXE_BINDING_SET_SHA256\n  BUILDER_AXE_INCOMPLETE_NODE_COUNT\n'),
-              (" 'inventoryPassed':inventory.get('passed') is True and inventory.get('failedChecks')==[] and inventory.get('errors')==[],\n", " 'inventoryPassed':inventory.get('passed') is True and inventory.get('failedChecks')==[] and inventory.get('errors')==[],\n 'incompleteNodeCount':str(identity.get('axeIncompleteNodeCount'))==os.environ['BUILDER_AXE_INCOMPLETE_NODE_COUNT'] and str((inventory.get('metrics') or {}).get('totalIncompleteNodes'))==os.environ['BUILDER_AXE_INCOMPLETE_NODE_COUNT'],\n"),
-              ('all-nodes-independently-adjudicated', 'all-adjudicated'),
-              ('builder-proof-digest-home1280', 'builder-proof-1280'),
-              ('reference-normalized-raw-reports-exact', 'reference-normalized-exact'),
-              ("  'exact-node-count-438':bm.get('nodeCount')==438 and vm.get('nodeCount')==438,", "  'dynamic-node-count-bound':bm.get('nodeCount')==vm.get('nodeCount')==(identity.get('identity') or {}).get('axeIncompleteNodeCount') and int(bm.get('nodeCount') or 0)>0,"),
-              ("'verificationVersion':'R7F-v6-exact-fingerprint-bound'", "'verificationVersion':'R7F-full-history-dynamic-fingerprint'"),
-              ('R7F V6 EXACT FINGERPRINT-BOUND INDEPENDENT VERIFICATION COMPLETE — R7 MAY CLOSE AFTER FINAL AUDIT', 'R7F FULL-HISTORY DYNAMIC FINGERPRINT INDEPENDENT VERIFICATION COMPLETE — READY FOR HISTORY-BOUND CONTROLLER'),
-              ('R7F v6 exact fingerprint-bound verification completed successfully.', 'R7F full-history dynamic fingerprint verification completed successfully.'),
-          ]
-          for old, new in replacements:
-              count = text.count(old)
-              if count < 1:
-                  raise SystemExit(f'r7f-v6-final.sh missing replacement target: {old!r}')
-              text = text.replace(old, new)
-          final.write_text(text, encoding='utf-8')
-
-          locked = Path('.github/scripts/r7f-v6-final-locked.sh')
-          text = locked.read_text(encoding='utf-8')
-          replacements = [
-              ("lock.get('schema')=='R7F_BUILDER_INPUT_V4_EXACT_FINGERPRINT_BOUND'", "lock.get('schema')=='R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT'"),
-              ("audit.get('decision')=='R7E_EXTERNAL_FINGERPRINT_AUDIT_PASS'", "audit.get('decision')=='R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS'"),
-              ('  BUILDER_AXE_BINDING_SET_SHA256 R7E_EXTERNAL_AUDIT_SHA256\n', '  BUILDER_AXE_BINDING_SET_SHA256 BUILDER_AXE_INCOMPLETE_NODE_COUNT\n  R7E_EXTERNAL_AUDIT_SHA256\n'),
-              (" 'bindingSet':lock.get('builderAxeBindingFingerprintSetSha256')==os.environ['BUILDER_AXE_BINDING_SET_SHA256'],\n", " 'bindingSet':lock.get('builderAxeBindingFingerprintSetSha256')==os.environ['BUILDER_AXE_BINDING_SET_SHA256'],\n 'incompleteNodeCount':str(lock.get('builderAxeIncompleteNodeCount'))==os.environ['BUILDER_AXE_INCOMPLETE_NODE_COUNT'],\n"),
-              (" 'locked-binding-set':lock.get('builderAxeBindingFingerprintSetSha256')==metrics.get('bindingFingerprintSetSha256'),\n", " 'locked-binding-set':lock.get('builderAxeBindingFingerprintSetSha256')==metrics.get('bindingFingerprintSetSha256'),\n 'locked-incomplete-node-count':lock.get('builderAxeIncompleteNodeCount')==metrics.get('nodeCount'),\n"),
-              ("'verificationVersion':'R7F-v6-exact-fingerprint-bound-locked'", "'verificationVersion':'R7F-full-history-dynamic-fingerprint-locked'"),
-              ('R7F v6 locked exact fingerprint-bound verification completed successfully.', 'R7F full-history locked dynamic fingerprint verification completed successfully.'),
-          ]
-          for old, new in replacements:
-              count = text.count(old)
-              if count < 1:
-                  raise SystemExit(f'r7f-v6-final-locked.sh missing replacement target: {old!r}')
-              text = text.replace(old, new)
-          locked.write_text(text, encoding='utf-8')
+          path=Path('.github/scripts/r7f-v6-final-locked.sh')
+          text=path.read_text(encoding='utf-8')
+          old='.github/scripts/r7f-independent-axe-fingerprint-audit-v3.py'
+          new='.github/scripts/r7f-independent-axe-fingerprint-dynamic.py'
+          count=text.count(old)
+          if count != 2:
+              raise SystemExit(f'expected two residual auditor references, found {count}')
+          path.write_text(text.replace(old,new),encoding='utf-8')
           PY
 
           python3 -m py_compile \
+            .github/scripts/r7f-independent-axe-fingerprint-dynamic.py \
             .github/scripts/r7f-independent-source-audit.py \
-            .github/scripts/r7f-evidence-gates.py \
-            .github/scripts/r7f-independent-axe-fingerprint-dynamic.py
+            .github/scripts/r7f-evidence-gates.py
           bash -n .github/scripts/r7f-v3.sh
           bash -n .github/scripts/r7f-v4.sh
           bash -n .github/scripts/r7f-v6-final.sh
           bash -n .github/scripts/r7f-v6-final-locked.sh
-          grep -RInE --include='r7f-v6-final*.sh' --include='r7f-evidence-gates.py' --include='r7f-independent-source-audit.py' \
-            'exact-node-count-438|totalIncompleteNodes.==.438|nodeCount.==.438|R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE|r7e-fingerprint-bound-evidence-' \
-            .github/scripts && exit 1 || true
 
-      - name: Commit static independent verifier infrastructure
+          ! grep -RInE --include='r7f-v6-final*.sh' --include='r7f-evidence-gates.py' --include='r7f-independent-source-audit.py' \
+            'r7f-independent-axe-fingerprint-audit-v3|exact-node-count-438|totalIncompleteNodes.==.438|nodeCount.==.438|R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE|r7e-fingerprint-bound-evidence-' \
+            .github/scripts
+          grep -q 'R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT' .github/scripts/r7f-v6-final-locked.sh
+          grep -q 'R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS' .github/scripts/r7f-v6-final-locked.sh
+          grep -q 'BUILDER_AXE_INCOMPLETE_NODE_COUNT' .github/scripts/r7f-v6-final.sh
+          grep -q 'BUILDER_AXE_INCOMPLETE_NODE_COUNT' .github/scripts/r7f-v6-final-locked.sh
+          grep -q 'history-reconciled-homepage-selection' .github/scripts/r7f-independent-source-audit.py
+          grep -q 'history-reconciled-writing-credit' .github/scripts/r7f-independent-source-audit.py
+
+      - name: Commit fully hardened verifier infrastructure
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
-            .github/scripts/r7f-v3.sh \
-            .github/scripts/r7f-evidence-gates.py \
-            .github/scripts/r7f-independent-source-audit.py \
-            .github/scripts/r7f-v6-final.sh \
-            .github/scripts/r7f-v6-final-locked.sh
+          git add .github/scripts/r7f-v6-final-locked.sh
           test -n "$(git diff --cached --name-only)"
           git diff --cached --check
-          git commit -m 'R7F: freeze full-history dynamic verifier contracts'
+          git commit -m 'R7F: bind locked wrapper to dynamic Axe auditor'
           git push origin HEAD:r7f-full-history-reconciled-verification-20260831
