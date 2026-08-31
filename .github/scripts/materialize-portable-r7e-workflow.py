@@ -39,12 +39,14 @@ def main() -> None:
     for old, new, label in replacements:
         text = replace_exact(text, old, new, label)
 
+    # The workflowSha256 replacement above consumes one of the two quoted
+    # workflow-path occurrences. Exactly one trigger-path occurrence must remain.
     quoted_old = "'.github/workflows/r7e-full-history-reconciled-verification.yml'"
     quoted_new = "'.github/workflows/r7e-portable-json-schema-verification.yml'"
     quoted_count = text.count(quoted_old)
-    if quoted_count != 2:
-        raise SystemExit(f'workflow path anchors: expected two, found {quoted_count}')
-    text = text.replace(quoted_old, quoted_new)
+    if quoted_count != 1:
+        raise SystemExit(f'workflow trigger path anchor: expected one, found {quoted_count}')
+    text = text.replace(quoted_old, quoted_new, 1)
 
     old_required = "for required in package.json package-lock.json .node-version .nvmrc astro.config.mjs src/content.config.ts docs/R7_HISTORY_RECONCILIATION.md src/components/HomepageRecordPreview.astro src/components/WritingRecordPreview.astro src/lib/profile-copy.ts scripts/build-axe-fingerprint-adjudication.mjs; do"
     new_required = "for required in package.json package-lock.json .node-version .nvmrc astro.config.mjs src/content.config.ts src/content-schemas.ts docs/R7_HISTORY_RECONCILIATION.md docs/PORTABLE_JSON_SCHEMA.md schemas/index.json schemas/canonical-content.schema.json src/components/HomepageRecordPreview.astro src/components/WritingRecordPreview.astro src/lib/profile-copy.ts scripts/build-axe-fingerprint-adjudication.mjs scripts/generate-json-schemas.mjs scripts/validate-json-schema.mjs scripts/verify-json-schema-drift.mjs; do"
