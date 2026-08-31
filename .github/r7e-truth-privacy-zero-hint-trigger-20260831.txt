@@ -1,0 +1,3 @@
+R7E authoritative truth, privacy and zero-hint verification trigger
+canonical source transport parent: 7d310b564f767113d4afe4b1e3f8eda2f92a8f22
+scope: completion-year truth, date-of-birth exclusion, strict profile contract, zero Astro/TypeScript source diagnostics
