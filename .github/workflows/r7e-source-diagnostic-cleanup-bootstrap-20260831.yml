@@ -1,0 +1,92 @@
+name: Bootstrap R7E zero-hint source cleanup
+
+on:
+  push:
+    branches:
+      - r7e-fingerprint-bound-verification-20260830
+    paths:
+      - '.github/workflows/r7e-source-diagnostic-cleanup-bootstrap-20260831.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-source-diagnostic-cleanup-bootstrap-20260831
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout current hardened source transport
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Apply deterministic zero-hint cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf candidate r7e-native-source.zip
+          mkdir -p candidate
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > r7e-native-source.zip
+          test "$(sha256sum r7e-native-source.zip | awk '{print $1}')" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
+          unzip -q r7e-native-source.zip -d candidate
+
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('candidate')
+          replacements = {
+              'scripts/serve-dist.mjs': [("import { fileURLToPath } from 'node:url';\n", '')],
+              'scripts/validate-content.mjs': [("import { fileURLToPath } from 'node:url';\n", '')],
+              'src/content.config.ts': [('contactEmail: z.string().email(),', 'contactEmail: z.email(),')],
+              'src/components/StructuredData.astro': [
+                  ('<script type="application/ld+json" set:html={json}></script>', '<script is:inline type="application/ld+json" set:html={json}></script>')
+              ],
+              'src/components/VceSequence.astro': [
+                  ('<script type="module" src={manifest.file}></script>', '<script is:inline type="module" src={manifest.file}></script>')
+              ],
+          }
+          for relative, pairs in replacements.items():
+              path = root / relative
+              text = path.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  if text.count(old) != 1:
+                      raise SystemExit(f'{relative}: expected one cleanup target {old!r}, found {text.count(old)}')
+                  text = text.replace(old, new, 1)
+              path.write_text(text, encoding='utf-8')
+          PY
+
+          if grep -RIn --exclude-dir=node_modules --exclude='package-lock.json' -E "fileURLToPath|z\.string\(\)\.email\(\)" candidate; then
+            echo 'Stale diagnostic-cleanup token remains' >&2
+            exit 1
+          fi
+          grep -q '<script is:inline type="application/ld+json"' candidate/src/components/StructuredData.astro
+          grep -q '<script is:inline type="module"' candidate/src/components/VceSequence.astro
+          node candidate/scripts/validate-content.mjs --mode production --content-root candidate/src/content
+          rm -rf candidate/.r7e-tmp
+
+          python3 .github/scripts/r7e-pack-source.py candidate .r7e-source --archive r7e-native-source.zip --chunk-size 60000
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          test "$(jq -r '.fileCount' .r7e-source/SOURCE_TREE.json)" -eq 116
+
+      - name: Commit zero-hint canonical source transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .r7e-source
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7E: eliminate nonblocking source diagnostics'
+          git push origin HEAD:r7e-fingerprint-bound-verification-20260830
