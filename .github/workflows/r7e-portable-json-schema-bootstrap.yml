@@ -110,6 +110,11 @@ jobs:
           npm run validate:fixtures | tee /tmp/fixtures.log
           test "$(grep -c 'EXPECTED FAILURE (exit 1)' /tmp/fixtures.log)" -eq 29
           ! grep -q 'UNEXPECTED' /tmp/fixtures.log
+
+          # Restore only deterministic build-time inputs after the frozen-source
+          # gate. This keeps the gate non-vacuous while allowing Astro type and
+          # production build checks to resolve their generated manifests.
+          npm run prepare
           npm run check:astro
           npm run build
           npm run test:stress:generate
