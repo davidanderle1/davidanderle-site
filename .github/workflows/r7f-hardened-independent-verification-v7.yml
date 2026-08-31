@@ -1,69 +1,31 @@
-name: R7F v7 truth privacy exact fingerprint independent verification
+name: R7F full-history verifier assumption diagnostic
 
 on:
   push:
     branches:
-      - r7f-hardened-independent-verification-v7-20260831
+      - r7f-full-history-reconciled-verification-20260831
     paths:
       - '.github/workflows/r7f-hardened-independent-verification-v7.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
-  actions: read
-
-concurrency:
-  group: r7f-v7-truth-privacy-exact-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  TZ: UTC
-  SOURCE_DATE_EPOCH: '1787961600'
-  NODE_OPTIONS: --max-old-space-size=4096
-  BUILDER_BRANCH: r7e-fingerprint-bound-verification-20260830
-  BUILDER_WORKFLOW_PATH: .github/workflows/r7e-fingerprint-bound-verification.yml
-  BUILDER_RUN_ID: '33374272544'
-  BUILDER_COMMIT: 523254d9f113b05bdd180d2fc31d3e930bed816b
-  BUILDER_ARTIFACT_ID: '9751357763'
-  BUILDER_ARTIFACT_NAME: r7e-fingerprint-bound-evidence-523254d9f113b05bdd180d2fc31d3e930bed816b
-  BUILDER_ARTIFACT_DIGEST: sha256:e048f5fcb35ef788825ce7022a78b072320902b9517d3d51a98875ff8550d0e9
-  BUILDER_SOURCE_ARCHIVE_SHA256: 566971625a2b38b08c9b1de9310a244e18983f96ef4efb173a067d522f3a6082
-  BUILDER_FROZEN_SOURCE_TREE_SHA256: 156a3c65557dea018e8656def00fe9f3bfd975576689edde3711d6ad5055cb23
-  BUILDER_FROZEN_SOURCE_TAR_SHA256: 1ec8da4ce2425e7db0cc0d8e8a706f06369f5c9f6ef8a1a94c9056c47c9ad66b
-  BUILDER_VERIFIED_DIST_TREE_SHA256: 5ca9b1d89a3745fe3ce559ca7be62174e8972028d6bf7abf9202969f017db225
-  BUILDER_STRESS_DIST_TREE_SHA256: db403bec9ebb7181df2d944eb2dfc03ee503da5adac980e94cd989cc1e868310
-  BUILDER_AXE_ADJUDICATION_FILE_SHA256: 9865e175f096a7ad19b545d23013146b91ea1bdc64dec4b9c5a7444ed9712f05
-  BUILDER_AXE_SEMANTIC_INVENTORY_SHA256: be451d2c482161ee49fa66cd9f856cdbbe9fda0d5d5f2aa31c43dbbdf8a1e485
-  BUILDER_AXE_NODE_SET_SHA256: 2f2d78162490ede16bd645041067b451aed8bd95c7b52a4efdefe4b07e6d51a3
-  BUILDER_AXE_BINDING_SET_SHA256: e7ca4d95bcd5b3507b867882cb34c71e2484010194e2129a1d8c78dbd68a4829
-  R7E_EXTERNAL_AUDIT_SHA256: dd28474fb64a40f31f5b830f4af5512b4f145fb9fb5e7ccd6dff984c5c1cdab7
 
 jobs:
-  verify:
+  inspect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 110
     steps:
-      - name: Checkout immutable independent verifier branch
+      - name: Checkout independent verifier branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
-      - name: Install exact Node runtime
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24.20.0
-
-      - name: Execute locked truth privacy exact fingerprint verifier
+      - name: Inventory legacy assumptions before deterministic adaptation
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/r7f-v6-final-locked.sh
-
-      - name: Upload R7F v7 evidence or diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: r7f-v7-truth-privacy-exact-fingerprint-evidence-${{ github.sha }}
-          path: artifact/
-          if-no-files-found: error
-          retention-days: 90
-          compression-level: 6
-          include-hidden-files: true
+        run: |
+          set -euo pipefail
+          printf '%s\n' '=== exact counts and legacy gate/schema strings ==='
+          grep -RInE --include='*.sh' --include='*.py' --include='*.yml' --include='*.json' \
+            '438|R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE|R7E_CANDIDATE_IDENTITY|R7F_V6|fingerprint-bound-verification-20260830|33374272544|9751357763|156a3c65557dea|5ca9b1d89a37|db403bec9ebb' \
+            .github || true
+          printf '%s\n' '=== execution relationships ==='
+          grep -RInE --include='*.sh' --include='*.yml' \
+            'r7f-v3\.sh|r7f-v4\.sh|r7f-v6-final|independent-axe-fingerprint' \
+            .github || true
