@@ -1,0 +1,30 @@
+name: R7F full-history hard-code diagnostic
+
+on:
+  push:
+    branches:
+      - r7f-full-history-reconciled-verification-20260831
+    paths:
+      - '.github/workflows/r7f-full-history-hardcode-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Inventory verifier assumptions
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' '=== exact counts and old gate/schema strings ==='
+          grep -RInE --include='*.sh' --include='*.py' --include='*.yml' --include='*.json' \
+            '438|R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE|R7E_CANDIDATE_IDENTITY|R7F_V6|fingerprint-bound-verification-20260830|33374272544|9751357763|156a3c65557dea|5ca9b1d89a37|db403bec9ebb' \
+            .github || true
+          printf '%s\n' '=== v3/v4/v6 references ==='
+          grep -RInE --include='*.sh' --include='*.yml' \
+            'r7f-v3\.sh|r7f-v4\.sh|r7f-v6-final|independent-axe-fingerprint' \
+            .github || true
