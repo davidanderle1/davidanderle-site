@@ -90,8 +90,7 @@ jobs:
 
           node --input-type=module - <<'NODE'
           import { parseMarkdownFile } from './candidate/scripts/lib/frontmatter.mjs';
-          import { readFileSync } from 'node:fs';
-          const policy = parseMarkdownFile(readFileSync('./candidate/src/content/writing/writing-protecting-retail-investors.md', 'utf8')).data;
+          const policy = parseMarkdownFile('./candidate/src/content/writing/writing-protecting-retail-investors.md').data;
           if (policy.structuredDataCredit !== 'contributor') throw new Error('Policy memo credit must remain contributor');
           NODE
 
