@@ -81,7 +81,7 @@ jobs:
             node scripts/run-invalid-fixtures.mjs | tee /tmp/invalid-fixtures.log
             rm -rf .r7e-tmp
           )
-          jq -e '.passed == true and .errorCount == 0' /tmp/source-preflight.json >/dev/null
+          jq -e '.errorCount == 0 and (.errors | length) == 0 and (.warnings | length) == 0' /tmp/source-preflight.json >/dev/null
           test "$(grep -c 'EXPECTED FAILURE (exit 1)' /tmp/invalid-fixtures.log)" -eq 28
           ! grep -q 'UNEXPECTED' /tmp/invalid-fixtures.log
           node --check candidate/scripts/build-axe-fingerprint-adjudication.mjs
@@ -96,7 +96,7 @@ jobs:
 
           jq -e '.expectedCompletion == "2027" and ((has("startDate") or has("endDate") or has("datePrecision")) | not)' candidate/src/content/profile/profile-david-anderle.json >/dev/null
           jq -e 'all(.[]; (.visibility != "public") or has("summary"))' candidate/src/content/public-documents.json >/dev/null
-          grep -q 'getHomepageRecords' candidate/src/pages/index.astro
+          grep -q 'getHomepageSelection' candidate/src/pages/index.astro
           ! grep -q 'work-vce' candidate/src/components/CurrentStage.astro
           ! grep -RIn --binary-files=without-match -E '2004-10-03|June 2027' candidate
 
