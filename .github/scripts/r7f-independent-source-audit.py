@@ -190,8 +190,28 @@ def audit(root: Path) -> dict[str, object]:
     checks["history-reconciled-generic-milestones"] = all(token in index_source for token in ("getBearingMilestones", "workRouteById", "bearingMilestones.map")) and "work-vce" not in index_source
     checks["history-reconciled-public-indexability"] = all(token in content_source for token in ("isPublicRecord", "isIndexableRecord", "data.indexability === 'index'"))
     checks["history-reconciled-profile-copy"] = all(token in profile_copy_source for token in ("stageSentence", "directionSentence", "firstPersonEducationSentence"))
-    checks["history-reconciled-writing-credit"] = "structuredDataCredit: contributor" in writing_record
-    checks["bearing-three-svg-nodes"] = len(re.findall(r"<circle\b", bearing_source, re.I)) == 3
+    checks["history-reconciled-writing-credit"] = 'structuredDataCredit: "contributor"' in writing_record
+    milestones_path = root / "src/content/milestones.json"
+    try:
+        milestone_rows = json.loads(read(milestones_path)) if milestones_path.is_file() else []
+    except Exception:
+        milestone_rows = []
+    governed_bearing_rows = [
+        row for row in milestone_rows
+        if isinstance(row, dict)
+        and row.get("visibleOnBearing") is True
+        and row.get("visibility") == "public"
+        and row.get("testFixture") is False
+    ]
+    checks["bearing-three-governed-stops"] = (
+        len(governed_bearing_rows) == 3
+        and len({row.get("immutableId") for row in governed_bearing_rows}) == 3
+        and all(isinstance(row.get("date"), str) and isinstance(row.get("title"), str) and isinstance(row.get("description"), str) for row in governed_bearing_rows)
+        and "const nodes = nodeCoordinates[stops.length]" in bearing_source
+        and "{nodes.map(([cx, cy]) => <circle" in bearing_source
+        and "Bearing route requires 2–4 governed stops" in bearing_source
+        and "<BearingRoute stops={stops} />" in index_source
+    )
     checks["compact-portrait-decorative-alt"] = '<ResponsiveMedia alt=""' in index_source and "alt={alt}" in media_source
     checks["narrow-navigation-hardening"] = ".nav-list" in global_css and "overflow-x: auto" in global_css and "flex-wrap: nowrap" in global_css
     checks["long-title-hardening"] = "overflow-wrap: anywhere" in project_css
