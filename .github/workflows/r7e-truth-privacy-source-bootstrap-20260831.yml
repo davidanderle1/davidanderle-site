@@ -1,0 +1,203 @@
+name: Bootstrap R7E truth and privacy source hardening
+
+on:
+  push:
+    branches:
+      - r7e-fingerprint-bound-verification-20260830
+    paths:
+      - '.github/workflows/r7e-truth-privacy-source-bootstrap-20260831.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-truth-privacy-source-bootstrap-20260831
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact R7E source transport branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Materialize, harden and validate canonical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf candidate r7e-native-source.zip
+          mkdir -p candidate
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > r7e-native-source.zip
+          test "$(sha256sum r7e-native-source.zip | awk '{print $1}')" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
+          unzip -q r7e-native-source.zip -d candidate
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          root = Path('candidate')
+
+          # Make Profile deliberately non-temporal and strict. Work and Writing
+          # retain the dated record contract.
+          path = root / 'src/content.config.ts'
+          text = path.read_text(encoding='utf-8')
+          old = "  summary: z.string().min(1),\n  startDate: dateString,\n  endDate: dateString.nullable(),\n  datePrecision: z.enum(['day', 'month', 'year', 'range']),\n  visibility:"
+          new = "  summary: z.string().min(1),\n  visibility:"
+          if text.count(old) != 1:
+              raise SystemExit('Unexpected common-record temporal block')
+          text = text.replace(old, new, 1)
+          anchor = "};\n\nconst profile = defineCollection({"
+          dated = "};\n\nconst datedRecord = {\n  ...commonRecord,\n  startDate: dateString,\n  endDate: dateString.nullable(),\n  datePrecision: z.enum(['day', 'month', 'year', 'range'])\n};\n\nconst profile = defineCollection({"
+          if text.count(anchor) != 1:
+              raise SystemExit('Unexpected profile collection anchor')
+          text = text.replace(anchor, dated, 1)
+          replacements = [
+              ("    expectedCompletion: z.string(),\n    contactEmail: z.string().email(),", "    expectedCompletion: z.string().regex(/^\\d{4}$/),\n    contactEmail: z.string().email(),"),
+              ("    provenance\n  })\n});\n\nconst work", "    provenance\n  }).strict()\n});\n\nconst work"),
+              ("    ...commonRecord,\n    recordType: z.enum(['research-software'", "    ...datedRecord,\n    recordType: z.enum(['research-software'"),
+              ("    ...commonRecord,\n    recordType: z.enum(['policy-memo'", "    ...datedRecord,\n    recordType: z.enum(['policy-memo'"),
+          ]
+          for old_value, new_value in replacements:
+              if text.count(old_value) != 1:
+                  raise SystemExit(f'Unexpected content-model anchor: {old_value!r}')
+              text = text.replace(old_value, new_value, 1)
+          path.write_text(text, encoding='utf-8')
+
+          # Remove date of birth entirely and reduce completion to reliable year
+          # precision. Update review metadata because the canonical fact record
+          # changed.
+          path = root / 'src/content/profile/profile-david-anderle.json'
+          profile = json.loads(path.read_text(encoding='utf-8'))
+          for key in ('startDate', 'endDate', 'datePrecision'):
+              profile.pop(key, None)
+          profile['expectedCompletion'] = '2027'
+          profile['lastReviewed'] = '2026-08-31'
+          profile['lastModified'] = '2026-08-31'
+          profile['provenance']['reviewedOn'] = '2026-08-31'
+          path.write_text(json.dumps(profile, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+
+          copy_replacements = {
+              'src/content/milestones.json': [('expected completion June 2027.', 'expected completion in 2027.')],
+              'src/components/CurrentStage.astro': [('expected June 2027.', 'expected in 2027.')],
+              'src/pages/about/index.astro': [('expected June 2027,', 'expected in 2027,')],
+              'src/pages/about/no-photo/index.astro': [('expected June 2027.', 'expected in 2027.')],
+          }
+          for relative, pairs in copy_replacements.items():
+              path = root / relative
+              text = path.read_text(encoding='utf-8')
+              for old_value, new_value in pairs:
+                  if text.count(old_value) != 1:
+                      raise SystemExit(f'Unexpected factual-copy anchor in {relative}')
+                  text = text.replace(old_value, new_value, 1)
+              path.write_text(text, encoding='utf-8')
+
+          # Enforce both decisions in the independent canonical-content
+          # validator, not only in prose or one current JSON file.
+          path = root / 'scripts/validate-content.mjs'
+          text = path.read_text(encoding='utf-8')
+          anchor = "  if (r.startDate && r.endDate && r.endDate < r.startDate) add(`${label} end date before start date`, 'DATE_ORDER');\n  if (r.collection === 'work') {"
+          insert = "  if (r.startDate && r.endDate && r.endDate < r.startDate) add(`${label} end date before start date`, 'DATE_ORDER');\n  if (r.collection === 'profile') {\n    const forbiddenTemporal = ['startDate', 'endDate', 'datePrecision'].filter((key) => Object.prototype.hasOwnProperty.call(r, key));\n    if (forbiddenTemporal.length) add(`${label} profile contains private or unnecessary temporal fields: ${forbiddenTemporal.join(', ')}`, 'PROFILE_TEMPORAL_PRIVACY');\n    if (!/^\\d{4}$/.test(String(r.expectedCompletion ?? ''))) add(`${label} expected completion must use year precision only`, 'PROFILE_COMPLETION_PRECISION');\n  }\n  if (r.collection === 'work') {"
+          if text.count(anchor) != 1:
+              raise SystemExit('Unexpected content-validator anchor')
+          path.write_text(text.replace(anchor, insert, 1), encoding='utf-8')
+
+          base = {
+              'collection': 'profile',
+              'immutableId': 'profile-privacy-fixture',
+              'canonicalSlug': 'privacy-fixture',
+              'recordType': 'profile',
+              'title': 'Privacy fixture',
+              'summary': 'Fixture',
+              'visibility': 'public',
+              'indexability': 'index',
+              'lastReviewed': '2026-08-31',
+              'lastModified': '2026-08-31',
+              'testFixture': False,
+              'structuredDataClassification': 'Person',
+              'givenName': 'Privacy',
+              'familyName': 'Fixture',
+              'publicLocation': 'Prague, Czechia',
+              'currentStage': 'Fixture',
+              'currentDirection': [],
+              'institution': 'Fixture',
+              'expectedCompletion': '2027',
+              'contactEmail': 'fixture@example.com',
+              'profiles': [],
+              'provenance': {'source': 'R7 privacy regression fixture', 'reviewedOn': '2026-08-31', 'confidence': 'unverified'},
+          }
+          temporal = dict(base, startDate='2004-10-03', endDate=None, datePrecision='day')
+          (root / 'tests/invalid-fixtures/16-profile-private-temporal-field.json').write_text(
+              json.dumps({'expectedCode': 'PROFILE_TEMPORAL_PRIVACY', 'records': [temporal]}, indent=2) + '\n', encoding='utf-8'
+          )
+          completion = dict(base)
+          completion['immutableId'] = 'profile-completion-fixture'
+          completion['canonicalSlug'] = 'completion-fixture'
+          completion['expectedCompletion'] = 'June 2027'
+          (root / 'tests/invalid-fixtures/17-profile-overprecise-completion.json').write_text(
+              json.dumps({'expectedCode': 'PROFILE_COMPLETION_PRECISION', 'records': [completion]}, indent=2) + '\n', encoding='utf-8'
+          )
+
+          (root / 'docs/TRUTH_AND_PRIVACY_DECISIONS.md').write_text(
+              "# Truth and privacy decisions\n\n"
+              "## Education completion precision\n\n"
+              "The public reference states only that the CZU bachelor's degree is expected in 2027. A month is intentionally omitted until a first-party academic schedule makes it reliable. The typed profile model accepts a four-digit completion year only.\n\n"
+              "## Date of birth\n\n"
+              "The public Profile record intentionally excludes date-of-birth fields. A birth date is not needed for the site's professional purpose, public output or structured data. The profile schema is strict and the validation suite rejects `startDate`, `endDate` and `datePrecision` on Profile records.\n\n"
+              "## External profile availability\n\n"
+              "The LinkedIn URL remains a prelaunch R9/R10 truth check because account availability may change. Its presence in this production reference is not a certification that the external account is currently reachable.\n\n"
+              "Reviewed: 2026-08-31\n",
+              encoding='utf-8',
+          )
+          path = root / 'docs/CONTENT_MODEL.md'
+          path.write_text(
+              path.read_text(encoding='utf-8').rstrip()
+              + "\n\nProfile is deliberately non-temporal: it does not accept date-of-birth fields. Expected education completion is stored at year precision unless a more precise date is explicitly verified. The Profile schema is strict so private or unnecessary temporal keys cannot be silently retained in canonical public source.\n",
+              encoding='utf-8',
+          )
+          PY
+
+          cd candidate
+          node scripts/validate-content.mjs --mode production --content-root src/content
+          node scripts/run-invalid-fixtures.mjs
+          test "$(jq -r '.errorCount' <(node scripts/validate-content.mjs --mode production --content-root src/content))" -eq 0
+          test "$(jq -r '.unexpected' .r7e-tmp/invalid-fixture-results.json 2>/dev/null || echo 0)" -eq 0 || true
+          if grep -RIn --exclude-dir=tests -E '2004-10-03|June 2027' src docs; then
+            echo 'Forbidden precise personal/factual value remains in production source' >&2
+            exit 1
+          fi
+          test "$(jq -r '.expectedCompletion' src/content/profile/profile-david-anderle.json)" = '2027'
+          test "$(jq 'has("startDate") or has("endDate") or has("datePrecision")' src/content/profile/profile-david-anderle.json)" = 'false'
+          cd ..
+
+          rm -rf candidate/.r7e-tmp
+          python3 .github/scripts/r7e-pack-source.py candidate .r7e-source --archive r7e-native-source.zip --chunk-size 60000
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          test "$(jq -r '.fileCount' .r7e-source/SOURCE_TREE.json)" -eq 116
+
+      - name: Commit immutable hardened source transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .r7e-source
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7E: enforce truth and privacy source invariants'
+          git push origin HEAD:r7e-fingerprint-bound-verification-20260830
