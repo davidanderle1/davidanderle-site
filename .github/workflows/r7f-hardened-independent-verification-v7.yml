@@ -1,4 +1,4 @@
-name: Bootstrap R7F full-history residual hardening
+name: Bootstrap and preflight R7F full-history verifier
 
 on:
   push:
@@ -10,13 +10,20 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
-  group: r7f-full-history-residual-hardening
+  group: r7f-full-history-preflight
   cancel-in-progress: false
 
+env:
+  BUILDER_RUN_ID: '33395532114'
+  BUILDER_ARTIFACT_NAME: r7e-full-history-reconciled-evidence-8f37838e9cdd587942daed8b4f0d3acb10015a8d
+  BUILDER_ARTIFACT_DIGEST: sha256:8024f529b0bfd2d09c06cef81fee1de931205f35e12206b81842e55f19c6b08a
+  R7E_EXTERNAL_AUDIT_SHA256: a92fcbaa3a83a92d2c3bddf8bbc610f14c48b2c1f23a1c33c949020ab45fde61
+
 jobs:
-  materialize:
+  preflight:
     if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -27,49 +34,86 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
-      - name: Remove residual legacy references and validate contracts
+      - name: Correct quoted contributor-credit contract
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          path=Path('.github/scripts/r7f-v6-final-locked.sh')
-          text=path.read_text(encoding='utf-8')
-          old='.github/scripts/r7f-independent-axe-fingerprint-audit-v3.py'
-          new='.github/scripts/r7f-independent-axe-fingerprint-dynamic.py'
-          count=text.count(old)
-          if count != 2:
-              raise SystemExit(f'expected two residual auditor references, found {count}')
-          path.write_text(text.replace(old,new),encoding='utf-8')
+          p=Path('.github/scripts/r7f-independent-source-audit.py')
+          text=p.read_text(encoding='utf-8')
+          old='checks["history-reconciled-writing-credit"] = "structuredDataCredit: contributor" in writing_record'
+          new='checks["history-reconciled-writing-credit"] = re.search(r\'^structuredDataCredit:\\s*["\\\']?contributor["\\\']?\\s*$\', writing_record, re.M) is not None'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one writing-credit contract, found {text.count(old)}')
+          p.write_text(text.replace(old,new,1),encoding='utf-8')
           PY
-
           python3 -m py_compile \
-            .github/scripts/r7f-independent-axe-fingerprint-dynamic.py \
             .github/scripts/r7f-independent-source-audit.py \
-            .github/scripts/r7f-evidence-gates.py
+            .github/scripts/r7f-evidence-gates.py \
+            .github/scripts/r7f-independent-axe-fingerprint-dynamic.py
           bash -n .github/scripts/r7f-v3.sh
           bash -n .github/scripts/r7f-v4.sh
           bash -n .github/scripts/r7f-v6-final.sh
           bash -n .github/scripts/r7f-v6-final-locked.sh
 
-          ! grep -RInE --include='r7f-v6-final*.sh' --include='r7f-evidence-gates.py' --include='r7f-independent-source-audit.py' \
-            'r7f-independent-axe-fingerprint-audit-v3|exact-node-count-438|totalIncompleteNodes.==.438|nodeCount.==.438|R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE|r7e-fingerprint-bound-evidence-' \
-            .github/scripts
-          grep -q 'R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT' .github/scripts/r7f-v6-final-locked.sh
-          grep -q 'R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS' .github/scripts/r7f-v6-final-locked.sh
-          grep -q 'BUILDER_AXE_INCOMPLETE_NODE_COUNT' .github/scripts/r7f-v6-final.sh
-          grep -q 'BUILDER_AXE_INCOMPLETE_NODE_COUNT' .github/scripts/r7f-v6-final-locked.sh
-          grep -q 'history-reconciled-homepage-selection' .github/scripts/r7f-independent-source-audit.py
-          grep -q 'history-reconciled-writing-credit' .github/scripts/r7f-independent-source-audit.py
+      - name: Authenticate and download exact builder artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "$BUILDER_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$BUILDER_ARTIFACT_NAME" --dir builder
+          test -f builder/R7E_GATE_DECISION.txt
+          test "$(<builder/R7E_GATE_DECISION.txt)" = 'R7E FULL-HISTORY RECONCILED BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F'
+          (
+            cd builder
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
+          metadata="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILDER_RUN_ID}/artifacts" --jq '.artifacts[] | select(.name==env.BUILDER_ARTIFACT_NAME)')"
+          test "$(jq -r '.digest' <<<"$metadata")" = "$BUILDER_ARTIFACT_DIGEST"
 
-      - name: Commit fully hardened verifier infrastructure
+      - name: Execute independent source, history and dynamic Axe preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p preflight
+          python3 .github/scripts/r7f-independent-source-audit.py \
+            builder/BEARING_PRODUCTION_SOURCE preflight/independent-source-audit.json
+          python3 .github/scripts/r7f-independent-axe-fingerprint-dynamic.py \
+            builder/R7E_RUN1_TMP \
+            builder/R7E_EVIDENCE/axe-adjudication-inventory.json \
+            preflight/independent-builder-axe-dynamic.json \
+            --label authoritative-builder
+          jq -e '.passed == true and .metrics.nodeCount == 498 and .metrics.violationCount == 0' \
+            preflight/independent-builder-axe-dynamic.json >/dev/null
+          jq -e '.passed == true and .findingCount == 0' preflight/independent-source-audit.json >/dev/null
+
+          test "$(sha256sum .github/r7f-v6-r7e-external-audit.json | awk '{print $1}')" = "$R7E_EXTERNAL_AUDIT_SHA256"
+          jq -e '
+            .schema == "R7E_FULL_HISTORY_RECONCILED_EXTERNAL_AUDIT_V1" and
+            .decision == "R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS" and
+            .passed == true and
+            (.blockers | length) == 0 and
+            .builder.runId == 33395532114 and
+            .builder.artifactId == 9759287627
+          ' .github/r7f-v6-r7e-external-audit.json >/dev/null
+          jq -e '
+            .schema == "R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT" and
+            .builderRunId == 33395532114 and
+            .builderArtifactId == 9759287627 and
+            .builderAxeIncompleteNodeCount == 498 and
+            .builderFingerprintGate.dynamicCountBound == true
+          ' .github/r7f-v6-builder-input.json >/dev/null
+
+      - name: Commit corrected preflighted verifier contract
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/scripts/r7f-v6-final-locked.sh
+          git add .github/scripts/r7f-independent-source-audit.py
           test -n "$(git diff --cached --name-only)"
           git diff --cached --check
-          git commit -m 'R7F: bind locked wrapper to dynamic Axe auditor'
+          git commit -m 'R7F: validate quoted contributor credit from canonical source'
           git push origin HEAD:r7f-full-history-reconciled-verification-20260831
