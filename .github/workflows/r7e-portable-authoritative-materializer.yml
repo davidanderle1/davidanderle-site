@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: r7e-portable-authoritative-materializer
@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 1
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Validate and generate authoritative workflow
         shell: bash
@@ -36,15 +36,16 @@ jobs:
           python3 .github/scripts/materialize-portable-r7e-workflow.py
           test -s .github/workflows/r7e-portable-json-schema-verification.yml
           ! grep -q 'r7e-full-history-reconciled' .github/workflows/r7e-portable-json-schema-verification.yml
+          sha256sum .github/scripts/materialize-portable-r7e-workflow.py .github/workflows/r7e-portable-json-schema-verification.yml > authoritative-workflow.sha256
 
-      - name: Commit immutable authoritative workflow
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/workflows/r7e-portable-json-schema-verification.yml
-          test -n "$(git diff --cached --name-only)"
-          git diff --cached --check
-          git commit -m 'R7E: materialize authoritative portable JSON Schema verifier'
-          git push origin HEAD:r7e-portable-json-schema-verification-20260831
+      - name: Export generated workflow for separate write authority
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-portable-authoritative-workflow-${{ github.sha }}
+          path: |
+            .github/workflows/r7e-portable-json-schema-verification.yml
+            authoritative-workflow.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
