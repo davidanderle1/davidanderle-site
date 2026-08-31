@@ -122,7 +122,10 @@ jobs:
           npm run schema:check
           cd ..
           rm -rf candidate/node_modules candidate/dist candidate/.astro candidate/.r7e-tmp candidate/public/assets/portrait candidate/public/assets/js candidate/public/artifacts candidate/src/data/generated
-          node candidate/scripts/source-preflight.mjs
+          (
+            cd candidate
+            node scripts/source-preflight.mjs
+          )
           test "$(find candidate/tests/invalid-fixtures -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 29
           test "$(find candidate/schemas -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 9
           jq -e '.packages[""].devDependencies.ajv=="8.20.0" and .packages["node_modules/ajv"].version=="8.20.0"' candidate/package-lock.json >/dev/null
