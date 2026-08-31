@@ -1,0 +1,120 @@
+name: Bootstrap R7E full-history reconciled source
+
+on:
+  push:
+    branches:
+      - r7e-full-history-reconciled-verification-20260831
+    paths:
+      - '.github/workflows/r7e-full-history-reconciliation-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-full-history-reconciliation-bootstrap
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact R7E baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Materialize and validate history-reconciled source
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 022
+          rm -rf candidate r7e-baseline-source.zip history-reconciled-overlay.tar.gz
+          mkdir -p candidate
+
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > r7e-baseline-source.zip
+          actual_base_sha="$(sha256sum r7e-baseline-source.zip | awk '{print $1}')"
+          test "$actual_base_sha" = "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
+          test "$actual_base_sha" = '566971625a2b38b08c9b1de9310a244e18983f96ef4efb173a067d522f3a6082'
+          unzip -q r7e-baseline-source.zip -d candidate
+
+          cat .github/r7-history-overlay/part*.b64 | tr -d '\r\n' | base64 --decode > history-reconciled-overlay.tar.gz
+          printf '%s  %s\n' '9bb6c2921ed647c154fb2e5118e73d3ee918bc2b3e15a3cb1921ad8392910749' history-reconciled-overlay.tar.gz | sha256sum --check --strict
+          python3 - <<'PY'
+          import tarfile
+          from pathlib import Path, PurePosixPath
+          archive = Path('history-reconciled-overlay.tar.gz')
+          with tarfile.open(archive, 'r:gz') as tf:
+              members = tf.getmembers()
+              for member in members:
+                  path = PurePosixPath(member.name)
+                  if path.is_absolute() or '..' in path.parts or member.issym() or member.islnk():
+                      raise SystemExit(f'Unsafe overlay member: {member.name}')
+              tf.extractall('candidate', filter='data')
+          print(f'overlay_members={len(members)}')
+          PY
+
+          test "$(find candidate/tests/invalid-fixtures -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 28
+          test -f candidate/docs/R7_HISTORY_RECONCILIATION.md
+          test -f candidate/src/components/HomepageRecordPreview.astro
+          test -f candidate/src/components/WritingRecordPreview.astro
+          test -f candidate/src/lib/profile-copy.ts
+
+          node candidate/scripts/validate-content.mjs --mode production --content-root candidate/src/content | tee /tmp/content-validation.json
+          jq -e '.errorCount == 0 and .recordCount == 12' /tmp/content-validation.json >/dev/null
+          (
+            cd candidate
+            node scripts/run-invalid-fixtures.mjs | tee /tmp/invalid-fixtures.log
+            npm run preflight:source | tee /tmp/source-preflight.json
+          )
+          grep -q '28/28 invalid fixtures failed as expected' /tmp/invalid-fixtures.log
+          jq -e '.passed == true and .errorCount == 0' /tmp/source-preflight.json >/dev/null
+          node --check candidate/scripts/build-axe-fingerprint-adjudication.mjs
+          node --check candidate/scripts/source-preflight.mjs
+          node --check candidate/scripts/validate-content.mjs
+
+          node --input-type=module - <<'NODE'
+          import { parseMarkdownFile } from './candidate/scripts/lib/frontmatter.mjs';
+          import { readFileSync } from 'node:fs';
+          const policy = parseMarkdownFile(readFileSync('./candidate/src/content/writing/writing-protecting-retail-investors.md', 'utf8')).data;
+          if (policy.structuredDataCredit !== 'contributor') throw new Error('Policy memo credit must remain contributor');
+          NODE
+
+          jq -e '.expectedCompletion == "2027" and ((has("startDate") or has("endDate") or has("datePrecision")) | not)' candidate/src/content/profile/profile-david-anderle.json >/dev/null
+          jq -e 'all(.[]; (.visibility != "public") or has("summary"))' candidate/src/content/public-documents.json >/dev/null
+          grep -q 'getHomepageRecords' candidate/src/pages/index.astro
+          ! grep -q 'work-vce' candidate/src/components/CurrentStage.astro
+          ! grep -RIn --binary-files=without-match -E '2004-10-03|June 2027' candidate
+
+          rm -rf candidate/.r7e-tmp candidate/node_modules candidate/dist candidate/.astro candidate/public/assets/portrait candidate/public/assets/js candidate/public/artifacts candidate/src/data/generated
+          python3 .github/scripts/r7e-pack-source.py candidate .r7e-source --archive r7e-native-source.zip --chunk-size 60000 | tee /tmp/pack-result.json
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          jq -e '.fileCount == 131' .r7e-source/SOURCE_TREE.json >/dev/null
+          final_sha="$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)"
+          test "$final_sha" = '867ad3adaa0f99e657cc714439bfac57d92efae406436cda96bdb056274121da'
+          printf '%s\n' "$final_sha" > .r7e-source/HARDENED_SOURCE_READY
+
+      - name: Commit immutable reconciled transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .r7e-source
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7E: freeze full-history reconciled canonical source'
+          git push origin HEAD:r7e-full-history-reconciled-verification-20260831
