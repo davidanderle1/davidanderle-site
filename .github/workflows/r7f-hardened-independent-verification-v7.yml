@@ -1,4 +1,4 @@
-name: Bootstrap and preflight R7F full-history verifier v2
+name: R7F full-history reconciled independent verification
 
 on:
   push:
@@ -9,124 +9,62 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 concurrency:
-  group: r7f-full-history-preflight-v2
-  cancel-in-progress: false
+  group: r7f-full-history-authoritative-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  BUILDER_BRANCH: r7e-full-history-reconciled-verification-20260831
+  BUILDER_WORKFLOW_PATH: .github/workflows/r7e-full-history-reconciled-verification.yml
   BUILDER_RUN_ID: '33395532114'
+  BUILDER_COMMIT: 8f37838e9cdd587942daed8b4f0d3acb10015a8d
+  BUILDER_ARTIFACT_ID: '9759287627'
   BUILDER_ARTIFACT_NAME: r7e-full-history-reconciled-evidence-8f37838e9cdd587942daed8b4f0d3acb10015a8d
   BUILDER_ARTIFACT_DIGEST: sha256:8024f529b0bfd2d09c06cef81fee1de931205f35e12206b81842e55f19c6b08a
+  BUILDER_SOURCE_ARCHIVE_SHA256: 867ad3adaa0f99e657cc714439bfac57d92efae406436cda96bdb056274121da
+  BUILDER_FROZEN_SOURCE_TREE_SHA256: 0ffd982ed7e79c601cf403b64aa184b3c29e36ab77d59ed0ce287f7c72a39185
+  BUILDER_FROZEN_SOURCE_TAR_SHA256: 59fca4ae763fd78e87b8ab71a16038a252cc1cb1cb81814fd1c2f568b3b2bd66
+  BUILDER_VERIFIED_DIST_TREE_SHA256: ca90aabd104cfcec574abab38fe2bd04b38fe7bd031e6ce168b447140ecca7e8
+  BUILDER_STRESS_DIST_TREE_SHA256: 913f208ecc0c4069c2e4d66adeb767a7a959ee85b483042258cfa06eea4bed77
+  BUILDER_AXE_ADJUDICATION_FILE_SHA256: 58af713cf079b1ad75dacea7adfeea445a83ae6c27d332afcf1e24095d84d510
+  BUILDER_AXE_SEMANTIC_INVENTORY_SHA256: 48cb39c9ba19a42bbfa5547b00629466c0207521afffc79f1c96d7be102256ef
+  BUILDER_AXE_NODE_SET_SHA256: 8b255e4a380b6740a84afb77aa4eada22db93683a685bb00754cf271ae856e9c
+  BUILDER_AXE_BINDING_SET_SHA256: 6edbe91b0a595ec821f855434a0493dd8c438255e6435819e1702c4b6a6e53c8
+  BUILDER_AXE_INCOMPLETE_NODE_COUNT: '498'
   R7E_EXTERNAL_AUDIT_SHA256: a92fcbaa3a83a92d2c3bddf8bbc610f14c48b2c1f23a1c33c949020ab45fde61
 
 jobs:
-  preflight:
-    if: ${{ github.actor != 'github-actions[bot]' }}
+  verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 110
     steps:
-      - name: Checkout independent verifier branch
+      - name: Checkout immutable independent verifier branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          fetch-depth: 1
-          persist-credentials: true
+          node-version: 24.20.0
 
-      - name: Replace legacy presentation assumptions with authority-bound checks
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('.github/scripts/r7f-independent-source-audit.py')
-          text=p.read_text(encoding='utf-8')
-          old_credit='checks["history-reconciled-writing-credit"] = "structuredDataCredit: contributor" in writing_record'
-          new_credit='checks["history-reconciled-writing-credit"] = \'structuredDataCredit: "contributor"\' in writing_record'
-          if text.count(old_credit) != 1:
-              raise SystemExit(f'expected one legacy writing-credit check, found {text.count(old_credit)}')
-          text=text.replace(old_credit,new_credit,1)
-          old_bearing='checks["bearing-three-svg-nodes"] = len(re.findall(r"<circle\\b", bearing_source, re.I)) == 3'
-          new_bearing='''milestones_path = root / "src/content/milestones.json"\n    try:\n        milestone_rows = json.loads(read(milestones_path)) if milestones_path.is_file() else []\n    except Exception:\n        milestone_rows = []\n    governed_bearing_rows = [\n        row for row in milestone_rows\n        if isinstance(row, dict)\n        and row.get("visibleOnBearing") is True\n        and row.get("visibility") == "public"\n        and row.get("testFixture") is False\n    ]\n    checks["bearing-three-governed-stops"] = (\n        len(governed_bearing_rows) == 3\n        and len({row.get("immutableId") for row in governed_bearing_rows}) == 3\n        and all(isinstance(row.get("date"), str) and isinstance(row.get("title"), str) and isinstance(row.get("description"), str) for row in governed_bearing_rows)\n        and "const nodes = nodeCoordinates[stops.length]" in bearing_source\n        and "{nodes.map(([cx, cy]) => <circle" in bearing_source\n        and "Bearing route requires 2–4 governed stops" in bearing_source\n        and "<BearingRoute stops={stops} />" in index_source\n    )'''
-          if text.count(old_bearing) != 1:
-              raise SystemExit(f'expected one legacy SVG-node check, found {text.count(old_bearing)}')
-          p.write_text(text.replace(old_bearing,new_bearing,1),encoding='utf-8')
-          PY
-          python3 -m py_compile \
-            .github/scripts/r7f-independent-source-audit.py \
-            .github/scripts/r7f-evidence-gates.py \
-            .github/scripts/r7f-independent-axe-fingerprint-dynamic.py
-          bash -n .github/scripts/r7f-v3.sh
-          bash -n .github/scripts/r7f-v4.sh
-          bash -n .github/scripts/r7f-v6-final.sh
-          bash -n .github/scripts/r7f-v6-final-locked.sh
-          ! grep -RIn 'bearing-three-svg-nodes' .github/scripts/r7f-independent-source-audit.py
-          grep -q 'bearing-three-governed-stops' .github/scripts/r7f-independent-source-audit.py
-
-      - name: Authenticate and download exact builder artifact
+      - name: Execute locked full-history independent verifier
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh run download "$BUILDER_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$BUILDER_ARTIFACT_NAME" --dir builder
-          test -f builder/R7E_GATE_DECISION.txt
-          test "$(<builder/R7E_GATE_DECISION.txt)" = 'R7E FULL-HISTORY RECONCILED BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F'
-          (cd builder && sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt > /tmp/r7e-manifest-check.txt)
-          metadata="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILDER_RUN_ID}/artifacts" --jq '.artifacts[] | select(.name==env.BUILDER_ARTIFACT_NAME)')"
-          test "$(jq -r '.digest' <<<"$metadata")" = "$BUILDER_ARTIFACT_DIGEST"
+        run: bash .github/scripts/r7f-v6-final-locked.sh
 
-      - name: Execute independent source, history and dynamic Axe preflight
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p preflight
-          python3 .github/scripts/r7f-independent-source-audit.py \
-            builder/BEARING_PRODUCTION_SOURCE preflight/independent-source-audit.json
-          jq -e '
-            .passed == true and
-            .findingCount == 0 and
-            .checks["bearing-three-governed-stops"] == true and
-            .checks["history-reconciled-homepage-selection"] == true and
-            .checks["history-reconciled-generic-milestones"] == true and
-            .checks["history-reconciled-public-indexability"] == true and
-            .checks["history-reconciled-writing-credit"] == true
-          ' preflight/independent-source-audit.json >/dev/null
-
-          python3 .github/scripts/r7f-independent-axe-fingerprint-dynamic.py \
-            builder/R7E_RUN1_TMP \
-            builder/R7E_EVIDENCE/axe-adjudication-inventory.json \
-            preflight/independent-builder-axe-dynamic.json \
-            --label authoritative-builder
-          jq -e '.passed == true and .metrics.nodeCount == 498 and .metrics.violationCount == 0 and (.failedChecks | length) == 0' \
-            preflight/independent-builder-axe-dynamic.json >/dev/null
-
-          test "$(sha256sum .github/r7f-v6-r7e-external-audit.json | awk '{print $1}')" = "$R7E_EXTERNAL_AUDIT_SHA256"
-          jq -e '
-            .schema == "R7E_FULL_HISTORY_RECONCILED_EXTERNAL_AUDIT_V1" and
-            .decision == "R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS" and
-            .passed == true and
-            (.blockers | length) == 0 and
-            .builder.runId == 33395532114 and
-            .builder.artifactId == 9759287627
-          ' .github/r7f-v6-r7e-external-audit.json >/dev/null
-          jq -e '
-            .schema == "R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT" and
-            .builderRunId == 33395532114 and
-            .builderArtifactId == 9759287627 and
-            .builderAxeIncompleteNodeCount == 498 and
-            .builderFingerprintGate.dynamicCountBound == true
-          ' .github/r7f-v6-builder-input.json >/dev/null
-
-      - name: Commit component-aware independent source authority
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/scripts/r7f-independent-source-audit.py
-          test -n "$(git diff --cached --name-only)"
-          git diff --cached --check
-          git commit -m 'R7F: verify governed Bearing stops through canonical component'
-          git push origin HEAD:r7f-full-history-reconciled-verification-20260831
+      - name: Upload R7F evidence or diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-full-history-reconciled-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
