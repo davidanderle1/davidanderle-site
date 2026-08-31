@@ -1,0 +1,27 @@
+name: Dispatch portable JSON Schema authoritative verification
+
+on:
+  push:
+    branches:
+      - r7e-portable-json-schema-verification-20260831
+    paths:
+      - '.github/workflows/r7e-portable-json-schema-retrigger.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch authoritative workflow at current branch head
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run r7e-portable-json-schema-verification.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref r7e-portable-json-schema-verification-20260831
