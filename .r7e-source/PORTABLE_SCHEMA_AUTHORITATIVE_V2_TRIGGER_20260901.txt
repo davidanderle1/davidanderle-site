@@ -1,0 +1,2 @@
+Trigger for the read-only authoritative R7E portable JSON Schema workflow generated from the full-history reconciled baseline.
+No canonical source bytes are modified by this marker.
