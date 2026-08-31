@@ -1,5 +1,5 @@
 {
-  "fileCount": 113,
+  "fileCount": 116,
   "files": [
     {
       "path": ".env.example",
@@ -63,15 +63,21 @@
     },
     {
       "path": "docs/CONTENT_MODEL.md",
-      "sha256": "6f77933d7a54eb3cae3f322b81a96ef82d77d526df7d979129eda6046a28d6f9",
+      "sha256": "8e37017fbf14370094b0bb6a821ab862b2c42f1cd31c28d63f5b857c431ed190",
       "mode": "0o644",
-      "size": 414
+      "size": 728
     },
     {
       "path": "docs/SECRET_BOUNDARY.md",
       "sha256": "4522d13b9c143af762377e7375d7abd2920ef3dbd74420a91cb8a30edeea963c",
       "mode": "0o644",
       "size": 375
+    },
+    {
+      "path": "docs/TRUTH_AND_PRIVACY_DECISIONS.md",
+      "sha256": "aa25dfed4669e6cd9232a6bd634294c8ece82ce72f7e98fd87338b474b031554",
+      "mode": "0o644",
+      "size": 890
     },
     {
       "path": "lighthouserc.json",
@@ -225,9 +231,9 @@
     },
     {
       "path": "scripts/validate-content.mjs",
-      "sha256": "14bd43d9434897e35049369f1552e8cc232a18a9a80e4cb101f86cdd2ef16565",
+      "sha256": "3b662537b34a443d8efdc503c79d6f9adf35a29a6ccef9bebd6b349d6fce92b3",
       "mode": "0o644",
-      "size": 8215
+      "size": 8717
     },
     {
       "path": "scripts/validate-links.mjs",
@@ -261,9 +267,9 @@
     },
     {
       "path": "src/components/CurrentStage.astro",
-      "sha256": "9f55509f4317228eb6832103e1008555cef19064ed23179603da2694cc8af62f",
+      "sha256": "5b0822f90305327bfb7e00ac6534f037f8ec69f19e757218b3a99bb78d092977",
       "mode": "0o644",
-      "size": 400
+      "size": 398
     },
     {
       "path": "src/components/EvidenceLinks.astro",
@@ -351,21 +357,21 @@
     },
     {
       "path": "src/content.config.ts",
-      "sha256": "72052b310aa344cdef68f1a7516d6acc794644044b606ff3de034549dca9a2e8",
+      "sha256": "c8371d224ea2fdb6e2bbaa7e7a77d40dec913f66c2fd4c2596293de2618e9f13",
       "mode": "0o644",
-      "size": 6103
+      "size": 6171
     },
     {
       "path": "src/content/milestones.json",
-      "sha256": "1fa35a95e6fef7ff23a848d65ced6b346cc23bc8305153ef5c628d6c864ccda2",
+      "sha256": "a0b6d0dd219575c6cda5f44090842698dfd13ce12cb18c194e45f5a348258e2c",
       "mode": "0o644",
-      "size": 2358
+      "size": 2356
     },
     {
       "path": "src/content/profile/profile-david-anderle.json",
-      "sha256": "45a4dd3d79e2209a21d3f45379ace44558a1b7da6a84afa18b4a5f8d56de498f",
+      "sha256": "4da19738747f2da32d93b6b57d19d11f801a1f1a4ff9e457788e48aca0557258",
       "mode": "0o644",
-      "size": 1391
+      "size": 1312
     },
     {
       "path": "src/content/public-documents.json",
@@ -441,15 +447,15 @@
     },
     {
       "path": "src/pages/about/index.astro",
-      "sha256": "0910294cedbdbfd2445479781482e1191ce6ec1c12a22276df732ee24ec2d0bf",
+      "sha256": "15a75039bd3b2ff35e9546f79abffb1c7ad4f215cd6eb9ebfad0096020455117",
       "mode": "0o644",
-      "size": 1698
+      "size": 1696
     },
     {
       "path": "src/pages/about/no-photo/index.astro",
-      "sha256": "db15b26eabd13c5e928ec7727ca2de5f8fc562531d29f581e7f306f28f9b27bb",
+      "sha256": "1fb0b1118fb920719c8c7ab3ea115d7f1a797dc05ed181b9faf55bc62eadf8e9",
       "mode": "0o644",
-      "size": 1086
+      "size": 1084
     },
     {
       "path": "src/pages/archive/index.astro",
@@ -642,6 +648,18 @@
       "sha256": "829441d8e3986a01f2ad972fb49ba69c5df19a5d9e29a6e4b85a3e1df8afa8d9",
       "mode": "0o644",
       "size": 2797
+    },
+    {
+      "path": "tests/invalid-fixtures/16-profile-private-temporal-field.json",
+      "sha256": "4336d8000e961dcaec2d95bf76939c9174599d662701a1d77d0464bdb1f39f2c",
+      "mode": "0o644",
+      "size": 1044
+    },
+    {
+      "path": "tests/invalid-fixtures/17-profile-overprecise-completion.json",
+      "sha256": "0ef0e8481ea52048cfb330752659bdb57f3c3a9c9e568b3f53c8632d2517cdcd",
+      "mode": "0o644",
+      "size": 973
     },
     {
       "path": "tsconfig.client.json",
