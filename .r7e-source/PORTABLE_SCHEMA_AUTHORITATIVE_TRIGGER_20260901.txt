@@ -1,0 +1,4 @@
+Fresh authoritative portable JSON Schema verification trigger.
+Baseline: full-history reconciled R7E architecture.
+Required: Draft 2020-12 committed schemas, deterministic generation, independent validation, stale-schema rejection, invalid-record rejection, complete R7E evidence chain.
+This marker is transport-external and is not part of the packed canonical source.
