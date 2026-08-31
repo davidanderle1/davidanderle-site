@@ -1,0 +1,409 @@
+name: Materialize portable JSON Schema independent verifier
+
+on:
+  push:
+    branches:
+      - r7f-portable-json-schema-verification-20260831
+    paths:
+      - '.github/workflows/r7f-portable-json-schema-materializer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: r7f-portable-json-schema-materializer
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  BUILDER_BRANCH: r7e-portable-json-schema-verification-20260831
+  BUILDER_WORKFLOW_PATH: .github/workflows/r7e-portable-json-schema-verification.yml
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout independent verifier baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Wait for exact successful portable-schema R7E
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          for attempt in $(seq 1 150); do
+            builder_head="$(gh api "repos/$repo/branches/$BUILDER_BRANCH" --jq '.commit.sha')"
+            gh api "repos/$repo/actions/runs?branch=$BUILDER_BRANCH&per_page=100" > /tmp/runs.json
+            jq --arg head "$builder_head" --arg path "$BUILDER_WORKFLOW_PATH" \
+              '[.workflow_runs[] | select(.head_sha==$head and .path==$path)] | sort_by(.created_at) | reverse | .[0] // {}' \
+              /tmp/runs.json > /tmp/builder-run.json
+            status="$(jq -r '.status // "missing"' /tmp/builder-run.json)"
+            conclusion="$(jq -r '.conclusion // ""' /tmp/builder-run.json)"
+            if [[ "$status" == completed && "$conclusion" == success ]]; then
+              break
+            fi
+            if [[ "$status" == completed && "$conclusion" != success ]]; then
+              cat /tmp/builder-run.json
+              echo 'Portable-schema R7E completed unsuccessfully' >&2
+              exit 1
+            fi
+            if [[ "$attempt" -eq 150 ]]; then
+              cat /tmp/builder-run.json
+              echo 'Timed out waiting for portable-schema R7E' >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          run_id="$(jq -r '.id' /tmp/builder-run.json)"
+          head_sha="$(jq -r '.head_sha' /tmp/builder-run.json)"
+          gh api "repos/$repo/actions/runs/$run_id/artifacts" > /tmp/artifacts.json
+          jq '[.artifacts[] | select((.name|startswith("r7e-portable-json-schema-evidence-")) and .expired==false)]' /tmp/artifacts.json > /tmp/matches.json
+          test "$(jq 'length' /tmp/matches.json)" -eq 1
+          jq '.[0]' /tmp/matches.json > /tmp/builder-artifact.json
+          artifact_id="$(jq -r '.id' /tmp/builder-artifact.json)"
+          artifact_name="$(jq -r '.name' /tmp/builder-artifact.json)"
+          artifact_digest="$(jq -r '.digest' /tmp/builder-artifact.json)"
+          printf 'BUILDER_RUN_ID=%s\nBUILDER_COMMIT=%s\nBUILDER_ARTIFACT_ID=%s\nBUILDER_ARTIFACT_NAME=%s\nBUILDER_ARTIFACT_DIGEST=%s\n' \
+            "$run_id" "$head_sha" "$artifact_id" "$artifact_name" "$artifact_digest" >> "$GITHUB_ENV"
+          gh run download "$run_id" --repo "$repo" --name "$artifact_name" --dir builder
+          test -f builder/R7E_ARTIFACT_SHA256SUMS.txt
+          (cd builder && sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt)
+          test "$(<builder/R7E_GATE_DECISION.txt)" = 'R7E PORTABLE JSON SCHEMA 2020-12 BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F'
+
+      - name: Independently pre-audit portable builder contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root=builder/BEARING_PRODUCTION_SOURCE
+          identity=builder/R7E_EVIDENCE/R7E_CANDIDATE_IDENTITY.json
+          validation=builder/R7E_PACKAGE_VALIDATION.json
+          portable=builder/R7E_EVIDENCE/portable-schema-verification.json
+          negative=builder/R7E_EVIDENCE/portable-schema-negative-controls.json
+          for file in \
+            "$source_root/src/content-schemas.ts" \
+            "$source_root/schemas/profile.schema.json" \
+            "$source_root/schemas/work.schema.json" \
+            "$source_root/schemas/writing.schema.json" \
+            "$source_root/schemas/canonical-record.schema.json" \
+            "$source_root/schemas/manifest.json" \
+            "$source_root/scripts/generate-portable-schema.mjs" \
+            "$source_root/scripts/verify-portable-schema.mjs" \
+            "$source_root/scripts/test-portable-schema.mjs" \
+            "$portable" "$negative" "$identity" "$validation"; do
+            test -f "$file"
+          done
+          jq -e '.passed==true and (.failedChecks|length)==0' "$validation" >/dev/null
+          jq -e '.schema=="R7_PORTABLE_JSON_SCHEMA_2020_12_VERIFICATION_V1" and .passed==true and .checks["draft-2020-12"]==true and .checks["single-zod-source"]==true and .metrics.repositoryRecordCount==4' "$portable" >/dev/null
+          jq -e '.schema=="R7_PORTABLE_JSON_SCHEMA_NEGATIVE_CONTROLS_V1" and .passed==true and .cases.authenticContractAccepted==true and .cases.staleSchemaRejected==true and .cases.invalidCheckedOutRecordRejected==true' "$negative" >/dev/null
+          jq -e '.jsonSchemaDraft=="https://json-schema.org/draft/2020-12/schema" and .generatorSource=="src/content-schemas.ts" and (.generatedFiles|length)==4' "$source_root/schemas/manifest.json" >/dev/null
+          node - <<'NODE'
+          const p=require('./builder/BEARING_PRODUCTION_SOURCE/package.json');
+          const ok=p.devDependencies?.ajv==='8.17.1' && p.devDependencies?.['ajv-formats']==='3.0.1' && p.scripts?.['schema:verify']==='node scripts/verify-portable-schema.mjs' && p.scripts?.['test:schema']==='node scripts/test-portable-schema.mjs' && p.scripts?.['verify:all']?.includes('npm run schema:verify && npm run test:schema');
+          if(!ok) { console.error(JSON.stringify(p,null,2)); process.exit(1); }
+          NODE
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path('builder/BEARING_PRODUCTION_SOURCE/schemas')
+          rows=[]
+          for p in sorted(root.iterdir()):
+              if p.is_file(): rows.append({'path':p.name,'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'size':p.stat().st_size})
+          projection=json.dumps(rows,sort_keys=True,separators=(',',':')).encode()
+          schema_tree=hashlib.sha256(projection).hexdigest()
+          identity=json.loads(Path('builder/R7E_EVIDENCE/R7E_CANDIDATE_IDENTITY.json').read_text())
+          checks={
+            'identityCommit':identity.get('workflowCommit')==os.environ['BUILDER_COMMIT'],
+            'identityRun':str(identity.get('runId'))==os.environ['BUILDER_RUN_ID'],
+            'portableEvidence':json.loads(Path('builder/R7E_EVIDENCE/portable-schema-verification.json').read_text()).get('passed') is True,
+            'negativeEvidence':json.loads(Path('builder/R7E_EVIDENCE/portable-schema-negative-controls.json').read_text()).get('passed') is True,
+            'schemaFiles':len(rows)>=6,
+          }
+          result={'schema':'R7E_PORTABLE_JSON_SCHEMA_EXTERNAL_PREAUDIT_V1','decision':'R7E_PORTABLE_JSON_SCHEMA_EXTERNAL_PREAUDIT_PASS' if all(checks.values()) else 'FAIL','passed':all(checks.values()),'builder':{'branch':os.environ['BUILDER_BRANCH'],'workflowPath':os.environ['BUILDER_WORKFLOW_PATH'],'headSha':os.environ['BUILDER_COMMIT'],'runId':int(os.environ['BUILDER_RUN_ID']),'artifactId':int(os.environ['BUILDER_ARTIFACT_ID']),'artifactName':os.environ['BUILDER_ARTIFACT_NAME'],'artifactDigest':os.environ['BUILDER_ARTIFACT_DIGEST']},'checks':checks,'schemaTreeSha256':schema_tree,'schemaFiles':rows,'blockers':[k for k,v in checks.items() if not v]}
+          Path('/tmp/r7e-portable-external-audit.json').write_text(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result,indent=2))
+          if not result['passed']: raise SystemExit(1)
+          PY
+
+      - name: Install independent portable-schema auditor
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .github/scripts/r7f-independent-portable-schema-audit.mjs <<'NODE'
+          import fs from 'node:fs';
+          import os from 'node:os';
+          import path from 'node:path';
+          import { createHash } from 'node:crypto';
+          import { createRequire } from 'node:module';
+          import { pathToFileURL } from 'node:url';
+
+          const [rootArg, outputArg] = process.argv.slice(2);
+          if (!rootArg || !outputArg) throw new Error('Usage: auditor <run-root> <output>');
+          const root = path.resolve(rootArg);
+          const output = path.resolve(outputArg);
+          const require = createRequire(path.join(root, 'package.json'));
+          const { z } = require('zod');
+          const Ajv2020 = require('ajv/dist/2020').default;
+          const addFormats = require('ajv-formats').default;
+          const schemaModule = await import(`${pathToFileURL(path.join(root, 'src/content-schemas.ts')).href}?audit=${Date.now()}`);
+          const parserModule = await import(pathToFileURL(path.join(root, 'scripts/lib/frontmatter.mjs')).href);
+          const recordSchemas = { profile: schemaModule.profileSchema, work: schemaModule.workSchema, writing: schemaModule.writingSchema };
+          const DRAFT='https://json-schema.org/draft/2020-12/schema';
+          const BASE='https://davidanderle.com/schemas/';
+          const stable=(value)=>Array.isArray(value)?value.map(stable):(value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map((key)=>[key,stable(value[key])])):value);
+          const serialize=(value)=>`${JSON.stringify(stable(value),null,2)}\n`;
+          const sha=(value)=>createHash('sha256').update(value).digest('hex');
+          const generated={};
+          for(const [name,schema] of Object.entries(recordSchemas)){
+            const converted=z.toJSONSchema(schema,{target:'draft-2020-12',io:'input'});
+            generated[`${name}.schema.json`]={...converted,$schema:DRAFT,$id:`${BASE}${name}.schema.json`,title:`${name[0].toUpperCase()}${name.slice(1)}Record`,$comment:'Generated deterministically from src/content-schemas.ts; do not edit by hand.'};
+          }
+          generated['canonical-record.schema.json']={$schema:DRAFT,$id:`${BASE}canonical-record.schema.json`,title:'David Anderle canonical content record',oneOf:Object.keys(recordSchemas).map((name)=>({$ref:`${BASE}${name}.schema.json`}))};
+          const digests=Object.fromEntries(Object.entries(generated).sort(([a],[b])=>a.localeCompare(b)).map(([name,schema])=>[name,sha(serialize(schema))]));
+          generated['manifest.json']={schema:'DAVID_ANDERLE_PORTABLE_CONTENT_SCHEMA_MANIFEST_V1',jsonSchemaDraft:DRAFT,generatorSource:'src/content-schemas.ts',generatedFiles:digests};
+          const checks={}; const errors=[];
+          const names=Object.keys(generated).sort();
+          const actual=fs.readdirSync(path.join(root,'schemas')).filter((name)=>name.endsWith('.schema.json')||name==='manifest.json').sort();
+          checks['file-set-exact']=JSON.stringify(names)===JSON.stringify(actual);
+          for(const [name,value] of Object.entries(generated)){
+            const actualBytes=fs.readFileSync(path.join(root,'schemas',name),'utf8');
+            checks[`byte-exact:${name}`]=actualBytes===serialize(value);
+          }
+          const ajv=new Ajv2020({allErrors:true,strict:true,validateFormats:true}); addFormats(ajv);
+          for(const name of ['profile.schema.json','work.schema.json','writing.schema.json','canonical-record.schema.json']) ajv.addSchema(generated[name]);
+          const validators=Object.fromEntries(['profile','work','writing'].map((name)=>[name,ajv.getSchema(`${BASE}${name}.schema.json`)]));
+          const canonical=ajv.getSchema(`${BASE}canonical-record.schema.json`);
+          const rows=[];
+          for(const [collection,dir,ext] of [['profile','profile','.json'],['work','work','.md'],['writing','writing','.md']]){
+            const absolute=path.join(root,'src/content',dir);
+            for(const name of fs.readdirSync(absolute).filter((file)=>file.endsWith(ext)).sort()){
+              const file=path.join(absolute,name);
+              const data=ext==='.json'?JSON.parse(fs.readFileSync(file,'utf8')):parserModule.parseMarkdownFile(file).data;
+              const specific=Boolean(validators[collection](data)); const all=Boolean(canonical(data));
+              rows.push({collection,file:path.relative(root,file).split(path.sep).join('/'),specificPassed:specific,canonicalPassed:all});
+            }
+          }
+          checks['record-count-four']=rows.length===4;
+          checks['all-specific-valid']=rows.every((row)=>row.specificPassed);
+          checks['all-canonical-valid']=rows.every((row)=>row.canonicalPassed);
+          const temp=fs.mkdtempSync(path.join(os.tmpdir(),'r7f-schema-'));
+          fs.cpSync(path.join(root,'schemas'),path.join(temp,'schemas'),{recursive:true});
+          const stalePath=path.join(temp,'schemas/profile.schema.json');
+          const stale=JSON.parse(fs.readFileSync(stalePath,'utf8')); stale.title='MUTATED'; fs.writeFileSync(stalePath,`${JSON.stringify(stale,null,2)}\n`);
+          checks['stale-schema-negative-rejected']=fs.readFileSync(stalePath,'utf8')!==serialize(generated['profile.schema.json']);
+          const invalid=JSON.parse(fs.readFileSync(path.join(root,'src/content/profile/profile-david-anderle.json'),'utf8')); delete invalid.immutableId;
+          checks['invalid-record-negative-rejected']=validators.profile(invalid)===false && canonical(invalid)===false;
+          fs.rmSync(temp,{recursive:true,force:true});
+          const schemaRows=actual.map((name)=>({path:name,sha256:sha(fs.readFileSync(path.join(root,'schemas',name))),size:fs.statSync(path.join(root,'schemas',name)).size}));
+          const schemaTreeSha256=sha(JSON.stringify(schemaRows));
+          const failedChecks=Object.entries(checks).filter(([,passed])=>!passed).map(([name])=>name);
+          const result={schema:'R7F_INDEPENDENT_PORTABLE_JSON_SCHEMA_2020_12_AUDIT_V1',passed:failedChecks.length===0,root,checks,failedChecks,metrics:{schemaFileCount:actual.length,recordCount:rows.length},records:rows,schemaTreeSha256,errors};
+          fs.mkdirSync(path.dirname(output),{recursive:true}); fs.writeFileSync(output,`${JSON.stringify(result,null,2)}\n`); console.log(JSON.stringify(result,null,2));
+          if(!result.passed) process.exit(1);
+          NODE
+          node --check .github/scripts/r7f-independent-portable-schema-audit.mjs
+
+      - name: Adapt verifier contracts and immutable builder lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,re
+          from pathlib import Path
+          identity=json.loads(Path('builder/R7E_EVIDENCE/R7E_CANDIDATE_IDENTITY.json').read_text())
+          external=json.loads(Path('/tmp/r7e-portable-external-audit.json').read_text())
+          portable_path=Path('builder/R7E_EVIDENCE/portable-schema-verification.json')
+          negative_path=Path('builder/R7E_EVIDENCE/portable-schema-negative-controls.json')
+          manifest_path=Path('builder/BEARING_PRODUCTION_SOURCE/schemas/manifest.json')
+          sha=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          lock={
+            'schema':'R7F_BUILDER_INPUT_V6_PORTABLE_JSON_SCHEMA_2020_12',
+            'repository':os.environ['GITHUB_REPOSITORY'],
+            'builderBranch':os.environ['BUILDER_BRANCH'],
+            'builderWorkflowPath':os.environ['BUILDER_WORKFLOW_PATH'],
+            'builderHeadSha':os.environ['BUILDER_COMMIT'],
+            'builderRunId':int(os.environ['BUILDER_RUN_ID']),
+            'builderArtifactId':int(os.environ['BUILDER_ARTIFACT_ID']),
+            'builderArtifactName':os.environ['BUILDER_ARTIFACT_NAME'],
+            'builderArtifactDigest':os.environ['BUILDER_ARTIFACT_DIGEST'],
+            'builderSourceArchiveSha256':identity['sourceArchiveSha256'],
+            'builderFrozenSourceTreeSha256':identity['frozenSourceTreeSha256'],
+            'builderFrozenSourceTarSha256':identity['frozenSourceTarSha256'],
+            'builderVerifiedDistTreeSha256':identity['verifiedDistTreeSha256'],
+            'builderStressDistTreeSha256':identity['stressDistTreeSha256'],
+            'builderAxeAdjudicationFileSha256':identity['axeAdjudicationFileSha256'],
+            'builderAxeSemanticInventorySha256':identity['axeSemanticInventorySha256'],
+            'builderAxeNodeFingerprintSetSha256':identity['axeNodeFingerprintSetSha256'],
+            'builderAxeBindingFingerprintSetSha256':identity['axeBindingFingerprintSetSha256'],
+            'builderAxeIncompleteNodeCount':identity['axeIncompleteNodeCount'],
+            'builderPortableSchemaManifestSha256':sha(manifest_path),
+            'builderPortableSchemaVerificationSha256':sha(portable_path),
+            'builderPortableSchemaNegativeSha256':sha(negative_path),
+            'builderPortableSchemaTreeSha256':external['schemaTreeSha256'],
+            'r7eExternalAuditSha256':sha('/tmp/r7e-portable-external-audit.json'),
+            'selectionRule':'Exact successful portable-schema R7E branch head and sole authenticated artifact, locked by GitHub tuple, source/output/Axe fingerprints and Draft 2020-12 contract evidence.',
+          }
+          Path('.github/r7f-v6-builder-input.json').write_text(json.dumps(lock,indent=2)+'\n')
+          Path('.github/r7f-v6-r7e-external-audit.json').write_text(json.dumps(external,indent=2)+'\n')
+
+          # Source auditor: portable paths, exact direct dependencies and pipeline wiring.
+          p=Path('.github/scripts/r7f-independent-source-audit.py'); text=p.read_text()
+          anchor='    "docs/R7_HISTORY_RECONCILIATION.md",\n'
+          addition=anchor+'    "docs/PORTABLE_CONTENT_SCHEMA.md",\n    "src/content-schemas.ts",\n    "schemas/profile.schema.json",\n    "schemas/work.schema.json",\n    "schemas/writing.schema.json",\n    "schemas/canonical-record.schema.json",\n    "schemas/manifest.json",\n    "scripts/generate-portable-schema.mjs",\n    "scripts/verify-portable-schema.mjs",\n    "scripts/test-portable-schema.mjs",\n'
+          if anchor not in text: raise SystemExit('source auditor required-path anchor missing')
+          text=text.replace(anchor,addition,1)
+          order='    "check",\n    "build",'
+          if order not in text: raise SystemExit('verify order anchor missing')
+          text=text.replace(order,'    "check",\n    "schema:verify",\n    "test:schema",\n    "build",',1)
+          insert='    checks["complete-lockfile"] = len(lock_packages) >= 500\n'
+          replacement=insert+'    dev_dependencies = package.get("devDependencies") if isinstance(package.get("devDependencies"), dict) else {}\n    checks["portable-schema-direct-dependencies"] = dev_dependencies.get("ajv") == "8.17.1" and dev_dependencies.get("ajv-formats") == "3.0.1"\n    checks["portable-schema-scripts"] = scripts.get("schema:verify") == "node scripts/verify-portable-schema.mjs" and scripts.get("test:schema") == "node scripts/test-portable-schema.mjs"\n'
+          if insert not in text: raise SystemExit('lock check anchor missing')
+          text=text.replace(insert,replacement,1)
+          p.write_text(text)
+
+          # Main verifier: run independent portable audit and bind result into package validation.
+          p=Path('.github/scripts/r7f-v6-final.sh'); text=p.read_text()
+          anchor='bash "$SCRIPTS/r7f-v4.sh"\n'
+          portable=anchor+'\nnode "$SCRIPTS/r7f-independent-portable-schema-audit.mjs" "$RUN1" "$EVIDENCE/independent-portable-schema-audit.json"\n\n'
+          if text.count(anchor)!=1: raise SystemExit('r7f-v4 anchor missing')
+          text=text.replace(anchor,portable,1)
+          manifest_anchor='(\n  cd "$ARTIFACT"\n  find . -type f ! -name \'R7F_ARTIFACT_SHA256SUMS.txt\''
+          block="""python3 - <<'PYPORTABLE'\nimport json\nfrom pathlib import Path\nroot=Path('artifact')\np=root/'R7F_PACKAGE_VALIDATION.json'\ndata=json.loads(p.read_text())\naudit=json.loads((root/'R7F_EVIDENCE/independent-portable-schema-audit.json').read_text())\nchecks=dict(data.get('checks') or {})\nchecks.update({\n 'portable-json-schema-2020-12-independent-audit':audit.get('passed') is True,\n 'portable-schema-file-count':(audit.get('metrics') or {}).get('schemaFileCount')==5,\n 'portable-schema-record-count':(audit.get('metrics') or {}).get('recordCount')==4,\n 'portable-schema-stale-negative':(audit.get('checks') or {}).get('stale-schema-negative-rejected') is True,\n 'portable-schema-invalid-record-negative':(audit.get('checks') or {}).get('invalid-record-negative-rejected') is True,\n})\ndata['checks']=checks\ndata['passed']=all(checks.values())\ndata['failedChecks']=[name for name,passed in checks.items() if not passed]\ndata['portableSchemaEvidence']={'audit':'R7F_EVIDENCE/independent-portable-schema-audit.json','schemaTreeSha256':audit.get('schemaTreeSha256')}\np.write_text(json.dumps(data,indent=2)+'\\n')\nif not data['passed']: raise SystemExit(1)\nPYPORTABLE\n\n"""
+          if manifest_anchor not in text: raise SystemExit('artifact manifest anchor missing')
+          text=text.replace(manifest_anchor,block+manifest_anchor,1)
+          p.write_text(text)
+
+          # Locked wrapper: bind portable hashes and new external-audit schema.
+          p=Path('.github/scripts/r7f-v6-final-locked.sh'); text=p.read_text()
+          req='  BUILDER_AXE_BINDING_SET_SHA256 BUILDER_AXE_INCOMPLETE_NODE_COUNT\n  R7E_EXTERNAL_AUDIT_SHA256\n'
+          req_new='  BUILDER_AXE_BINDING_SET_SHA256 BUILDER_AXE_INCOMPLETE_NODE_COUNT\n  BUILDER_PORTABLE_SCHEMA_MANIFEST_SHA256 BUILDER_PORTABLE_SCHEMA_VERIFICATION_SHA256\n  BUILDER_PORTABLE_SCHEMA_NEGATIVE_SHA256 BUILDER_PORTABLE_SCHEMA_TREE_SHA256\n  R7E_EXTERNAL_AUDIT_SHA256\n'
+          if req not in text: raise SystemExit('locked env anchor missing')
+          text=text.replace(req,req_new,1)
+          text=text.replace("lock.get('schema')=='R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT'","lock.get('schema')=='R7F_BUILDER_INPUT_V6_PORTABLE_JSON_SCHEMA_2020_12'")
+          text=text.replace("audit.get('decision')=='R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS'","audit.get('decision')=='R7E_PORTABLE_JSON_SCHEMA_EXTERNAL_PREAUDIT_PASS'")
+          hash_anchor=" 'incompleteNodeCount':str(lock.get('builderAxeIncompleteNodeCount'))==os.environ['BUILDER_AXE_INCOMPLETE_NODE_COUNT'],\n"
+          hash_new=hash_anchor+" 'portableManifest':lock.get('builderPortableSchemaManifestSha256')==os.environ['BUILDER_PORTABLE_SCHEMA_MANIFEST_SHA256'],\n 'portableVerification':lock.get('builderPortableSchemaVerificationSha256')==os.environ['BUILDER_PORTABLE_SCHEMA_VERIFICATION_SHA256'],\n 'portableNegative':lock.get('builderPortableSchemaNegativeSha256')==os.environ['BUILDER_PORTABLE_SCHEMA_NEGATIVE_SHA256'],\n 'portableTree':lock.get('builderPortableSchemaTreeSha256')==os.environ['BUILDER_PORTABLE_SCHEMA_TREE_SHA256'],\n"
+          if hash_anchor not in text: raise SystemExit('locked hash anchor missing')
+          text=text.replace(hash_anchor,hash_new,1)
+          tuple_names="'builderAxeBindingFingerprintSetSha256','r7eExternalAuditSha256'"
+          if tuple_names in text:
+            text=text.replace(tuple_names,"'builderAxeBindingFingerprintSetSha256','builderPortableSchemaManifestSha256','builderPortableSchemaVerificationSha256','builderPortableSchemaNegativeSha256','builderPortableSchemaTreeSha256','r7eExternalAuditSha256'")
+          p.write_text(text)
+          PY
+
+          python3 -m py_compile .github/scripts/r7f-independent-source-audit.py
+          node --check .github/scripts/r7f-independent-portable-schema-audit.mjs
+          bash -n .github/scripts/r7f-v6-final.sh
+          bash -n .github/scripts/r7f-v6-final-locked.sh
+
+      - name: Create immutable authoritative R7F workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          lock=json.loads(Path('.github/r7f-v6-builder-input.json').read_text())
+          workflow=f'''name: R7F portable JSON Schema 2020-12 independent verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7f-portable-json-schema-${{{{ github.ref }}}}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  BUILDER_BRANCH: {lock['builderBranch']}
+  BUILDER_WORKFLOW_PATH: {lock['builderWorkflowPath']}
+  BUILDER_RUN_ID: '{lock['builderRunId']}'
+  BUILDER_COMMIT: {lock['builderHeadSha']}
+  BUILDER_ARTIFACT_ID: '{lock['builderArtifactId']}'
+  BUILDER_ARTIFACT_NAME: {lock['builderArtifactName']}
+  BUILDER_ARTIFACT_DIGEST: {lock['builderArtifactDigest']}
+  BUILDER_SOURCE_ARCHIVE_SHA256: {lock['builderSourceArchiveSha256']}
+  BUILDER_FROZEN_SOURCE_TREE_SHA256: {lock['builderFrozenSourceTreeSha256']}
+  BUILDER_FROZEN_SOURCE_TAR_SHA256: {lock['builderFrozenSourceTarSha256']}
+  BUILDER_VERIFIED_DIST_TREE_SHA256: {lock['builderVerifiedDistTreeSha256']}
+  BUILDER_STRESS_DIST_TREE_SHA256: {lock['builderStressDistTreeSha256']}
+  BUILDER_AXE_ADJUDICATION_FILE_SHA256: {lock['builderAxeAdjudicationFileSha256']}
+  BUILDER_AXE_SEMANTIC_INVENTORY_SHA256: {lock['builderAxeSemanticInventorySha256']}
+  BUILDER_AXE_NODE_SET_SHA256: {lock['builderAxeNodeFingerprintSetSha256']}
+  BUILDER_AXE_BINDING_SET_SHA256: {lock['builderAxeBindingFingerprintSetSha256']}
+  BUILDER_AXE_INCOMPLETE_NODE_COUNT: '{lock['builderAxeIncompleteNodeCount']}'
+  BUILDER_PORTABLE_SCHEMA_MANIFEST_SHA256: {lock['builderPortableSchemaManifestSha256']}
+  BUILDER_PORTABLE_SCHEMA_VERIFICATION_SHA256: {lock['builderPortableSchemaVerificationSha256']}
+  BUILDER_PORTABLE_SCHEMA_NEGATIVE_SHA256: {lock['builderPortableSchemaNegativeSha256']}
+  BUILDER_PORTABLE_SCHEMA_TREE_SHA256: {lock['builderPortableSchemaTreeSha256']}
+  R7E_EXTERNAL_AUDIT_SHA256: {lock['r7eExternalAuditSha256']}
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout immutable independent verifier branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+      - name: Execute locked portable-schema independent verifier
+        shell: bash
+        env:
+          GH_TOKEN: ${{{{ github.token }}}}
+        run: bash .github/scripts/r7f-v6-final-locked.sh
+      - name: Upload R7F evidence or diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-portable-json-schema-evidence-${{{{ github.sha }}}}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+'''
+          Path('.github/workflows/r7f-portable-json-schema-verification.yml').write_text(workflow)
+          PY
+          grep -q 'BUILDER_PORTABLE_SCHEMA_TREE_SHA256' .github/workflows/r7f-portable-json-schema-verification.yml
+
+      - name: Commit frozen verifier and dispatch it
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            .github/r7f-v6-builder-input.json \
+            .github/r7f-v6-r7e-external-audit.json \
+            .github/scripts/r7f-independent-portable-schema-audit.mjs \
+            .github/scripts/r7f-independent-source-audit.py \
+            .github/scripts/r7f-v6-final.sh \
+            .github/scripts/r7f-v6-final-locked.sh \
+            .github/workflows/r7f-portable-json-schema-verification.yml
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7F: freeze portable JSON Schema 2020-12 verifier'
+          git push origin HEAD:r7f-portable-json-schema-verification-20260831
+          gh workflow run r7f-portable-json-schema-verification.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref r7f-portable-json-schema-verification-20260831
