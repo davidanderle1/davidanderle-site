@@ -1,0 +1,207 @@
+name: R7 engineering closure controller v4
+
+on:
+  push:
+    branches:
+      - r7-engineering-closure-controller-v4-20260831
+    paths:
+      - '.github/workflows/r7-engineering-closure-controller-v4.yml'
+      - '.github/r7-controller-v4/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7-engineering-closure-controller-v4-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  R7E_RUN_ID: '33374272544'
+  R7E_ARTIFACT_ID: '9751357763'
+  R7E_ARTIFACT_SHA256: e048f5fcb35ef788825ce7022a78b072320902b9517d3d51a98875ff8550d0e9
+  R7F_RUN_ID: '33375008818'
+  R7F_ARTIFACT_ID: '9751650575'
+  R7F_ARTIFACT_SHA256: d0c4dd5658b745aea5f897ffe73cdca29f7e01e2b752b9040647122076d20dbf
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout immutable controller infrastructure
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Materialize authenticated controller payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 022
+          mkdir -p controller-input controller-runtime artifact
+          cat .github/r7-controller-v4/payload.part*.b64 > /tmp/r7-controller-v4-payload.tar.gz.b64
+          printf '%s  %s\n' '14f8a2d04b6635e36e514f148cf7b6f4d491f6e2b18d1f5694f959bf57828ade' /tmp/r7-controller-v4-payload.tar.gz.b64 | sha256sum --check --strict
+          base64 --decode /tmp/r7-controller-v4-payload.tar.gz.b64 > /tmp/r7-controller-v4-payload.tar.gz
+          tar --extract --gzip --file /tmp/r7-controller-v4-payload.tar.gz --directory controller-runtime
+          mv controller-runtime/input-v4.json controller-input/lock.json
+          mv controller-runtime/r7e-external-audit.json controller-input/r7e-external.json
+          mv controller-runtime/r7f-external-audit.json controller-input/r7f-external.json
+          chmod 0755 controller-runtime/controller-v4.py controller-runtime/controller-v4-selftest.py
+          python3 -m py_compile controller-runtime/controller-v4.py controller-runtime/controller-v4-selftest.py
+          sha256sum \
+            controller-runtime/controller-v4.py \
+            controller-runtime/controller-v4-selftest.py \
+            controller-input/lock.json \
+            controller-input/r7e-external.json \
+            controller-input/r7f-external.json \
+            .github/workflows/r7-engineering-closure-controller-v4.yml \
+            > controller-input/controller-infrastructure.sha256
+          test "$(sha256sum controller-runtime/controller-v4.py | awk '{print $1}')" = bc0ed2860c161144441e53fcda562d264ff5e3f7642e9ce7b030902610f998be
+          test "$(sha256sum controller-runtime/controller-v4-selftest.py | awk '{print $1}')" = 6f1446a0df00dffb3b87c31eb0110b76b662a835282b42a8daa3688c29c88012
+          test "$(sha256sum controller-input/lock.json | awk '{print $1}')" = f535d2145b0ace0d4aeed5b721a00dfd05c8148527cc6d377829d4c29c03e885
+          test "$(sha256sum controller-input/r7e-external.json | awk '{print $1}')" = dd28474fb64a40f31f5b830f4af5512b4f145fb9fb5e7ccd6dff984c5c1cdab7
+          test "$(sha256sum controller-input/r7f-external.json | awk '{print $1}')" = 87baf321dee224b817e8c4c7d283cf07d78b145a117e674863bc81d9222d6f0d
+
+      - name: Fetch exact GitHub metadata and immutable artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${R7E_RUN_ID}" > controller-input/r7e-run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7E_ARTIFACT_ID}" > controller-input/r7e-artifact.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${R7F_RUN_ID}" > controller-input/r7f-run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7F_ARTIFACT_ID}" > controller-input/r7f-artifact.json
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7E_ARTIFACT_ID}/zip" \
+            --output controller-input/r7e-authoritative.zip
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7F_ARTIFACT_ID}/zip" \
+            --output controller-input/r7f-authoritative.zip
+          printf '%s  %s\n' "$R7E_ARTIFACT_SHA256" controller-input/r7e-authoritative.zip | sha256sum --check --strict
+          printf '%s  %s\n' "$R7F_ARTIFACT_SHA256" controller-input/r7f-authoritative.zip | sha256sum --check --strict
+
+      - name: Execute immutable engineering controller
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 controller-runtime/controller-v4.py \
+            --lock controller-input/lock.json \
+            --r7e-external-audit controller-input/r7e-external.json \
+            --r7f-external-audit controller-input/r7f-external.json \
+            --r7e-run-metadata controller-input/r7e-run.json \
+            --r7e-artifact-metadata controller-input/r7e-artifact.json \
+            --r7f-run-metadata controller-input/r7f-run.json \
+            --r7f-artifact-metadata controller-input/r7f-artifact.json \
+            controller-input/r7e-authoritative.zip \
+            controller-input/r7f-authoritative.zip \
+            artifact/R7_ENGINEERING_CONTROLLER_V4.json
+          jq -e '
+            .passed == true and
+            .decision == "R7_ENGINEERING_CLOSURE_CANDIDATE_READY" and
+            .maximumAuthorizedVerdict == "R7_ENGINEERING_CLOSURE_CANDIDATE_READY" and
+            .historyTraceabilityPresent == false and
+            .finalR7ClosureAuthorized == false and
+            (.failedChecks | length) == 0 and
+            (.blockers | length) == 0
+          ' artifact/R7_ENGINEERING_CONTROLLER_V4.json >/dev/null
+
+      - name: Execute adversarial controller self-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 controller-runtime/controller-v4-selftest.py \
+            --controller controller-runtime/controller-v4.py \
+            --lock controller-input/lock.json \
+            --r7e-external controller-input/r7e-external.json \
+            --r7f-external controller-input/r7f-external.json \
+            --r7e-run controller-input/r7e-run.json \
+            --r7e-artifact controller-input/r7e-artifact.json \
+            --r7f-run controller-input/r7f-run.json \
+            --r7f-artifact controller-input/r7f-artifact.json \
+            --r7e-zip controller-input/r7e-authoritative.zip \
+            --r7f-zip controller-input/r7f-authoritative.zip \
+            --output artifact/R7_ENGINEERING_CONTROLLER_V4_SELFTEST.json
+          jq -e '
+            .passed == true and
+            .caseCount == 9 and
+            .passedCaseCount == 9 and
+            (.failedCases | length) == 0
+          ' artifact/R7_ENGINEERING_CONTROLLER_V4_SELFTEST.json >/dev/null
+
+      - name: Assemble read-only controller evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp controller-input/lock.json artifact/R7_ENGINEERING_CONTROLLER_INPUT_V4.json
+          cp controller-input/r7e-external.json artifact/R7E_EXTERNAL_AUDIT.json
+          cp controller-input/r7f-external.json artifact/R7F_EXTERNAL_AUDIT.json
+          cp controller-input/r7e-run.json artifact/R7E_GITHUB_RUN_METADATA.json
+          cp controller-input/r7e-artifact.json artifact/R7E_GITHUB_ARTIFACT_METADATA.json
+          cp controller-input/r7f-run.json artifact/R7F_GITHUB_RUN_METADATA.json
+          cp controller-input/r7f-artifact.json artifact/R7F_GITHUB_ARTIFACT_METADATA.json
+          cp controller-input/controller-infrastructure.sha256 artifact/R7_CONTROLLER_INFRASTRUCTURE_SHA256.txt
+          cp controller-runtime/controller-v4.py artifact/r7-engineering-controller-v4.py
+          cp controller-runtime/controller-v4-selftest.py artifact/r7-engineering-controller-v4-selftest.py
+          cat > artifact/R7_ENGINEERING_GATE_DECISION.txt <<'EOF'
+          R7 ENGINEERING CLOSURE CANDIDATE READY — FULL-HISTORY REQUIREMENTS TRACEABILITY STILL REQUIRED BEFORE R7_CLOSED
+          EOF
+          sed -i 's/^          //' artifact/R7_ENGINEERING_GATE_DECISION.txt
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path('artifact')
+          controller = json.loads((root / 'R7_ENGINEERING_CONTROLLER_V4.json').read_text())
+          selftest = json.loads((root / 'R7_ENGINEERING_CONTROLLER_V4_SELFTEST.json').read_text())
+          checks = {
+              'controllerPassed': controller.get('passed') is True,
+              'candidateVerdictOnly': controller.get('decision') == 'R7_ENGINEERING_CLOSURE_CANDIDATE_READY',
+              'historyGateStillOpen': controller.get('historyTraceabilityPresent') is False,
+              'finalClosureNotAuthorized': controller.get('finalR7ClosureAuthorized') is False,
+              'controllerChecks129': (controller.get('metrics') or {}).get('checkCount') == 129 and (controller.get('metrics') or {}).get('passedCheckCount') == 129,
+              'selfTestPassed': selftest.get('passed') is True,
+              'selfTestNineOfNine': selftest.get('caseCount') == 9 and selftest.get('passedCaseCount') == 9,
+              'readOnlyTokenPosture': True,
+              'mainBranchMutationAuthorized': False,
+              'productionDeploymentAuthorized': False,
+          }
+          result = {
+              'schema': 'R7_ENGINEERING_CONTROLLER_V4_PACKAGE_VALIDATION',
+              'passed': all(checks.values()),
+              'checks': checks,
+              'failedChecks': [name for name, passed in checks.items() if not passed],
+              'repository': os.environ['GITHUB_REPOSITORY'],
+              'controllerCommit': os.environ['GITHUB_SHA'],
+              'controllerRunId': os.environ['GITHUB_RUN_ID'],
+              'controllerRunAttempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'maximumAuthorizedVerdict': 'R7_ENGINEERING_CLOSURE_CANDIDATE_READY',
+              'finalR7ClosureAuthorized': False,
+          }
+          (root / 'R7_ENGINEERING_PACKAGE_VALIDATION.json').write_text(json.dumps(result, indent=2) + '\n')
+          if not result['passed']:
+              raise SystemExit(json.dumps(result, indent=2))
+          PY
+          (
+            cd artifact
+            find . -type f ! -name 'R7_ENGINEERING_ARTIFACT_SHA256SUMS.txt' -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              > R7_ENGINEERING_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7_ENGINEERING_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload engineering controller evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-engineering-closure-controller-v4-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
