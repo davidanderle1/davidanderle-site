@@ -48,13 +48,13 @@ def builder_gate(args: argparse.Namespace) -> dict[str, Any]:
     stress_tree = load(args.stress_tree)
     checks: dict[str, bool] = {}
 
-    record(checks, "gate-ready", (root / "R7E_GATE_DECISION.txt").read_text().strip() == "R7E FINGERPRINT-BOUND BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F V6 AUDIT")
+    record(checks, "gate-ready", (root / "R7E_GATE_DECISION.txt").read_text().strip() == "R7E FULL-HISTORY RECONCILED BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F")
     record(checks, "package-validation-passed", package_validation.get("passed") is True and all(package_validation.get("checks", {}).values()))
     record(checks, "repository-bound", identity.get("repository") == args.repository)
     record(checks, "builder-run-bound", str(identity.get("runId")) == args.expected_run)
     record(checks, "builder-commit-bound", identity.get("workflowCommit") == args.expected_commit)
     record(checks, "source-archive-bound", identity.get("sourceArchiveSha256") == args.expected_source_archive)
-    record(checks, "no-correction-layer", identity.get("sourceCorrectionLayer") == "NONE — corrections folded into canonical packed source")
+    record(checks, "no-correction-layer", identity.get("sourceCorrectionLayer") == "NONE — full-history reconciliation folded into canonical packed source")
     record(checks, "source-tree-bound", source_tree.get("treeSha256") == identity.get("frozenSourceTreeSha256") and int(source_tree.get("entryCount", 0)) >= 100)
     record(checks, "dist-tree-bound", dist_tree.get("treeSha256") == identity.get("verifiedDistTreeSha256") and int(dist_tree.get("entryCount", 0)) >= 30)
     record(checks, "stress-tree-bound", stress_tree.get("treeSha256") == identity.get("stressDistTreeSha256") and int(stress_tree.get("entryCount", 0)) >= 530)
@@ -63,7 +63,7 @@ def builder_gate(args: argparse.Namespace) -> dict[str, Any]:
     record(checks, "package-lock-bound", sha256(root / "BEARING_PRODUCTION_SOURCE/package-lock.json") == identity.get("packageLockSha256"))
     record(checks, "stress-input-bound", sha256(evidence / "stress-input-manifest.json") == identity.get("stressInputManifestSha256"))
     record(checks, "stress-lineage-bound", sha256(evidence / "stress-lineage.json") == identity.get("stressLineageSha256"))
-    record(checks, "artifact-metadata-bound", args.expected_artifact_name.startswith("r7e-fingerprint-bound-evidence-") and args.expected_artifact_digest.startswith("sha256:") and len(args.expected_artifact_digest) == 71)
+    record(checks, "artifact-metadata-bound", args.expected_artifact_name.startswith("r7e-full-history-reconciled-evidence-") and args.expected_artifact_digest.startswith("sha256:") and len(args.expected_artifact_digest) == 71)
 
     lineage = load(evidence / "stress-lineage.json")
     for key in ("inputRecordCount", "normalizedUniqueIds", "normalizedUniqueSlugs", "normalizedUniqueRoutes", "emittedDetailPageCount", "workIndexCoverage", "archiveCoverage"):

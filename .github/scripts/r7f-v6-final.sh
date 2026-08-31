@@ -9,7 +9,7 @@ ARTIFACT="$ROOT/artifact"
 RUN1="$ROOT/verifier-run1"
 BUILDER="$ROOT/builder"
 CANDIDATE="$ROOT/candidate"
-INDEPENDENT_AUDITOR="$SCRIPTS/r7f-independent-axe-fingerprint-audit-v3.py"
+INDEPENDENT_AUDITOR="$SCRIPTS/r7f-independent-axe-fingerprint-dynamic.py"
 V6_SUCCESS=0
 
 stage_v6_failure() {
@@ -26,7 +26,7 @@ try: data=json.loads(path.read_text()) if path.exists() else {}
 except Exception: data={}
 data.update({
     'passed':False,
-    'verificationVersion':'R7F-v6-exact-fingerprint-bound',
+    'verificationVersion':'R7F-full-history-dynamic-fingerprint',
     'v6ExitStatus':int(sys.argv[1]),
     'v6Failure':'Independent exact-node Axe fingerprint verification did not complete.',
 })
@@ -54,6 +54,7 @@ required_env=(
   BUILDER_VERIFIED_DIST_TREE_SHA256 BUILDER_STRESS_DIST_TREE_SHA256
   BUILDER_AXE_ADJUDICATION_FILE_SHA256 BUILDER_AXE_SEMANTIC_INVENTORY_SHA256
   BUILDER_AXE_NODE_SET_SHA256 BUILDER_AXE_BINDING_SET_SHA256
+  BUILDER_AXE_INCOMPLETE_NODE_COUNT
 )
 for name in "${required_env[@]}"; do
   [[ -n "${!name:-}" ]] || { echo "Missing required environment variable: $name" >&2; exit 2; }
@@ -102,11 +103,12 @@ checks={
  'sourceTar':identity.get('frozenSourceTarSha256')==os.environ['BUILDER_FROZEN_SOURCE_TAR_SHA256'],
  'distTree':identity.get('verifiedDistTreeSha256')==os.environ['BUILDER_VERIFIED_DIST_TREE_SHA256'],
  'stressTree':identity.get('stressDistTreeSha256')==os.environ['BUILDER_STRESS_DIST_TREE_SHA256'],
- 'inventoryFile':file_sha==os.environ['BUILDER_AXE_ADJUDICATION_FILE_SHA256']==identity.get('axeAdjudicationInventorySha256'),
+ 'inventoryFile':file_sha==os.environ['BUILDER_AXE_ADJUDICATION_FILE_SHA256']==identity.get('axeAdjudicationFileSha256'),
  'semanticInventory':inventory.get('inventorySha256')==os.environ['BUILDER_AXE_SEMANTIC_INVENTORY_SHA256']==identity.get('axeSemanticInventorySha256'),
  'nodeSet':inventory.get('nodeFingerprintSetSha256')==os.environ['BUILDER_AXE_NODE_SET_SHA256']==identity.get('axeNodeFingerprintSetSha256'),
  'bindingSet':inventory.get('bindingFingerprintSetSha256')==os.environ['BUILDER_AXE_BINDING_SET_SHA256']==identity.get('axeBindingFingerprintSetSha256'),
  'inventoryPassed':inventory.get('passed') is True and inventory.get('failedChecks')==[] and inventory.get('errors')==[],
+ 'incompleteNodeCount':str(identity.get('axeIncompleteNodeCount'))==os.environ['BUILDER_AXE_INCOMPLETE_NODE_COUNT'] and str((inventory.get('metrics') or {}).get('totalIncompleteNodes'))==os.environ['BUILDER_AXE_INCOMPLETE_NODE_COUNT'],
 }
 result={'gate':'R7F_V6_BUILDER_EXACT_FINGERPRINT_IDENTITY','passed':all(checks.values()),'checks':checks,'failedChecks':[k for k,v in checks.items() if not v],'identity':identity,'inventoryFileSha256':file_sha}
 Path('evidence/builder-exact-fingerprint-identity.json').write_text(json.dumps(result,indent=2)+'\n')
@@ -160,7 +162,7 @@ python3 "$INDEPENDENT_AUDITOR" \
 desktop_status=$?
 set -e
 test "$desktop_status" -ne 0
-jq -e '.passed == false and ((.failedChecks | index("all-nodes-independently-adjudicated")) != null) and ((.failedChecks | index("builder-entries-exact")) != null)' \
+jq -e '.passed == false and ((.failedChecks | index("all-adjudicated")) != null) and ((.failedChecks | index("builder-entries-exact")) != null)' \
   "$EVIDENCE/negative-control-desktop-target-v2.json" >/dev/null
 
 # Negative control 2: mutate only the mobile related owner/list-item identity.
@@ -194,7 +196,7 @@ python3 "$INDEPENDENT_AUDITOR" \
 mobile_status=$?
 set -e
 test "$mobile_status" -ne 0
-jq -e '.passed == false and ((.failedChecks | index("all-nodes-independently-adjudicated")) != null) and ((.failedChecks | index("builder-entries-exact")) != null)' \
+jq -e '.passed == false and ((.failedChecks | index("all-adjudicated")) != null) and ((.failedChecks | index("builder-entries-exact")) != null)' \
   "$EVIDENCE/negative-control-mobile-related-owner-v2.json" >/dev/null
 
 # Negative control 3: keep raw Axe bytes fixed but mutate an exact proof owner.
@@ -216,7 +218,7 @@ python3 "$INDEPENDENT_AUDITOR" \
 proof_status=$?
 set -e
 test "$proof_status" -ne 0
-jq -e '.passed == false and ((.failedChecks | index("builder-proof-digest-home1280")) != null) and ((.failedChecks | index("builder-entries-exact")) != null)' \
+jq -e '.passed == false and ((.failedChecks | index("builder-proof-1280")) != null) and ((.failedChecks | index("builder-entries-exact")) != null)' \
   "$EVIDENCE/negative-control-proof-binding-v2.json" >/dev/null
 
 # Negative control 4: create a self-consistent but raw-evidence-inconsistent
@@ -282,7 +284,7 @@ python3 "$SCRIPTS/r7f-v3-tree-guard.py" compare \
   "$CANDIDATE" "$RUN1" "$EVIDENCE/run1-source-after-exact-fingerprint-v2.json" --source
 cp /tmp/r7f-v6-verifier-infrastructure.sha256 "$EVIDENCE/verifier-v6-infrastructure.sha256"
 cp -a "$EVIDENCE/." "$ARTIFACT/R7F_EVIDENCE/"
-printf 'R7F V6 EXACT FINGERPRINT-BOUND INDEPENDENT VERIFICATION COMPLETE — R7 MAY CLOSE AFTER FINAL AUDIT\n' \
+printf 'R7F FULL-HISTORY DYNAMIC FINGERPRINT INDEPENDENT VERIFICATION COMPLETE — READY FOR HISTORY-BOUND CONTROLLER\n' \
   > "$ARTIFACT/R7F_GATE_DECISION.txt"
 rm -f "$ARTIFACT/R7F_ARTIFACT_SHA256SUMS.txt"
 
@@ -304,15 +306,15 @@ source=json.loads((root/'R7F_EVIDENCE/run1-source-after-exact-fingerprint-v2.jso
 bm=builder.get('metrics') or {}
 vm=verifier.get('metrics') or {}
 checks.update({
-  'gate-ready-v6-exact':(root/'R7F_GATE_DECISION.txt').read_text().strip()=='R7F V6 EXACT FINGERPRINT-BOUND INDEPENDENT VERIFICATION COMPLETE — R7 MAY CLOSE AFTER FINAL AUDIT',
+  'gate-ready-v6-exact':(root/'R7F_GATE_DECISION.txt').read_text().strip()=='R7F FULL-HISTORY DYNAMIC FINGERPRINT INDEPENDENT VERIFICATION COMPLETE — READY FOR HISTORY-BOUND CONTROLLER',
   'builder-exact-fingerprint-identity':identity.get('passed') is True,
   'builder-exact-fingerprint-audit':builder.get('passed') is True,
   'verifier-exact-fingerprint-audit':verifier.get('passed') is True,
-  'verifier-normalized-raw-report-parity':(verifier.get('checks') or {}).get('reference-normalized-raw-reports-exact') is True,
+  'verifier-normalized-raw-report-parity':(verifier.get('checks') or {}).get('reference-normalized-exact') is True,
   'builder-verifier-semantic-inventory-parity':bm.get('inventorySha256')==vm.get('inventorySha256'),
   'builder-verifier-node-set-parity':bm.get('nodeFingerprintSetSha256')==vm.get('nodeFingerprintSetSha256'),
   'builder-verifier-binding-set-parity':bm.get('bindingFingerprintSetSha256')==vm.get('bindingFingerprintSetSha256'),
-  'exact-node-count-438':bm.get('nodeCount')==438 and vm.get('nodeCount')==438,
+  'dynamic-node-count-bound':bm.get('nodeCount')==vm.get('nodeCount')==(identity.get('identity') or {}).get('axeIncompleteNodeCount') and int(bm.get('nodeCount') or 0)>0,
   'desktop-target-negative-rejected':desktop.get('passed') is False,
   'mobile-related-owner-negative-rejected':mobile.get('passed') is False,
   'proof-binding-negative-rejected':proof.get('passed') is False,
@@ -322,7 +324,7 @@ checks.update({
 })
 data.update({
   'passed':all(checks.values()),
-  'verificationVersion':'R7F-v6-exact-fingerprint-bound',
+  'verificationVersion':'R7F-full-history-dynamic-fingerprint',
   'checks':checks,
   'failedChecks':[name for name,passed in checks.items() if not passed],
   'axeFingerprintEvidence':{
@@ -365,4 +367,4 @@ PY
 
 V6_SUCCESS=1
 trap - EXIT
-printf 'R7F v6 exact fingerprint-bound verification completed successfully.\n'
+printf 'R7F full-history dynamic fingerprint verification completed successfully.\n'

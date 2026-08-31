@@ -23,7 +23,7 @@ from pathlib import Path
 p=Path('artifact/R7F_PACKAGE_VALIDATION.json')
 try: data=json.loads(p.read_text()) if p.exists() else {}
 except Exception: data={}
-data.update({'passed':False,'verificationVersion':'R7F-v6-exact-fingerprint-bound-locked','lockedExitStatus':int(sys.argv[1])})
+data.update({'passed':False,'verificationVersion':'R7F-full-history-dynamic-fingerprint-locked','lockedExitStatus':int(sys.argv[1])})
 p.parent.mkdir(parents=True,exist_ok=True)
 p.write_text(json.dumps(data,indent=2)+'\n')
 PY
@@ -48,7 +48,8 @@ required_env=(
   BUILDER_FROZEN_SOURCE_TAR_SHA256 BUILDER_VERIFIED_DIST_TREE_SHA256
   BUILDER_STRESS_DIST_TREE_SHA256 BUILDER_AXE_ADJUDICATION_FILE_SHA256
   BUILDER_AXE_SEMANTIC_INVENTORY_SHA256 BUILDER_AXE_NODE_SET_SHA256
-  BUILDER_AXE_BINDING_SET_SHA256 R7E_EXTERNAL_AUDIT_SHA256
+  BUILDER_AXE_BINDING_SET_SHA256 BUILDER_AXE_INCOMPLETE_NODE_COUNT
+  R7E_EXTERNAL_AUDIT_SHA256
 )
 for name in "${required_env[@]}"; do
   [[ -n "${!name:-}" ]] || { echo "Missing required environment variable: $name" >&2; exit 2; }
@@ -69,7 +70,7 @@ lock=json.loads(lock_path.read_text())
 audit=json.loads(audit_path.read_text())
 audit_sha=hashlib.sha256(audit_path.read_bytes()).hexdigest()
 checks={
- 'schema':lock.get('schema')=='R7F_BUILDER_INPUT_V4_EXACT_FINGERPRINT_BOUND',
+ 'schema':lock.get('schema')=='R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT',
  'repository':lock.get('repository')==os.environ['GITHUB_REPOSITORY'],
  'builderBranch':lock.get('builderBranch')==os.environ['BUILDER_BRANCH'],
  'builderWorkflowPath':lock.get('builderWorkflowPath')==os.environ['BUILDER_WORKFLOW_PATH'],
@@ -87,8 +88,9 @@ checks={
  'semanticInventory':lock.get('builderAxeSemanticInventorySha256')==os.environ['BUILDER_AXE_SEMANTIC_INVENTORY_SHA256'],
  'nodeSet':lock.get('builderAxeNodeFingerprintSetSha256')==os.environ['BUILDER_AXE_NODE_SET_SHA256'],
  'bindingSet':lock.get('builderAxeBindingFingerprintSetSha256')==os.environ['BUILDER_AXE_BINDING_SET_SHA256'],
+ 'incompleteNodeCount':str(lock.get('builderAxeIncompleteNodeCount'))==os.environ['BUILDER_AXE_INCOMPLETE_NODE_COUNT'],
  'externalAuditSha':lock.get('r7eExternalAuditSha256')==os.environ['R7E_EXTERNAL_AUDIT_SHA256']==audit_sha,
- 'externalAuditPassed':audit.get('passed') is True and audit.get('decision')=='R7E_EXTERNAL_FINGERPRINT_AUDIT_PASS' and audit.get('blockers')==[],
+ 'externalAuditPassed':audit.get('passed') is True and audit.get('decision')=='R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS' and audit.get('blockers')==[],
  'externalAuditTuple':str((audit.get('builder') or {}).get('runId'))==os.environ['BUILDER_RUN_ID'] and str((audit.get('builder') or {}).get('artifactId'))==os.environ['BUILDER_ARTIFACT_ID'] and (audit.get('builder') or {}).get('headSha')==os.environ['BUILDER_COMMIT'] and (audit.get('builder') or {}).get('artifactDigest')==os.environ['BUILDER_ARTIFACT_DIGEST'],
  'hashShapes':all(isinstance(lock.get(name),str) and len(lock[name])==64 for name in (
    'builderSourceArchiveSha256','builderFrozenSourceTreeSha256','builderFrozenSourceTarSha256',
@@ -173,12 +175,13 @@ checks.update({
  'locked-semantic-inventory':lock.get('builderAxeSemanticInventorySha256')==metrics.get('inventorySha256'),
  'locked-node-set':lock.get('builderAxeNodeFingerprintSetSha256')==metrics.get('nodeFingerprintSetSha256'),
  'locked-binding-set':lock.get('builderAxeBindingFingerprintSetSha256')==metrics.get('bindingFingerprintSetSha256'),
+ 'locked-incomplete-node-count':lock.get('builderAxeIncompleteNodeCount')==metrics.get('nodeCount'),
  'external-r7e-audit-pass':audit.get('passed') is True and audit.get('blockers')==[],
  'v6-lock-infrastructure':(root/'R7F_EVIDENCE/verifier-v6-lock-infrastructure.sha256').is_file(),
 })
 data.update({
  'passed':all(checks.values()),
- 'verificationVersion':'R7F-v6-exact-fingerprint-bound-locked',
+ 'verificationVersion':'R7F-full-history-dynamic-fingerprint-locked',
  'checks':checks,
  'failedChecks':[name for name,passed in checks.items() if not passed],
  'builderInputLock':lock,
@@ -207,4 +210,4 @@ PY
 
 LOCKED_SUCCESS=1
 trap - EXIT
-printf 'R7F v6 locked exact fingerprint-bound verification completed successfully.\n'
+printf 'R7F full-history locked dynamic fingerprint verification completed successfully.\n'

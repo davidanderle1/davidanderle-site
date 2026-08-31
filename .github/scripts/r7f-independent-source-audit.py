@@ -17,6 +17,10 @@ REQUIRED_PATHS = [
     "astro.config.mjs",
     "astro.stress.config.mjs",
     "src/content.config.ts",
+    "docs/R7_HISTORY_RECONCILIATION.md",
+    "src/components/HomepageRecordPreview.astro",
+    "src/components/WritingRecordPreview.astro",
+    "src/lib/profile-copy.ts",
     "src/pages/index.astro",
     "src/pages/work/[slug].astro",
     "src/pages/writing/[slug].astro",
@@ -178,7 +182,15 @@ def audit(root: Path) -> dict[str, object]:
     checks["single-route-local-executable-script"] = 'type="module"' in vce_source and "src={manifest.file}" in vce_source
     global_css = read(root / "src/styles/global.css") if (root / "src/styles/global.css").is_file() else ""
     project_css = read(root / "src/styles/project.css") if (root / "src/styles/project.css").is_file() else ""
-    checks["bearing-three-real-stops"] = "milestones.slice(0, 3)" in index_source
+    content_source = read(root / "src/lib/content.ts") if (root / "src/lib/content.ts").is_file() else ""
+    profile_copy_source = read(root / "src/lib/profile-copy.ts") if (root / "src/lib/profile-copy.ts").is_file() else ""
+    writing_record = read(root / "src/content/writing/writing-protecting-retail-investors.md") if (root / "src/content/writing/writing-protecting-retail-investors.md").is_file() else ""
+    checks["history-reconciliation-document"] = (root / "docs/R7_HISTORY_RECONCILIATION.md").is_file()
+    checks["history-reconciled-homepage-selection"] = all(token in index_source for token in ("getHomepageSelection", "HomepageRecordPreview", "homepageSelection.map"))
+    checks["history-reconciled-generic-milestones"] = all(token in index_source for token in ("getBearingMilestones", "workRouteById", "bearingMilestones.map")) and "work-vce" not in index_source
+    checks["history-reconciled-public-indexability"] = all(token in content_source for token in ("isPublicRecord", "isIndexableRecord", "data.indexability === 'index'"))
+    checks["history-reconciled-profile-copy"] = all(token in profile_copy_source for token in ("stageSentence", "directionSentence", "firstPersonEducationSentence"))
+    checks["history-reconciled-writing-credit"] = "structuredDataCredit: contributor" in writing_record
     checks["bearing-three-svg-nodes"] = len(re.findall(r"<circle\b", bearing_source, re.I)) == 3
     checks["compact-portrait-decorative-alt"] = '<ResponsiveMedia alt=""' in index_source and "alt={alt}" in media_source
     checks["narrow-navigation-hardening"] = ".nav-list" in global_css and "overflow-x: auto" in global_css and "flex-wrap: nowrap" in global_css
