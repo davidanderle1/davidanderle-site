@@ -1,0 +1,3 @@
+R7E truth and privacy authoritative verification trigger
+canonical source transport parent: 8d64d306d62fda369866d07ee2100ef438bb8737
+scope: year-only completion truth, date-of-birth exclusion, strict profile privacy invariants
