@@ -97,7 +97,7 @@ jobs:
           npm ci --audit=false --fund=false
           npm run schema:generate
           test "$(find schemas -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 9
-          jq -e '.schemaVersion=="1.0.0" and (.schemas|length)==8' schemas/index.json >/dev/null
+          jq -e '.contractVersion=="1.0.0" and (.schemas|length)==8' schemas/index.json >/dev/null
           for file in schemas/*.schema.json; do jq -e '."$schema"=="https://json-schema.org/draft/2020-12/schema" and ."x-contract-version"=="1.0.0"' "$file" >/dev/null; done
           npm run preflight:workspace
           npm run schema:contract
