@@ -59,7 +59,7 @@ test -f "$LOCK"
 test -f "$EXTERNAL_AUDIT"
 bash -n "$ROOT/.github/scripts/r7f-v6-final.sh"
 bash -n "$ROOT/.github/scripts/r7f-v6-final-locked.sh"
-python3 -m py_compile "$ROOT/.github/scripts/r7f-independent-axe-fingerprint-audit-v3.py"
+python3 -m py_compile "$ROOT/.github/scripts/r7f-independent-axe-fingerprint-dynamic.py"
 
 python3 - <<'PY'
 import hashlib,json,os
@@ -127,7 +127,7 @@ sha256sum \
   "$EXTERNAL_AUDIT" \
   "$ROOT/.github/scripts/r7f-v6-final.sh" \
   "$ROOT/.github/scripts/r7f-v6-final-locked.sh" \
-  "$ROOT/.github/scripts/r7f-independent-axe-fingerprint-audit-v3.py" \
+  "$ROOT/.github/scripts/r7f-independent-axe-fingerprint-dynamic.py" \
   > /tmp/r7f-v6-lock-infrastructure.sha256
 
 bash "$ROOT/.github/scripts/r7f-v6-final.sh"
