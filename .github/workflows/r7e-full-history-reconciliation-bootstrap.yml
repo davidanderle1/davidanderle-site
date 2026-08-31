@@ -77,7 +77,7 @@ jobs:
           jq -e '.errorCount == 0 and .recordCount == 12' /tmp/content-validation.json >/dev/null
           (
             cd candidate
-            npm run preflight:source | tee /tmp/source-preflight.json
+            node scripts/source-preflight.mjs | tee /tmp/source-preflight.json
             node scripts/run-invalid-fixtures.mjs | tee /tmp/invalid-fixtures.log
             rm -rf .r7e-tmp
           )
