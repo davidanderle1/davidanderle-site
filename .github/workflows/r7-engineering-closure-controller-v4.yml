@@ -167,8 +167,8 @@ jobs:
               'selfTestPassed': selftest.get('passed') is True,
               'selfTestNineOfNine': selftest.get('caseCount') == 9 and selftest.get('passedCaseCount') == 9,
               'readOnlyTokenPosture': True,
-              'mainBranchMutationAuthorized': False,
-              'productionDeploymentAuthorized': False,
+              'mainBranchMutationNotAuthorized': True,
+              'productionDeploymentNotAuthorized': True,
           }
           result = {
               'schema': 'R7_ENGINEERING_CONTROLLER_V4_PACKAGE_VALIDATION',
