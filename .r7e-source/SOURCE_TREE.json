@@ -219,9 +219,9 @@
     },
     {
       "path": "scripts/serve-dist.mjs",
-      "sha256": "e896656daefc0183e19776ea16b4afa781502b8fd3eccfb1af33db840b2c85d9",
+      "sha256": "3f5da4b911cce21f55b26c587aa6379ea0c317922677df644e5f56dea40154d0",
       "mode": "0o644",
-      "size": 2044
+      "size": 2002
     },
     {
       "path": "scripts/source-preflight.mjs",
@@ -231,9 +231,9 @@
     },
     {
       "path": "scripts/validate-content.mjs",
-      "sha256": "3b662537b34a443d8efdc503c79d6f9adf35a29a6ccef9bebd6b349d6fce92b3",
+      "sha256": "2f03fcdd185829009f215018f341b9f72dbc6d9a7875ef6b8d7120ff8e82d236",
       "mode": "0o644",
-      "size": 8717
+      "size": 8675
     },
     {
       "path": "scripts/validate-links.mjs",
@@ -339,15 +339,15 @@
     },
     {
       "path": "src/components/StructuredData.astro",
-      "sha256": "7f12da03a87f3cd753e1fdd948bb26b4c9845f717593625a66b7055f2a67036b",
+      "sha256": "a55c07d97aade5535241b017037c2e92dc6170250c832fbd411035f38dfb6e7c",
       "mode": "0o644",
-      "size": 237
+      "size": 247
     },
     {
       "path": "src/components/VceSequence.astro",
-      "sha256": "22fc7da60d3f8934d014af28f45d8083584f0cabc7c9971e37c5cfaed7c1effc",
+      "sha256": "9b19afd1ed8444e890e8dd54e81848d112fd0ba6aec9d0b5aeab77696d1b4b08",
       "mode": "0o644",
-      "size": 1317
+      "size": 1327
     },
     {
       "path": "src/components/WorkRecordPreview.astro",
@@ -357,9 +357,9 @@
     },
     {
       "path": "src/content.config.ts",
-      "sha256": "c8371d224ea2fdb6e2bbaa7e7a77d40dec913f66c2fd4c2596293de2618e9f13",
+      "sha256": "111ca482a9bb779b16455bdde7f7cdd88d53a70553431e60a878fd05a10751f0",
       "mode": "0o644",
-      "size": 6171
+      "size": 6162
     },
     {
       "path": "src/content/milestones.json",
