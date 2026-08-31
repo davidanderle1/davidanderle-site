@@ -20,7 +20,6 @@ def main() -> None:
     replacements = [
         ('name: R7E full-history reconciled native Astro verification', 'name: R7E portable JSON Schema native Astro verification', 'workflow name'),
         ('r7e-full-history-reconciled-verification-20260831', 'r7e-portable-json-schema-verification-20260831', 'branch'),
-        ("'.github/workflows/r7e-full-history-reconciled-verification.yml'", "'.github/workflows/r7e-portable-json-schema-verification.yml'", 'path trigger'),
         ('r7e-full-history-reconciled-${{ github.ref }}', 'r7e-portable-json-schema-${{ github.ref }}', 'concurrency'),
         ('Checkout immutable reconciliation branch', 'Checkout immutable portable-schema branch', 'checkout name'),
         ("if not result['passed'] or len(actual) != 131:", "if not result['passed'] or len(actual) != 146:", 'source file count'),
@@ -39,6 +38,13 @@ def main() -> None:
     ]
     for old, new, label in replacements:
         text = replace_exact(text, old, new, label)
+
+    quoted_old = "'.github/workflows/r7e-full-history-reconciled-verification.yml'"
+    quoted_new = "'.github/workflows/r7e-portable-json-schema-verification.yml'"
+    quoted_count = text.count(quoted_old)
+    if quoted_count != 2:
+        raise SystemExit(f'workflow path anchors: expected two, found {quoted_count}')
+    text = text.replace(quoted_old, quoted_new)
 
     old_required = "for required in package.json package-lock.json .node-version .nvmrc astro.config.mjs src/content.config.ts docs/R7_HISTORY_RECONCILIATION.md src/components/HomepageRecordPreview.astro src/components/WritingRecordPreview.astro src/lib/profile-copy.ts scripts/build-axe-fingerprint-adjudication.mjs; do"
     new_required = "for required in package.json package-lock.json .node-version .nvmrc astro.config.mjs src/content.config.ts src/content-schemas.ts docs/R7_HISTORY_RECONCILIATION.md docs/PORTABLE_JSON_SCHEMA.md schemas/index.json schemas/canonical-content.schema.json src/components/HomepageRecordPreview.astro src/components/WritingRecordPreview.astro src/lib/profile-copy.ts scripts/build-axe-fingerprint-adjudication.mjs scripts/generate-json-schemas.mjs scripts/validate-json-schema.mjs scripts/verify-json-schema-drift.mjs; do"
