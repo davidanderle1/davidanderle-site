@@ -1,0 +1,185 @@
+name: R7F portable JSON Schema independent external audit v2
+
+on:
+  push:
+    branches:
+      - r7f-portable-json-schema-external-audit-20260831
+    paths:
+      - '.github/workflows/r7f-portable-json-schema-external-audit-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7f-portable-json-schema-external-audit-v2
+  cancel-in-progress: false
+
+env:
+  R7F_BRANCH: r7f-portable-json-schema-verification-20260831
+  R7F_WORKFLOW_PATH: .github/workflows/r7f-portable-json-schema-authoritative.yml
+
+jobs:
+  audit:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout independent external-audit branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Locate exact successful portable-schema R7F
+        id: locate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          selected=''
+          for attempt in $(seq 1 180); do
+            head_sha="$(gh api "repos/$repo/branches/$R7F_BRANCH" --jq '.commit.sha')"
+            runs="$(gh api "repos/$repo/actions/runs?branch=$R7F_BRANCH&per_page=100")"
+            selected="$(jq -c --arg head "$head_sha" --arg path "$R7F_WORKFLOW_PATH" '[.workflow_runs[] | select(.head_sha==$head and .path==$path and .status=="completed" and .conclusion=="success")] | sort_by(.id) | last // empty' <<<"$runs")"
+            if [ -n "$selected" ]; then break; fi
+            failed="$(jq -r --arg head "$head_sha" --arg path "$R7F_WORKFLOW_PATH" '[.workflow_runs[] | select(.head_sha==$head and .path==$path and .status=="completed" and .conclusion!="success")] | sort_by(.id) | last | .id // empty' <<<"$runs")"
+            if [ -n "$failed" ]; then echo "Exact-head portable R7F failed: $failed" >&2; exit 1; fi
+            sleep 15
+          done
+          test -n "$selected"
+          run_id="$(jq -r '.id' <<<"$selected")"; commit="$(jq -r '.head_sha' <<<"$selected")"
+          artifacts="$(gh api "repos/$repo/actions/runs/$run_id/artifacts")"
+          artifact="$(jq -c '[.artifacts[] | select(.expired==false)] | if length==1 then .[0] else empty end' <<<"$artifacts")"; test -n "$artifact"
+          artifact_id="$(jq -r '.id' <<<"$artifact")"; artifact_name="$(jq -r '.name' <<<"$artifact")"; artifact_digest="$(jq -r '.digest' <<<"$artifact")"
+          printf '%s\n' "$selected" > R7F_GITHUB_RUN_METADATA.json; printf '%s\n' "$artifact" > R7F_GITHUB_ARTIFACT_METADATA.json
+          { echo "run_id=$run_id"; echo "commit=$commit"; echo "artifact_id=$artifact_id"; echo "artifact_name=$artifact_name"; echo "artifact_digest=$artifact_digest"; } >> "$GITHUB_OUTPUT"
+
+      - name: Download exact outer ZIP and verify GitHub digest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R7F_ARTIFACT_ID: ${{ steps.locate.outputs.artifact_id }}
+          R7F_ARTIFACT_DIGEST: ${{ steps.locate.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$R7F_ARTIFACT_ID/zip" --output r7f-portable-authoritative.zip
+          test "sha256:$(sha256sum r7f-portable-authoritative.zip | awk '{print $1}')" = "$R7F_ARTIFACT_DIGEST"
+          rm -rf r7f-artifact; mkdir r7f-artifact; unzip -q r7f-portable-authoritative.zip -d r7f-artifact
+          test "$(<r7f-artifact/R7F_GATE_DECISION.txt)" = 'R7F PORTABLE JSON SCHEMA INDEPENDENT VERIFICATION COMPLETE — READY FOR HISTORY-BOUND CONTROLLER'
+          (cd r7f-artifact && sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt)
+
+      - name: Independently audit artifact semantics and evidence chain
+        shell: bash
+        env:
+          R7F_RUN_ID: ${{ steps.locate.outputs.run_id }}
+          R7F_COMMIT: ${{ steps.locate.outputs.commit }}
+          R7F_ARTIFACT_ID: ${{ steps.locate.outputs.artifact_id }}
+          R7F_ARTIFACT_NAME: ${{ steps.locate.outputs.artifact_name }}
+          R7F_ARTIFACT_DIGEST: ${{ steps.locate.outputs.artifact_digest }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,stat,zipfile
+          from pathlib import Path,PurePosixPath
+          def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          z=Path('r7f-portable-authoritative.zip')
+          with zipfile.ZipFile(z) as f:
+              infos=f.infolist();names=[i.filename for i in infos];safe=len(names)==len(set(names)) and f.testzip() is None
+              for i in infos:
+                  pp=PurePosixPath(i.filename);mode=(i.external_attr>>16)&0xffff
+                  if pp.is_absolute() or '..' in pp.parts or stat.S_ISLNK(mode):safe=False
+          root=Path('r7f-artifact'); ev=root/'R7F_EVIDENCE'
+          validation=json.loads((root/'R7F_PACKAGE_VALIDATION.json').read_text())
+          portable=json.loads((ev/'portable-json-schema-gate.json').read_text())
+          builder=json.loads((ev/'portable-schema-builder-audit.json').read_text())
+          candidate=json.loads((ev/'portable-schema-candidate-audit.json').read_text())
+          verifier=json.loads((ev/'portable-schema-verifier-audit.json').read_text())
+          axe_builder=json.loads((ev/'independent-builder-axe-fingerprint-v2.json').read_text())
+          axe_verifier=json.loads((ev/'independent-verifier-axe-fingerprint-v2.json').read_text())
+          neg_names=['negative-control-desktop-target-v2.json','negative-control-mobile-related-owner-v2.json','negative-control-proof-binding-v2.json','negative-control-self-consistent-inventory-v2.json']
+          negatives=[json.loads((ev/n).read_text()) for n in neg_names]
+          checks={
+              'outerZipSafe':safe,
+              'packagePassed':validation.get('passed') is True and validation.get('failedChecks')==[],
+              'portableGatePassed':portable.get('passed') is True and portable.get('failedChecks')==[],
+              'portableBuilderAudit':builder.get('passed') is True,
+              'portableCandidateAudit':candidate.get('passed') is True,
+              'portableVerifierAudit':verifier.get('passed') is True,
+              'portableSchemaParity':builder.get('schemaFiles')==candidate.get('schemaFiles')==verifier.get('schemaFiles'),
+              'portableSchemaSetParity':builder.get('schemaFileSetSha256')==candidate.get('schemaFileSetSha256')==verifier.get('schemaFileSetSha256')==portable.get('schemaFileSetSha256'),
+              'draft202012':all(row.get('draft')=='https://json-schema.org/draft/2020-12/schema' for row in verifier.get('schemaFiles',[])),
+              'schemaCount':len(verifier.get('schemaFiles',[]))>=4,
+              'axeBuilderPassed':axe_builder.get('passed') is True,
+              'axeVerifierPassed':axe_verifier.get('passed') is True,
+              'axeDynamicCountParity':(axe_builder.get('metrics') or {}).get('nodeCount')==(axe_verifier.get('metrics') or {}).get('nodeCount') and int((axe_verifier.get('metrics') or {}).get('nodeCount') or 0)>0,
+              'axeInventoryParity':(axe_builder.get('metrics') or {}).get('inventorySha256')==(axe_verifier.get('metrics') or {}).get('inventorySha256'),
+              'axeNodeSetParity':(axe_builder.get('metrics') or {}).get('nodeFingerprintSetSha256')==(axe_verifier.get('metrics') or {}).get('nodeFingerprintSetSha256'),
+              'axeBindingSetParity':(axe_builder.get('metrics') or {}).get('bindingFingerprintSetSha256')==(axe_verifier.get('metrics') or {}).get('bindingFingerprintSetSha256'),
+              'allFingerprintNegativesRejected':all(x.get('passed') is False for x in negatives),
+              'sourceParity':json.loads((ev/'builder-verifier-source-parity.json').read_text()).get('passed') is True if (ev/'builder-verifier-source-parity.json').is_file() else any('source-parity' in k and v is True for k,v in (validation.get('checks') or {}).items()),
+              'distParity':any('dist-parity' in k and v is True for k,v in (validation.get('checks') or {}).items()),
+              'stressParity':any('stress' in k and 'parity' in k and v is True for k,v in (validation.get('checks') or {}).items()),
+              'reproducibility':any('reproduc' in k and v is True for k,v in (validation.get('checks') or {}).items()),
+              'browserGate':any('browser' in k and v is True for k,v in (validation.get('checks') or {}).items()),
+              'lighthouseGate':any('lighthouse' in k and v is True for k,v in (validation.get('checks') or {}).items()),
+              'networkGate':any('network' in k and v is True for k,v in (validation.get('checks') or {}).items()),
+              'wranglerGate':any('wrangler' in k and v is True for k,v in (validation.get('checks') or {}).items()),
+          }
+          result={'schema':'R7F_PORTABLE_JSON_SCHEMA_EXTERNAL_AUDIT_V2','decision':'R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_PASS' if all(checks.values()) else 'R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_FAIL','passed':all(checks.values()),'repository':os.environ['GITHUB_REPOSITORY'],'r7f':{'branch':os.environ['R7F_BRANCH'],'workflowPath':os.environ['R7F_WORKFLOW_PATH'],'commit':os.environ['R7F_COMMIT'],'runId':int(os.environ['R7F_RUN_ID']),'artifactId':int(os.environ['R7F_ARTIFACT_ID']),'artifactName':os.environ['R7F_ARTIFACT_NAME'],'artifactDigest':os.environ['R7F_ARTIFACT_DIGEST']},'checks':checks,'checkCount':len(checks),'passedCheckCount':sum(checks.values()),'failedChecks':[k for k,v in checks.items() if not v],'blockers':[] if all(checks.values()) else [k for k,v in checks.items() if not v],'portableSchemaFileSetSha256':portable.get('schemaFileSetSha256'),'axeNodeCount':(axe_verifier.get('metrics') or {}).get('nodeCount'),'artifactZipSha256':sha(z)}
+          Path('R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_V2.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
+          if not result['passed']:raise SystemExit(1)
+          PY
+
+      - name: Adversarial audit-record self-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import copy,json
+          from pathlib import Path
+          base=json.loads(Path('R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_V2.json').read_text())
+          cases=[]
+          def reject(name,mut):
+              x=copy.deepcopy(base);mut(x);ok=not (x.get('passed') is True and not x.get('failedChecks') and x.get('r7f',{}).get('artifactDigest')==base['r7f']['artifactDigest'] and x.get('portableSchemaFileSetSha256')==base['portableSchemaFileSetSha256'])
+              cases.append({'name':name,'rejected':ok})
+          reject('artifact-digest-mutation',lambda x:x['r7f'].__setitem__('artifactDigest','sha256:'+'0'*64))
+          reject('schema-set-mutation',lambda x:x.__setitem__('portableSchemaFileSetSha256','0'*64))
+          reject('failed-check-injection',lambda x:x['failedChecks'].append('injected'))
+          reject('passed-false',lambda x:x.__setitem__('passed',False))
+          result={'schema':'R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_SELFTEST_V1','passed':all(c['rejected'] for c in cases),'cases':cases}
+          Path('R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_SELFTEST.json').write_text(json.dumps(result,indent=2)+'\n')
+          if not result['passed']:raise SystemExit(1)
+          PY
+
+      - name: Assemble and persist external-audit record
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_EVIDENCE
+          cp R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_V2.json R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_SELFTEST.json R7F_GITHUB_RUN_METADATA.json R7F_GITHUB_ARTIFACT_METADATA.json R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_EVIDENCE/
+          cp r7f-artifact/R7F_PACKAGE_VALIDATION.json r7f-artifact/R7F_GATE_DECISION.txt R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_EVIDENCE/
+          cp r7f-artifact/R7F_EVIDENCE/portable-json-schema-gate.json R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_EVIDENCE/
+          (cd R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_EVIDENCE && find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt && sha256sum --check --strict SHA256SUMS.txt)
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_EVIDENCE
+          git diff --cached --check
+          git commit -m 'R7F: persist portable JSON Schema external audit pass'
+          git push origin HEAD:r7f-portable-json-schema-external-audit-20260831
+
+      - name: Upload independent external-audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-portable-json-schema-external-audit-v2-${{ github.sha }}
+          path: |
+            R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_V2.json
+            R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_SELFTEST.json
+            R7F_PORTABLE_SCHEMA_EXTERNAL_AUDIT_EVIDENCE/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
