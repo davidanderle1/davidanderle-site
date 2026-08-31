@@ -1,0 +1,3 @@
+R7E authoritative fully synthetic privacy verification trigger
+canonical source transport parent: 06fe811e0b665400d0c37e68eff161869d4290b1
+scope: zero real birth-date values, synthetic regression fixtures, year-only completion, zero source diagnostics
