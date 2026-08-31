@@ -1,0 +1,134 @@
+name: Bootstrap R7E portable JSON Schema contract
+
+on:
+  push:
+    branches:
+      - r7e-portable-json-schema-verification-20260831
+    paths:
+      - '.github/workflows/r7e-portable-json-schema-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-portable-json-schema-bootstrap
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  materialize:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout immutable full-history baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Materialize, project and verify portable contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 022
+          rm -rf candidate r7e-baseline.zip portable-schema-patch.tar.gz
+          mkdir -p candidate
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          cat .r7e-source/part*.b64 | tr -d '\r\n' | base64 --decode > r7e-baseline.zip
+          test "$(sha256sum r7e-baseline.zip | awk '{print $1}')" = '867ad3adaa0f99e657cc714439bfac57d92efae406436cda96bdb056274121da'
+          unzip -q r7e-baseline.zip -d candidate
+          cat .github/r7-portable-schema-patch/codepatch.part*.b64 | tr -d '\r\n' | base64 --decode > portable-schema-patch.tar.gz
+          printf '%s  %s\n' '5d05a27a3f7ea236c6cb83ccd4b8ba30540fd70a77349f6a0f4dde991100e5d2' portable-schema-patch.tar.gz | sha256sum --check --strict
+          python3 - <<'PY'
+          import tarfile
+          from pathlib import Path, PurePosixPath
+          with tarfile.open('portable-schema-patch.tar.gz','r:gz') as tf:
+              members=tf.getmembers()
+              for member in members:
+                  path=PurePosixPath(member.name)
+                  if path.is_absolute() or '..' in path.parts or member.issym() or member.islnk():
+                      raise SystemExit(f'unsafe patch member: {member.name}')
+              tf.extractall('candidate',filter='data')
+          PY
+          rm candidate/.r7-portable-schema-patch-manifest.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('candidate')
+          def write(path,data): path.write_text(json.dumps(data,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+          lock_path=root/'package-lock.json'
+          lock=json.loads(lock_path.read_text())
+          deps=lock['packages'][''].setdefault('devDependencies',{})
+          deps['ajv']='8.20.0'
+          lock['packages']['']['devDependencies']={k:deps[k] for k in sorted(deps)}
+          if lock['packages'].get('node_modules/ajv',{}).get('version')!='8.20.0': raise SystemExit('Ajv lock entry mismatch')
+          write(lock_path,lock)
+          profile_path=root/'src/content/profile/profile-david-anderle.json'
+          profile=json.loads(profile_path.read_text()); profile['schemaVersion']='1.0.0'; write(profile_path,profile)
+          for relative in ('milestones.json','public-documents.json','redirects.json','tombstones.json'):
+              path=root/'src/content'/relative; rows=json.loads(path.read_text())
+              for row in rows: row['schemaVersion']='1.0.0'
+              write(path,rows)
+          for path in sorted([*(root/'src/content/work').glob('*.md'),*(root/'src/content/writing').glob('*.md')]):
+              text=path.read_text(encoding='utf-8')
+              if 'schemaVersion:' not in text.split('---',2)[1]:
+                  if not text.startswith('---\n'): raise SystemExit(f'bad frontmatter: {path}')
+                  text='---\nschemaVersion: "1.0.0"\n'+text[4:]
+              path.write_text(text,encoding='utf-8')
+          for path in sorted((root/'tests/invalid-fixtures').glob('*.json')):
+              if path.name.startswith('29-'): continue
+              data=json.loads(path.read_text())
+              for row in data.get('records',[]): row['schemaVersion']='1.0.0'
+              write(path,data)
+          PY
+          cd candidate
+          test "$(node --version)" = 'v24.20.0'
+          test "$(npm --version)" = '11.19.0'
+          npm ci --audit=false --fund=false
+          npm run schema:generate
+          test "$(find schemas -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 9
+          jq -e '.schemaVersion=="1.0.0" and (.schemas|length)==8' schemas/index.json >/dev/null
+          for file in schemas/*.schema.json; do jq -e '."$schema"=="https://json-schema.org/draft/2020-12/schema" and ."x-contract-version"=="1.0.0"' "$file" >/dev/null; done
+          npm run preflight:workspace
+          npm run schema:contract
+          npm run validate:fixtures | tee /tmp/fixtures.log
+          test "$(grep -c 'EXPECTED FAILURE (exit 1)' /tmp/fixtures.log)" -eq 29
+          ! grep -q 'UNEXPECTED' /tmp/fixtures.log
+          npm run check:astro
+          npm run build
+          npm run test:stress:generate
+          npm run schema:validate:stress
+          npm run schema:check
+          cd ..
+          rm -rf candidate/node_modules candidate/dist candidate/.astro candidate/.r7e-tmp candidate/public/assets/portrait candidate/public/assets/js candidate/public/artifacts candidate/src/data/generated
+          node candidate/scripts/source-preflight.mjs
+          test "$(find candidate/tests/invalid-fixtures -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 29
+          test "$(find candidate/schemas -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 9
+          jq -e '.packages[""].devDependencies.ajv=="8.20.0" and .packages["node_modules/ajv"].version=="8.20.0"' candidate/package-lock.json >/dev/null
+          python3 .github/scripts/r7e-pack-source.py candidate .r7e-source --archive r7e-native-source.zip --chunk-size 60000
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          jq -e '.fileCount==146' .r7e-source/SOURCE_TREE.json >/dev/null
+          tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256 > .r7e-source/HARDENED_SOURCE_READY
+          printf '\n' >> .r7e-source/HARDENED_SOURCE_READY
+
+      - name: Freeze portable canonical source transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .r7e-source
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7E: freeze portable JSON Schema canonical contract'
+          git push origin HEAD:r7e-portable-json-schema-verification-20260831
