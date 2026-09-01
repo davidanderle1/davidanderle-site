@@ -1,0 +1,51 @@
+{
+  "schema": "R7_FULL_HISTORY_CORPUS_MANIFEST_V4",
+  "corpusId": "XING-OPTIMALIZACE-PRO-JOBY-AND-R1-R13-HISTORICAL-CORPUS-20260901",
+  "reviewDate": "2026-09-01",
+  "scope": "User-visible content of the complete XING optimalizace pro joby conversation export plus the supplied historical R1-R7 packages and nested evidence archives relevant to the davidanderle.com programme.",
+  "explicitExclusions": [
+    "Hidden system messages",
+    "Private chain-of-thought",
+    "Tool-internal implementation messages not visible to the user",
+    "Unrelated conversations outside the supplied website-programme corpus"
+  ],
+  "conversation": {
+    "visibleMessageCount": 847,
+    "userMessageCount": 353,
+    "assistantMessageCount": 494,
+    "attachmentReferenceCount": 180
+  },
+  "historicalPackages": {
+    "suppliedTopLevelPackageCount": 28,
+    "nestedZipCount": 32,
+    "recursiveFileRecordCountMinimum": 10000,
+    "textDocumentCountMinimum": 8800,
+    "authoritativeSourceCount": 55
+  },
+  "integrity": {
+    "reuploadedArchivesTested": true,
+    "reuploadedArchiveIntegrityResult": "PASS",
+    "evidenceLocators": [
+      "R7_INPUT_REUPLOAD_VERIFICATION.json",
+      "R7_INPUT_REUPLOAD_VERIFICATION.md",
+      "R7_SOURCE_REGISTRY.json",
+      "R7_SOURCE_REGISTRY.csv",
+      "R7_FULL_HISTORY_CONTINUITY_CHECKPOINT.zip"
+    ],
+    "rawSourceBytesCommittedToPublicRepository": false,
+    "reasonRawBytesNotCommitted": "The corpus contains personal conversation history and large nested evidence archives. The public repository stores the reviewed manifest and traceability dispositions rather than republishing the private corpus."
+  },
+  "reviewMethod": [
+    "Parse the complete visible transcript in chronological order.",
+    "Recursively inventory supplied historical packages and nested archives.",
+    "Identify active authorities, supersessions, prohibitions, acceptance gates and carry-forwards.",
+    "Normalize materially distinct requirements while retaining source locators.",
+    "Classify duplicate prompt boilerplate and research-method instructions separately from product requirements.",
+    "Require every deferred material requirement to bind to an exact R8-R13 gate.",
+    "Treat any unresolved material clause as an R7 closure blocker."
+  ],
+  "limitations": [
+    "The manifest proves the reviewed corpus boundary and method; it does not republish the source conversation.",
+    "A future newly supplied historical artifact outside this corpus would require a new traceability version rather than retroactive silent inclusion."
+  ]
+}
