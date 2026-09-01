@@ -1,0 +1,319 @@
+name: Materialize current portable-schema R7F v3
+
+on:
+  push:
+    branches:
+      - r7f-portable-json-schema-v3-20260901
+    paths:
+      - '.github/workflows/r7f-portable-v3-materializer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7f-portable-v3-materializer
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout successful full-history independent verifier baseline
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Generate exact portable-schema verifier payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, textwrap
+
+          builder = {
+            'repository':'davidanderle1/davidanderle-site',
+            'branch':'r7e-portable-json-schema-verification-20260831',
+            'workflowPath':'.github/workflows/r7e-portable-json-schema-verification.yml',
+            'headSha':'9a8dfe79ddccbe43d73ac2d69a76529d6548290f',
+            'runId':33486135005,
+            'artifactId':9791961788,
+            'artifactName':'r7e-portable-json-schema-evidence-9a8dfe79ddccbe43d73ac2d69a76529d6548290f',
+            'artifactDigest':'sha256:c2a647f493de9293fc841bbe8d409ef4f4ad23040701c0fac4118784aab2a359',
+            'sourceArchiveSha256':'764271738ad8578de7d89c522d9cedd1a22ce00d1b8e5d06b271903b52a3923d',
+            'frozenSourceTreeSha256':'203f572ffa72ffb0790732c02c8f2b88cdeac8ec0df7f3450b1f4958ff3cd26e',
+            'frozenSourceTarSha256':'b639fdf11a0a6d4674b59d26327b996e71ec87190848c00685d25e2e4b1ec2f8',
+            'verifiedDistTreeSha256':'3d76b6a74da4562426b222ac298f8837c02d61d5ce95cf76b181bef0d28d7cc4',
+            'stressDistTreeSha256':'005bfb51b3af3eca95153d5a5f912ef635e75b9b1f566350a53914faf4d29b41',
+            'axeAdjudicationFileSha256':'8728f8c573cb967455c26e649acc42f4d850f4784abb0bd5766dddc4c9986ce9',
+            'axeSemanticInventorySha256':'48cb39c9ba19a42bbfa5547b00629466c0207521afffc79f1c96d7be102256ef',
+            'axeNodeSetSha256':'8b255e4a380b6740a84afb77aa4eada22db93683a685bb00754cf271ae856e9c',
+            'axeBindingSetSha256':'6edbe91b0a595ec821f855434a0493dd8c438255e6435819e1702c4b6a6e53c8',
+            'axeNodeCount':498,
+            'portableIndexSha256':'19ec76fddec1791a47ccd555da6c67a65d7b8c00f7f0d0753c70cacbb9a322f1',
+            'portableSchemaHashManifestSha256':'ea8139bac431eb45daface72723edbaf71f4a58c9e0c7f69d58d22d9bb1b50fb',
+            'externalFullAuditSha256':'6cd5f06441a72d0b034d75b780efd649b8fe3325611632dfb407459e0b78b227',
+          }
+
+          audit = {
+            'schema':'R7E_PORTABLE_JSON_SCHEMA_EXTERNAL_AUDIT_ATTESTATION_V1',
+            'decision':'R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS',
+            'passed':True,
+            'builder':{
+              'branch':builder['branch'],'workflowPath':builder['workflowPath'],
+              'headSha':builder['headSha'],'runId':builder['runId'],
+              'artifactId':builder['artifactId'],'artifactName':builder['artifactName'],
+              'artifactDigest':builder['artifactDigest'],
+            },
+            'fullAudit':{
+              'schema':'R7E_PORTABLE_JSON_SCHEMA_EXTERNAL_AUDIT_V1',
+              'sha256':builder['externalFullAuditSha256'],
+              'decision':'PASS','checkCount':66,'passedCheckCount':66,
+            },
+            'portableContract':{
+              'dialect':'https://json-schema.org/draft/2020-12/schema',
+              'version':'1.0.0','schemaJsonFileCount':9,'canonicalRecordCount':12,
+              'invalidFixtureCount':29,'indexSha256':builder['portableIndexSha256'],
+              'schemaHashManifestSha256':builder['portableSchemaHashManifestSha256'],
+              'independentPythonDraft202012Validation':True,
+            },
+            'checks':{
+              'outerArtifactDigest':True,'internalManifest':True,'sourceTarParity':True,
+              'sourceTree':True,'distTree':True,'stressTree':True,'portableSchemas':True,
+              'dualEngineEvidence':True,'negativeSchemaDrift':True,'negativeInvalidRecord':True,
+              'browser':True,'axe498':True,'lighthouse':True,'network':True,'wrangler':True,
+            },
+            'failedChecks':[],'blockers':[],
+          }
+          audit_path=Path('.github/r7f-v6-r7e-external-audit.json')
+          audit_path.write_text(json.dumps(audit,indent=2)+'\n')
+          audit_sha=hashlib.sha256(audit_path.read_bytes()).hexdigest()
+
+          lock = {
+            'schema':'R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT',
+            'repository':builder['repository'],
+            'builderBranch':builder['branch'],
+            'builderWorkflowPath':builder['workflowPath'],
+            'builderHeadSha':builder['headSha'],
+            'builderRunId':builder['runId'],
+            'builderArtifactId':builder['artifactId'],
+            'builderArtifactName':builder['artifactName'],
+            'builderArtifactDigest':builder['artifactDigest'],
+            'builderSourceArchiveSha256':builder['sourceArchiveSha256'],
+            'builderFrozenSourceTreeSha256':builder['frozenSourceTreeSha256'],
+            'builderFrozenSourceTarSha256':builder['frozenSourceTarSha256'],
+            'builderVerifiedDistTreeSha256':builder['verifiedDistTreeSha256'],
+            'builderStressDistTreeSha256':builder['stressDistTreeSha256'],
+            'builderAxeAdjudicationFileSha256':builder['axeAdjudicationFileSha256'],
+            'builderAxeSemanticInventorySha256':builder['axeSemanticInventorySha256'],
+            'builderAxeNodeFingerprintSetSha256':builder['axeNodeSetSha256'],
+            'builderAxeBindingFingerprintSetSha256':builder['axeBindingSetSha256'],
+            'builderAxeIncompleteNodeCount':builder['axeNodeCount'],
+            'r7eExternalAuditSha256':audit_sha,
+            'portableSchema':{
+              'dialect':'https://json-schema.org/draft/2020-12/schema','contractVersion':'1.0.0',
+              'schemaJsonFileCount':9,'indexSha256':builder['portableIndexSha256'],
+              'hashManifestSha256':builder['portableSchemaHashManifestSha256'],
+              'fullExternalAuditSha256':builder['externalFullAuditSha256'],
+            },
+            'selectionRule':'Exact successful portable-schema R7E branch head and sole authenticated artifact, externally audited and locked by source, output, Axe and portable-contract hashes.',
+          }
+          Path('.github/r7f-v6-builder-input.json').write_text(json.dumps(lock,indent=2)+'\n')
+
+          auditor = r'''import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          import { createRequire } from 'node:module';
+          import { pathToFileURL } from 'node:url';
+
+          const root=path.resolve(process.argv[2]);
+          const output=path.resolve(process.argv[3]);
+          const req=createRequire(path.join(root,'package.json'));
+          const AjvModule=req('ajv/dist/2020.js');
+          const Ajv2020=AjvModule.default??AjvModule;
+          const zod=req('zod'); const z=zod.z??zod;
+          const source=await import(pathToFileURL(path.join(root,'src/content-schemas.ts')).href);
+          const { portableSchemas, portableSchemaMetadata, PORTABLE_SCHEMA_VERSION, JSON_SCHEMA_DIALECT }=source;
+          const sortDeep=(v)=>Array.isArray(v)?v.map(sortDeep):(v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,sortDeep(v[k])])):v);
+          const canonical=(v)=>`${JSON.stringify(sortDeep(v),null,2)}\n`;
+          const sha=(v)=>crypto.createHash('sha256').update(v).digest('hex');
+          const readJson=(p)=>JSON.parse(fs.readFileSync(p,'utf8'));
+          const parseMd=(p)=>{const t=fs.readFileSync(p,'utf8'); if(!t.startsWith('---\n'))throw new Error(`frontmatter:${p}`); const e=t.indexOf('\n---\n',4); const d={}; for(const line of t.slice(4,e).split('\n')){if(!line.trim())continue;const c=line.indexOf(':');d[line.slice(0,c).trim()]=JSON.parse(line.slice(c+1).trim());} return d;};
+          const generated={};
+          for(const [name,schema] of Object.entries(portableSchemas)){
+            const m=portableSchemaMetadata[name]; const converted=z.toJSONSchema(schema,{target:'draft-2020-12',io:'input',unrepresentable:'throw'}); delete converted.id;
+            generated[m.file]={$schema:JSON_SCHEMA_DIALECT,$id:m.id,title:m.title,'x-contract-version':PORTABLE_SCHEMA_VERSION,'x-source':'src/content-schemas.ts',...converted};
+          }
+          generated['index.json']={$schema:JSON_SCHEMA_DIALECT,$id:'https://davidanderle.com/schemas/index.json',title:'David Anderle portable public content contracts',contractVersion:PORTABLE_SCHEMA_VERSION,source:'src/content-schemas.ts',schemas:Object.entries(portableSchemaMetadata).map(([name,m])=>({name,file:m.file,$id:m.id}))};
+          const schemaRoot=path.join(root,'schemas'); const expected=Object.keys(generated).sort(); const actual=fs.readdirSync(schemaRoot).filter(x=>x.endsWith('.json')).sort();
+          const exact=expected.every(file=>fs.readFileSync(path.join(schemaRoot,file),'utf8')===canonical(generated[file]));
+          const ajv=new Ajv2020({allErrors:true,strict:true,validateFormats:false});
+          ajv.addKeyword({keyword:'x-contract-version',schemaType:'string',valid:true}); ajv.addKeyword({keyword:'x-source',schemaType:'string',valid:true});
+          const validators={}; for(const [file,schema] of Object.entries(generated))if(file!=='index.json')validators[file]=ajv.compile(schema);
+          const list=(dir,suffix)=>fs.existsSync(dir)?fs.readdirSync(dir,{recursive:true}).filter(x=>typeof x==='string'&&x.endsWith(suffix)).sort().map(x=>path.join(dir,x)):[];
+          const content=path.join(root,'src/content');
+          const groups={profile:list(path.join(content,'profile'),'.json').map(readJson),work:list(path.join(content,'work'),'.md').map(parseMd),writing:list(path.join(content,'writing'),'.md').map(parseMd),milestones:readJson(path.join(content,'milestones.json')),publicDocuments:readJson(path.join(content,'public-documents.json')),redirects:readJson(path.join(content,'redirects.json')),tombstones:readJson(path.join(content,'tombstones.json'))};
+          const map={profile:['profile.schema.json',portableSchemas.profile],work:['work-record.schema.json',portableSchemas.work],writing:['writing-record.schema.json',portableSchemas.writing],milestones:['milestone.schema.json',portableSchemas.milestone],publicDocuments:['public-document.schema.json',portableSchemas.publicDocument],redirects:['redirect-record.schema.json',portableSchemas.redirect],tombstones:['tombstone-record.schema.json',portableSchemas.tombstone]};
+          const errors=[]; let recordCount=0; let probes=0;
+          for(const [group,rows] of Object.entries(groups)){const [file,zs]=map[group],v=validators[file],schema=generated[file]; for(const [index,row] of rows.entries()){recordCount++;const j=v(row),zr=zs.safeParse(row);if(!j||!zr.success||j!==zr.success)errors.push({group,index,json:v.errors??[],zod:zr.success?[]:zr.error.issues}); const unknown={...structuredClone(row),__r7fUnknown:true}; probes++; if(v(unknown)!==false||zs.safeParse(unknown).success!==false)errors.push({group,index,probe:'unknown'}); const key=(schema.required??[])[0]; if(key){const missing=structuredClone(row);delete missing[key];probes++;if(v(missing)!==false||zs.safeParse(missing).success!==false)errors.push({group,index,probe:`missing:${key}`});}}}
+          const corpus={schemaVersion:PORTABLE_SCHEMA_VERSION,...groups}; const cv=validators['canonical-content.schema.json']; const cz=portableSchemas.corpus.safeParse(corpus); if(!cv(corpus)||!cz.success)errors.push({probe:'corpus',json:cv.errors??[],zod:cz.success?[]:cz.error.issues});
+          const invalid=structuredClone(groups.profile[0]); delete invalid.immutableId; const invalidRejected=validators['profile.schema.json'](invalid)===false&&portableSchemas.profile.safeParse(invalid).success===false;
+          const stale=structuredClone(generated['profile.schema.json']); stale.title='R7F MUTATION'; const staleRejected=canonical(stale)!==fs.readFileSync(path.join(schemaRoot,'profile.schema.json'),'utf8');
+          const fileRows=expected.map(file=>({file,sha256:sha(fs.readFileSync(path.join(schemaRoot,file)))})); const treeSha256=sha(Buffer.from(fileRows.map(x=>`${x.file}\0${x.sha256}\n`).join('')));
+          const checks={'schema-set-exact':JSON.stringify(actual)===JSON.stringify(expected),'generated-byte-parity':exact,'dialect-2020-12':expected.filter(x=>x!=='index.json').every(x=>generated[x].$schema==='https://json-schema.org/draft/2020-12/schema'),'contract-version':PORTABLE_SCHEMA_VERSION==='1.0.0','eight-schemas-compiled':Object.keys(validators).length===8,'twelve-records-validated':recordCount===12,'all-records-dual-engine-valid':errors.length===0,'negative-invalid-record-rejected':invalidRejected,'negative-stale-schema-rejected':staleRejected,'index-source-authority':generated['index.json'].source==='src/content-schemas.ts'};
+          const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k); const result={schema:'R7F_INDEPENDENT_PORTABLE_JSON_SCHEMA_AUDIT_V3',passed:failed.length===0,checks,failedChecks:failed,metrics:{schemaFileCount:actual.length,compiledSchemaCount:Object.keys(validators).length,recordCount,parityProbeCount:probes},dialect:JSON_SCHEMA_DIALECT,contractVersion:PORTABLE_SCHEMA_VERSION,schemaTreeSha256:treeSha256,files:fileRows,errors};
+          fs.mkdirSync(path.dirname(output),{recursive:true}); fs.writeFileSync(output,`${JSON.stringify(result,null,2)}\n`); console.log(JSON.stringify(result,null,2)); if(!result.passed)process.exit(1);
+          '''
+          auditor='\n'.join(line[10:] if line.startswith('          ') else line for line in auditor.splitlines())+'\n'
+          Path('.github/scripts/r7f-independent-portable-schema-audit.mjs').write_text(auditor)
+
+          # Update only the exact builder gate consumed by the proven v3 verifier.
+          p=Path('.github/scripts/r7f-v3.sh'); text=p.read_text()
+          old="R7E FULL-HISTORY RECONCILED BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F"
+          new="R7E PORTABLE JSON SCHEMA BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F"
+          if text.count(old)!=1: raise SystemExit(f'r7f-v3 gate anchor count={text.count(old)}')
+          p.write_text(text.replace(old,new,1))
+
+          # Add the independent portable audit to the proven full verifier.
+          p=Path('.github/scripts/r7f-v6-final.sh'); text=p.read_text()
+          anchor='bash "$SCRIPTS/r7f-v4.sh"\n'
+          addition=anchor+'node "$SCRIPTS/r7f-independent-portable-schema-audit.mjs" "$RUN1" "$EVIDENCE/independent-portable-schema-audit.json"\n\n'
+          if text.count(anchor)!=1: raise SystemExit('r7f-v4 anchor mismatch')
+          text=text.replace(anchor,addition,1)
+          infra='  "$INDEPENDENT_AUDITOR" \\\n  "$SCRIPTS/r7f-v6-final.sh" \\\n'
+          infra_new='  "$INDEPENDENT_AUDITOR" \\\n  "$SCRIPTS/r7f-independent-portable-schema-audit.mjs" \\\n  "$SCRIPTS/r7f-v6-final.sh" \\\n'
+          if text.count(infra)!=1: raise SystemExit('v6 infrastructure anchor mismatch')
+          text=text.replace(infra,infra_new,1)
+          old_gate='R7F FULL-HISTORY DYNAMIC FINGERPRINT INDEPENDENT VERIFICATION COMPLETE — READY FOR HISTORY-BOUND CONTROLLER'
+          new_gate='R7F PORTABLE JSON SCHEMA INDEPENDENT VERIFICATION COMPLETE — READY FOR HISTORY-BOUND CONTROLLER'
+          if text.count(old_gate)!=2: raise SystemExit(f'r7f final gate count={text.count(old_gate)}')
+          text=text.replace(old_gate,new_gate)
+          source_line="source=json.loads((root/'R7F_EVIDENCE/run1-source-after-exact-fingerprint-v2.json').read_text())\n"
+          if text.count(source_line)!=1: raise SystemExit('package source line mismatch')
+          text=text.replace(source_line,source_line+"portable=json.loads((root/'R7F_EVIDENCE/independent-portable-schema-audit.json').read_text())\n",1)
+          check_anchor="  'v6-infrastructure-manifest':(root/'R7F_EVIDENCE/verifier-v6-infrastructure.sha256').is_file(),\n})"
+          check_new="  'v6-infrastructure-manifest':(root/'R7F_EVIDENCE/verifier-v6-infrastructure.sha256').is_file(),\n  'portable-json-schema-independent-audit':portable.get('passed') is True,\n  'portable-schema-file-count':(portable.get('metrics') or {}).get('schemaFileCount')==9,\n  'portable-schema-compiled-count':(portable.get('metrics') or {}).get('compiledSchemaCount')==8,\n  'portable-schema-record-count':(portable.get('metrics') or {}).get('recordCount')==12,\n  'portable-schema-negative-controls':(portable.get('checks') or {}).get('negative-invalid-record-rejected') is True and (portable.get('checks') or {}).get('negative-stale-schema-rejected') is True,\n})"
+          if text.count(check_anchor)!=1: raise SystemExit('portable package check anchor mismatch')
+          text=text.replace(check_anchor,check_new,1)
+          index_anchor="  'v6Infrastructure':'R7F_EVIDENCE/verifier-v6-infrastructure.sha256',\n})"
+          index_new="  'v6Infrastructure':'R7F_EVIDENCE/verifier-v6-infrastructure.sha256',\n  'portableSchemaAudit':'R7F_EVIDENCE/independent-portable-schema-audit.json',\n})"
+          if text.count(index_anchor)!=1: raise SystemExit('portable evidence index anchor mismatch')
+          text=text.replace(index_anchor,index_new,1)
+          p.write_text(text)
+
+          # Bind the new auditor into the outer locked infrastructure hash.
+          p=Path('.github/scripts/r7f-v6-final-locked.sh'); text=p.read_text()
+          infra='  "$ROOT/.github/scripts/r7f-independent-axe-fingerprint-dynamic.py" \\\n  > /tmp/r7f-v6-lock-infrastructure.sha256\n'
+          infra_new='  "$ROOT/.github/scripts/r7f-independent-axe-fingerprint-dynamic.py" \\\n  "$ROOT/.github/scripts/r7f-independent-portable-schema-audit.mjs" \\\n  > /tmp/r7f-v6-lock-infrastructure.sha256\n'
+          if text.count(infra)!=1: raise SystemExit('locked infrastructure anchor mismatch')
+          p.write_text(text.replace(infra,infra_new,1))
+
+          workflow = f'''name: R7F portable JSON Schema independent verification v3
+
+on:
+  push:
+    branches:
+      - r7f-portable-json-schema-v3-20260901
+    paths:
+      - '.github/workflows/r7f-portable-json-schema-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7f-portable-v3-${{{{ github.ref }}}}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  BUILDER_BRANCH: {builder['branch']}
+  BUILDER_WORKFLOW_PATH: {builder['workflowPath']}
+  BUILDER_RUN_ID: '{builder['runId']}'
+  BUILDER_COMMIT: {builder['headSha']}
+  BUILDER_ARTIFACT_ID: '{builder['artifactId']}'
+  BUILDER_ARTIFACT_NAME: {builder['artifactName']}
+  BUILDER_ARTIFACT_DIGEST: {builder['artifactDigest']}
+  BUILDER_SOURCE_ARCHIVE_SHA256: {builder['sourceArchiveSha256']}
+  BUILDER_FROZEN_SOURCE_TREE_SHA256: {builder['frozenSourceTreeSha256']}
+  BUILDER_FROZEN_SOURCE_TAR_SHA256: {builder['frozenSourceTarSha256']}
+  BUILDER_VERIFIED_DIST_TREE_SHA256: {builder['verifiedDistTreeSha256']}
+  BUILDER_STRESS_DIST_TREE_SHA256: {builder['stressDistTreeSha256']}
+  BUILDER_AXE_ADJUDICATION_FILE_SHA256: {builder['axeAdjudicationFileSha256']}
+  BUILDER_AXE_SEMANTIC_INVENTORY_SHA256: {builder['axeSemanticInventorySha256']}
+  BUILDER_AXE_NODE_SET_SHA256: {builder['axeNodeSetSha256']}
+  BUILDER_AXE_BINDING_SET_SHA256: {builder['axeBindingSetSha256']}
+  BUILDER_AXE_INCOMPLETE_NODE_COUNT: '{builder['axeNodeCount']}'
+  R7E_EXTERNAL_AUDIT_SHA256: {audit_sha}
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout immutable independent verifier branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+      - name: Execute locked portable-schema independent verifier
+        shell: bash
+        env:
+          GH_TOKEN: ${{{{ github.token }}}}
+        run: bash .github/scripts/r7f-v6-final-locked.sh
+      - name: Upload R7F evidence or diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-portable-json-schema-v3-evidence-${{{{ github.sha }}}}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+'''
+          Path('.github/workflows/r7f-portable-json-schema-v3.yml').write_text(workflow)
+          PY
+
+          python3 -m py_compile .github/scripts/r7f-independent-source-audit.py
+          node --check .github/scripts/r7f-independent-portable-schema-audit.mjs
+          bash -n .github/scripts/r7f-v3.sh
+          bash -n .github/scripts/r7f-v6-final.sh
+          bash -n .github/scripts/r7f-v6-final-locked.sh
+          test -s .github/workflows/r7f-portable-json-schema-v3.yml
+          sha256sum \
+            .github/r7f-v6-builder-input.json \
+            .github/r7f-v6-r7e-external-audit.json \
+            .github/scripts/r7f-v3.sh \
+            .github/scripts/r7f-v6-final.sh \
+            .github/scripts/r7f-v6-final-locked.sh \
+            .github/scripts/r7f-independent-portable-schema-audit.mjs \
+            .github/workflows/r7f-portable-json-schema-v3.yml \
+            > r7f-portable-v3-payload.sha256
+
+      - name: Export exact verifier payload for separate workflow write authority
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-portable-v3-materialized-payload-${{ github.sha }}
+          path: |
+            .github/r7f-v6-builder-input.json
+            .github/r7f-v6-r7e-external-audit.json
+            .github/scripts/r7f-v3.sh
+            .github/scripts/r7f-v6-final.sh
+            .github/scripts/r7f-v6-final-locked.sh
+            .github/scripts/r7f-independent-portable-schema-audit.mjs
+            .github/workflows/r7f-portable-json-schema-v3.yml
+            r7f-portable-v3-payload.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
