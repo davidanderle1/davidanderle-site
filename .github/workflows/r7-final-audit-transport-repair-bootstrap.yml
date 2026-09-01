@@ -1,0 +1,75 @@
+name: Bootstrap verified chunked final-auditor transport
+
+on:
+  push:
+    branches:
+      - r7-controller-external-audit-v2-final-20260901
+    paths:
+      - '.github/workflows/r7-final-audit-transport-repair-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7-final-audit-transport-repair-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated final-audit branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Verify chunks and patch final audit workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/r7-final-audit-v1/chunks/audit.part*.b64 | tr -d '\r\n' > /tmp/r7-final-audit.b64
+          test "$(sha256sum /tmp/r7-final-audit.b64 | awk '{print $1}')" = 'db9786e481930b07c5ea33271adcff819c0da300c6dd2c0ede254d111a83bd53'
+          base64 --decode /tmp/r7-final-audit.b64 > /tmp/r7-final-audit.py.gz
+          test "$(sha256sum /tmp/r7-final-audit.py.gz | awk '{print $1}')" = '1f4c763df0d6204e4a6a7881619be79926b87952cf9dbe39ce3c260721fb196b'
+          gzip --test /tmp/r7-final-audit.py.gz
+          gzip --decompress --stdout /tmp/r7-final-audit.py.gz > /tmp/r7-controller-external-audit-v1.py
+          test "$(sha256sum /tmp/r7-controller-external-audit-v1.py | awk '{print $1}')" = '436eddabd69cdfbf7993a6f9dddad6aa99ffdcef14bdfa73d3cee615de33f3ef'
+          python3 -m py_compile /tmp/r7-controller-external-audit-v1.py
+
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path('.github/workflows/r7-controller-external-audit-v2-final.yml')
+          text=path.read_text(encoding='utf-8')
+          old="          tr -d '\\\\r\\\\n' < .github/r7-final-audit-v1/audit.b64 | base64 --decode | gzip --decompress > .github/scripts/r7-controller-external-audit-v1.py\n"
+          new=(
+              "          cat .github/r7-final-audit-v1/chunks/audit.part*.b64 | tr -d '\\\\r\\\\n' > /tmp/r7-final-audit.b64\n"
+              "          test \"$(sha256sum /tmp/r7-final-audit.b64 | awk '{print $1}')\" = 'db9786e481930b07c5ea33271adcff819c0da300c6dd2c0ede254d111a83bd53'\n"
+              "          base64 --decode /tmp/r7-final-audit.b64 > /tmp/r7-final-audit.py.gz\n"
+              "          test \"$(sha256sum /tmp/r7-final-audit.py.gz | awk '{print $1}')\" = '1f4c763df0d6204e4a6a7881619be79926b87952cf9dbe39ce3c260721fb196b'\n"
+              "          gzip --test /tmp/r7-final-audit.py.gz\n"
+              "          gzip --decompress --stdout /tmp/r7-final-audit.py.gz > .github/scripts/r7-controller-external-audit-v1.py\n"
+          )
+          if text.count(old)!=1:
+              raise SystemExit(f'corrupt transport anchor count={text.count(old)}')
+          path.write_text(text.replace(old,new,1),encoding='utf-8')
+          PY
+
+          ruby -ryaml -e 'YAML.safe_load(File.read(ARGV[0]), aliases: true)' .github/workflows/r7-controller-external-audit-v2-final.yml
+          grep -q 'db9786e481930b07c5ea33271adcff819c0da300c6dd2c0ede254d111a83bd53' .github/workflows/r7-controller-external-audit-v2-final.yml
+          grep -q '1f4c763df0d6204e4a6a7881619be79926b87952cf9dbe39ce3c260721fb196b' .github/workflows/r7-controller-external-audit-v2-final.yml
+          ! grep -q '< .github/r7-final-audit-v1/audit.b64' .github/workflows/r7-controller-external-audit-v2-final.yml
+
+      - name: Commit verified transport repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/r7-final-audit-v1/audit.b64
+          git add .github/workflows/r7-controller-external-audit-v2-final.yml
+          git diff --cached --check
+          git commit -m 'R7: use hash-verified chunked independent-auditor transport'
+          git push origin HEAD:r7-controller-external-audit-v2-final-20260901
