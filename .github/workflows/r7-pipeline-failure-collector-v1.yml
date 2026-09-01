@@ -1,0 +1,134 @@
+name: R7 exact pipeline failure collector v1
+
+on:
+  push:
+    branches:
+      - r7-pipeline-status-snapshot-v1-20260901
+    paths:
+      - '.github/r7-status/PIPELINE_TERMINAL_V1.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7-pipeline-failure-collector-v1
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: ${{ github.actor == 'github-actions[bot]' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout terminal-state commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Collect exact first-failure evidence or record closure
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          terminal=.github/r7-status/PIPELINE_TERMINAL_V1.json
+          test -s "$terminal"
+          mkdir -p .github/r7-status failure-collector
+          decision="$(jq -r '.decision' "$terminal")"
+          if test "$decision" = 'R7_CLOSED'; then
+            jq -n \
+              --arg schema 'R7_PIPELINE_FAILURE_DIAGNOSIS_V1' \
+              --arg decision 'NO_FAILURE_R7_CLOSED' \
+              --arg terminalSha256 "$(sha256sum "$terminal" | awk '{print $1}')" \
+              '{schema:$schema,passed:true,decision:$decision,terminalSha256:$terminalSha256,failedStage:null,failedRun:null,errorExcerpts:[],failureArtifacts:[]}' \
+              > .github/r7-status/PIPELINE_FAILURE_DIAGNOSIS_V1.json
+            exit 0
+          fi
+          test "$decision" = 'PIPELINE_BLOCKED'
+          stage="$(jq -r '.firstFailedStage' "$terminal")"
+          row="$(jq -c --arg stage "$stage" '.stages[] | select(.id==$stage)' "$terminal")"
+          run_id="$(jq -r '.latestRun.id' <<<"$row")"
+          test "$run_id" != 'null'
+          printf '%s\n' "$row" > failure-collector/FAILED_STAGE.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" > failure-collector/RUN_METADATA.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > failure-collector/JOBS.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" > failure-collector/ARTIFACTS.json
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/logs" \
+            --output failure-collector/RUN_LOGS.zip
+          mkdir -p failure-collector/logs failure-collector/failure-artifacts
+          python3 - <<'PY'
+          import stat,zipfile
+          from pathlib import Path,PurePosixPath
+          source=Path('failure-collector/RUN_LOGS.zip'); target=Path('failure-collector/logs'); seen=set()
+          with zipfile.ZipFile(source) as archive:
+              for info in archive.infolist():
+                  pure=PurePosixPath(info.filename)
+                  if pure.is_absolute() or '..' in pure.parts or info.filename in seen or stat.S_IFMT(info.external_attr>>16)==stat.S_IFLNK:
+                      raise SystemExit(f'unsafe logs member: {info.filename}')
+                  seen.add(info.filename)
+              archive.extractall(target)
+          PY
+          jq -c '.artifacts[] | select(.expired==false and (.name|test("failure|diagnostic";"i")))' failure-collector/ARTIFACTS.json > failure-collector/failure-artifact-rows.jsonl || true
+          while IFS= read -r artifact; do
+            test -n "$artifact" || continue
+            id="$(jq -r '.id' <<<"$artifact")"; name="$(jq -r '.name' <<<"$artifact")"; digest="$(jq -r '.digest' <<<"$artifact")"
+            safe_name="$(sed 's/[^A-Za-z0-9._-]/_/g' <<<"$name")"
+            curl --fail --silent --show-error --location -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" --output "failure-collector/failure-artifacts/${safe_name}.zip"
+            if test "$digest" != 'null'; then printf '%s  %s\n' "${digest#sha256:}" "failure-collector/failure-artifacts/${safe_name}.zip" | sha256sum --check --strict; fi
+          done < failure-collector/failure-artifact-rows.jsonl
+          python3 - <<'PY'
+          import hashlib,json,re
+          from pathlib import Path
+          root=Path('failure-collector')
+          stage=json.loads((root/'FAILED_STAGE.json').read_text())
+          run=json.loads((root/'RUN_METADATA.json').read_text())
+          jobs=json.loads((root/'JOBS.json').read_text()).get('jobs',[])
+          artifacts=json.loads((root/'ARTIFACTS.json').read_text()).get('artifacts',[])
+          patterns=re.compile(r'(##\[error\]|error:|Error:|Process completed with exit code|failed|failure|Traceback|SystemExit)',re.I)
+          excerpts=[]
+          for path in sorted((root/'logs').rglob('*')):
+              if not path.is_file(): continue
+              try: lines=path.read_text(errors='replace').splitlines()
+              except Exception: continue
+              hits=[{'file':path.relative_to(root).as_posix(),'line':index+1,'text':line[-1000:]} for index,line in enumerate(lines) if patterns.search(line)]
+              excerpts.extend(hits[-20:])
+          excerpts=excerpts[-120:]
+          failed_jobs=[]
+          for job in jobs:
+              if job.get('conclusion')!='success':
+                  failed_jobs.append({'id':job.get('id'),'name':job.get('name'),'status':job.get('status'),'conclusion':job.get('conclusion'),'failedSteps':[{'number':step.get('number'),'name':step.get('name'),'status':step.get('status'),'conclusion':step.get('conclusion')} for step in job.get('steps',[]) if step.get('conclusion') not in (None,'success','skipped')]})
+          failure_artifacts=[{'id':row.get('id'),'name':row.get('name'),'digest':row.get('digest'),'size':row.get('size_in_bytes'),'expired':row.get('expired')} for row in artifacts if re.search(r'failure|diagnostic',row.get('name',''),re.I)]
+          report={'schema':'R7_PIPELINE_FAILURE_DIAGNOSIS_V1','passed':True,'decision':'PIPELINE_BLOCKED_DIAGNOSED','terminalSha256':hashlib.sha256(Path('.github/r7-status/PIPELINE_TERMINAL_V1.json').read_bytes()).hexdigest(),'failedStage':stage.get('id'),'failedBranch':stage.get('branch'),'failedWorkflowPath':stage.get('workflowPath'),'failedRun':{'id':run.get('id'),'headSha':run.get('head_sha'),'status':run.get('status'),'conclusion':run.get('conclusion'),'event':run.get('event'),'createdAt':run.get('created_at'),'updatedAt':run.get('updated_at')},'failedJobs':failed_jobs,'errorExcerpts':excerpts,'failureArtifacts':failure_artifacts,'rawEvidenceDirectory':'failure-collector'}
+          Path('.github/r7-status/PIPELINE_FAILURE_DIAGNOSIS_V1.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps({'decision':report['decision'],'failedStage':report['failedStage'],'runId':report['failedRun']['id'],'failedJobs':len(failed_jobs),'errorExcerptCount':len(excerpts),'failureArtifactCount':len(failure_artifacts)},indent=2))
+          PY
+          jq -e '.schema=="R7_PIPELINE_FAILURE_DIAGNOSIS_V1" and .passed==true and (.decision=="PIPELINE_BLOCKED_DIAGNOSED" or .decision=="NO_FAILURE_R7_CLOSED")' .github/r7-status/PIPELINE_FAILURE_DIAGNOSIS_V1.json >/dev/null
+
+      - name: Persist exact failure diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7-status/PIPELINE_FAILURE_DIAGNOSIS_V1.json
+          git diff --cached --check
+          git commit -m 'R7: persist exact terminal pipeline diagnosis'
+          git fetch origin r7-pipeline-status-snapshot-v1-20260901
+          git rebase origin/r7-pipeline-status-snapshot-v1-20260901
+          git push origin HEAD:r7-pipeline-status-snapshot-v1-20260901
+
+      - name: Upload raw terminal diagnosis evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-pipeline-terminal-diagnosis-${{ github.sha }}
+          path: failure-collector/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
