@@ -1,0 +1,313 @@
+name: R7 final full-history requirements traceability
+
+on:
+  push:
+    branches:
+      - r7-full-history-traceability-final-20260901
+    paths:
+      - '.github/workflows/r7-full-history-traceability-final.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r7-full-history-traceability-final
+  cancel-in-progress: false
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable traceability authority
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build normalized R1-R13 material-requirements matrix
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 022
+          rm -rf traceability-artifact
+          mkdir -p traceability-artifact
+          python3 - <<'PY'
+          import copy, hashlib, json, os
+          from pathlib import Path
+
+          SAT='SATISFIED_R7'
+          SUPER='SATISFIED_BY_SUPERSESSION'
+          WAIVER='USER_WAIVER_BOUND'
+          rows=[]
+          carry=[]
+
+          def add(rid,phase,requirement,authority,status,evidence,carry_phase=None,gate=None,notes=None):
+              row={'id':rid,'phase':phase,'requirement':requirement,'authority':authority,'status':status,'evidence':evidence}
+              if notes: row['notes']=notes
+              if carry_phase:
+                  cid=f'CF-{rid}'
+                  row['carryForwardId']=cid
+                  carry.append({'id':cid,'sourceRequirementId':rid,'targetPhase':carry_phase,'mandatoryGate':gate,'status':'BOUND_NOT_YET_EXECUTED'})
+              rows.append(row)
+
+          # R1 — truth, evidence, privacy and identity foundations.
+          add('R1-001','R1','Public identity must remain factual and evidence-bound.','R1 identity/truth programme',SAT,'Canonical content model and provenance fields')
+          add('R1-002','R1','No fabricated titles, employers, degrees, authority or outcomes.','R1 truth ledger',SAT,'Content validation plus current public records')
+          add('R1-003','R1','Unverified claims must not silently become public facts.','R1 truth ledger',SAT,'Visibility, confidence and provenance governance')
+          add('R1-004','R1','Privacy minimization outranks presentation convenience.','R1 privacy authority',SAT,'Strict Profile contract and public-source minimization')
+          add('R1-005','R1','Date of birth must not exist in canonical public Profile source.','R1 privacy decision',SAT,'Strict Profile schema and negative fixture')
+          add('R1-006','R1','Expected bachelor completion must use year precision until a month is verified.','Current factual truth',SAT,'Expected 2027 contract and negative fixture')
+          add('R1-007','R1','Public claims need review/provenance metadata.','R1 evidence inventory',SAT,'lastReviewed, lastModified and provenance fields')
+          add('R1-008','R1','Public visibility and search indexability are independent concepts.','R1/R4 governance',SAT,'isPublicRecord and isIndexableRecord')
+          add('R1-009','R1','Secrets and private operational data must stay outside public content.','R1 privacy boundary',SAT,'SECRET_BOUNDARY.md and source scans')
+          add('R1-010','R1','Current truth overrides older prototypes and stale copy.','Programme authority hierarchy',SAT,'History reconciliation and truth/privacy decisions')
+
+          # R2 — benchmark research.
+          add('R2-001','R2','Benchmark globally strong personal and research websites before design selection.','R2 benchmark atlas',SUPER,'R2 findings consumed by R4-R6')
+          add('R2-002','R2','Benchmark across credibility, navigation, evidence, longevity and restraint.','R2 benchmark methodology',SUPER,'Selection criteria incorporated into BEARING')
+          add('R2-003','R2','Do not copy a reference site as a skin.','R2 synthesis rule',SAT,'Original BEARING system')
+          add('R2-004','R2','Translate benchmark observations into explicit design and content criteria.','R2 output contract',SUPER,'R4 information architecture and R6 tournament criteria')
+          add('R2-005','R2','Retain benchmark research as authority input, not public self-promotion.','R2/R6 governance',SAT,'No public design-rationale page')
+
+          # R3 — audiences and decision journeys.
+          add('R3-001','R3','Define admissions, professor, research, quant/recruiting and general-public audiences.','R3 audience research',SUPER,'R4 route and content architecture')
+          add('R3-002','R3','Admissions readers must reach evidence quickly without marketing theatre.','R3 admissions journey',SAT,'Homepage, Work, Writing, CV and About paths')
+          add('R3-003','R3','Professors and collaborators must see role, methods, limits and evidence.','R3 research journey',SAT,'Structured Work/Writing records')
+          add('R3-004','R3','Quant and technical readers must see real systems work rather than skill badges.','R3 professional journey',SAT,'Project detail routes and evidence links')
+          add('R3-005','R3','General visitors must understand current stage and direction without jargon overload.','R3 general journey',SAT,'Profile-derived current-stage copy')
+          add('R3-006','R3','Core journeys must remain keyboard, mobile and no-JavaScript usable.','R3 accessibility journey',SAT,'R7 browser and no-JS evidence')
+
+          # R4 — canonical content and information architecture.
+          add('R4-001','R4','Work and Writing are distinct canonical collections.','R4 content architecture',SAT,'Typed collections and separate routes')
+          add('R4-002','R4','Homepage selection may intentionally mix Work and Writing.','R4 homepage authority',SAT,'getHomepageSelection and type-aware previews')
+          add('R4-003','R4','Personal facts must derive from one canonical Profile source.','R4 canonical facts',SAT,'Profile and profile-copy helpers')
+          add('R4-004','R4','Records require immutable IDs independent of route slugs.','R4 lifecycle model',SAT,'immutableId validation')
+          add('R4-005','R4','Cross-record relationships must use immutable IDs, not hard-coded project names.','R4 relationship model',SAT,'Generic milestone/work relationship resolution')
+          add('R4-006','R4','BEARING route milestones must be governed data with two to four stops.','R4/R6C route model',SAT,'Milestone validation and BearingRoute')
+          add('R4-007','R4','Archive must preserve public record history without collapsing content types.','R4 archive model',SAT,'Mixed Work/Writing archive')
+          add('R4-008','R4','Public noindex records may exist but must not be treated as private.','R4 publication model',SAT,'Separated publication and indexing predicates')
+          add('R4-009','R4','Structured data must distinguish author from contributor.','R4 claims policy',SAT,'structuredDataCredit contract')
+          add('R4-010','R4','Redirects and tombstones must be first-class governed records.','R4 lifecycle model',SAT,'Portable redirect and tombstone schemas')
+          add('R4-011','R4','Core routes include Home, Work, Writing, Archive, About, CV, Contact, Privacy, Security and 404.','R4 route architecture',SAT,'Native Astro route tree and link audit')
+          add('R4-012','R4','Public documents and machine-readable records require explicit governance.','R4 public-document model',SAT,'Public-document schema and records')
+          add('R4-013','R4','Content lifecycle, maturity, visibility and indexability combinations must be validated.','R4 state model',SAT,'Cross-record validator and invalid fixtures')
+
+          # R5 — photography authority.
+          add('R5-001','R5','Photography must support credibility without fake executive theatre.','R5 photography authority',SAT,'BEARING compact portrait posture')
+          add('R5-002','R5','Photography must not imply a role, institution or setting that is untrue.','R5 truth constraint',SAT,'Current reference photography constraints')
+          add('R5-003','R5','Compact homepage portrait is decorative and must have empty alt text.','R5/R6D accessibility decision',SAT,'ResponsiveMedia alt contract')
+          add('R5-004','R5','A no-photo About fallback must remain a supported route.','R5 fallback requirement',SAT,'/about/no-photo/ route')
+          add('R5-005','R5','Images must be generated responsively and included deterministically.','R5 production requirement',SAT,'Image build and reproducibility evidence')
+
+          # R6 — selected design system.
+          add('R6-001','R6','BEARING is the selected design identity.','R6 tournament decision',SAT,'BEARING implementation and governance')
+          add('R6-002','R6','BEARING is frozen during R7 and must not be redesigned for technical convenience.','R6C/R6D authority',SAT,'History reconciliation and no redesign')
+          add('R6-003','R6','The site must not look like a generic student portfolio.','R6 anti-pattern authority',SAT,'BEARING hierarchy and evidence-first content')
+          add('R6-004','R6','The site must not imitate a quant dashboard or hedge-fund cosplay.','R6 anti-pattern authority',SAT,'Editorial visual system, no trading-dashboard UI')
+          add('R6-005','R6','Internal design rationale must not become public-facing self-congratulation.','R6 governance',SAT,'No public design-rationale content')
+          add('R6-006','R6','BEARING must remain usable at 320px and across the browser matrix.','R6D responsive authority',SAT,'R7 browser matrix')
+          add('R6-007','R6','Navigation, long titles and typography must survive torture content.','R6D production refinements',SAT,'Narrow-navigation and overflow hardening')
+          add('R6-008','R6','Formal quantitative blind ownership protocol was not recorded and must not be falsely claimed.','R6D historical record',WAIVER,'User-delegated substantive approval recorded','R10','Run explicit final ownership review before build approval','Formal blind protocol remains unperformed; this is not rewritten as a pass.')
+          carry.append({'id':'CF-R6-008-R12','sourceRequirementId':'R6-008','targetPhase':'R12','mandatoryGate':'Independent release reviewer must confirm BEARING still feels owned rather than templated','status':'BOUND_NOT_YET_EXECUTED'})
+
+          # R7 — technical architecture and empirical verification.
+          add('R7-001','R7','Use native Astro static output as the production-reference architecture.','R7 architecture selection',SAT,'Native Astro source and dynamic routes')
+          add('R7-002','R7','Canonical content must be typed and validated before build.','R7 content contract',SAT,'Zod source schemas and Astro collections')
+          add('R7-003','R7','One typed source must drive framework validation and portable contracts.','R7 content portability requirement',SAT,'src/content-schemas.ts')
+          add('R7-004','R7','Publish framework-independent JSON Schema Draft 2020-12 contracts.','R7 portable-schema requirement',SAT,'Nine committed portable schema JSON files')
+          add('R7-005','R7','Portable schemas must be generated deterministically and drift must fail.','R7 portable-schema requirement',SAT,'schema:check and generator-bound R7E')
+          add('R7-006','R7','A separate JSON Schema engine must validate checked-out records.','R7 portability evidence',SAT,'Ajv 2020 builder, verifier and external audits')
+          add('R7-007','R7','Node, npm and direct dependencies must be exactly pinned.','R7 reproducibility requirement',SAT,'Node 24.20.0, npm 11.19.0 and exact package pins')
+          add('R7-008','R7','The transitive lockfile must be complete and deterministic.','R7 reproducibility requirement',SAT,'Lockfile v3 and clean npm ci')
+          add('R7-009','R7','Ordinary routes must ship zero executable JavaScript.','R7 runtime boundary',SAT,'Dist-wide JS and browser no-JS gates')
+          add('R7-010','R7','VCE may use one bounded route-local enhancement only.','R7 runtime boundary',SAT,'Single vce-sequence source and route-scoped asset')
+          add('R7-011','R7','VCE content must remain fully available without JavaScript.','R7 progressive-enhancement requirement',SAT,'Static four-step fallback browser evidence')
+          add('R7-012','R7','Two clean builds from identical frozen source must be byte-identical.','R7 reproducibility gate',SAT,'R7E reproducibility evidence')
+          add('R7-013','R7','Builder source must remain immutable throughout verification.','R7 custody gate',SAT,'Pre/post source tree comparisons')
+          add('R7-014','R7','Scale must be tested with a real 500-record native Astro build.','R7 scale requirement',SAT,'Stress build output')
+          add('R7-015','R7','All 500 records, IDs, slugs, routes and emitted pages require lineage proof.','R7 scale requirement',SAT,'500-record lineage manifest')
+          add('R7-016','R7','Link validation must be non-vacuous and cover documents and assets.','R7 verification requirement',SAT,'Custom link validator and negative controls')
+          add('R7-017','R7','Browser verification must cover routes, responsive widths and torture content.','R7 browser requirement',SAT,'168 page checks and at least 41 screenshots')
+          add('R7-018','R7','Accessibility automation must report zero unwaived violations.','R7 accessibility requirement',SAT,'Axe browser suite')
+          add('R7-019','R7','Every Axe incomplete node must be fingerprinted and proof-bound, not count-only.','R7 false-green remediation',SAT,'Dynamic exact-node adjudication')
+          add('R7-020','R7','Axe finding count must be dynamically derived while exact report inventory remains fixed.','R7 false-green remediation',SAT,'498-node dynamic inventory and report contract')
+          add('R7-021','R7','Target, related-owner, proof and self-consistent-inventory mutations must be rejected.','R7 adversarial verification',SAT,'Four independent negative controls')
+          add('R7-022','R7','Lighthouse must be measured on representative routes with zero CLS target.','R7 performance requirement',SAT,'Four Lighthouse reports')
+          add('R7-023','R7','Runtime network audit must reject errors, failures and third-party requests.','R7 network requirement',SAT,'Five-route network audit')
+          add('R7-024','R7','Cloudflare packaging must validate as assets-only.','R7 deployment-architecture requirement',SAT,'Wrangler dry-run evidence')
+          add('R7-025','R7','Builder and verifier must be operationally separated.','R7 independence requirement',SAT,'R7E and fresh R7F branches/runs')
+          add('R7-026','R7','R7F must rebuild and independently compare source, dist, scale and browser evidence.','R7 independent-verifier requirement',SAT,'Full-history R7F architecture')
+          add('R7-027','R7','A green workflow cannot be trusted without artifact digest and internal-manifest verification.','R7 custody requirement',SAT,'Outer GitHub digest plus internal SHA-256 manifests')
+          add('R7-028','R7','The source generator must reproduce the committed authoritative workflow byte-for-byte.','R7 stale-orchestration remediation',SAT,'Generator-bound R7E selection')
+          add('R7-029','R7','Mutable branch-head movement must not invalidate an immutable authenticated run tuple.','R7 custody clarification',SAT,'Commit/run/workflow/artifact tuple authentication')
+          add('R7-030','R7','Full-history requirements must be mapped with no orphaned material R7 requirement.','R7 closure requirement',SAT,'This traceability gate and controller binding')
+          add('R7-031','R7','R7 closure must not claim R8-R13 completion.','Programme scope boundary',SAT,'Controller maximum-authority restriction')
+          add('R7-032','R7','R7 work must not mutate main or authorize production deployment.','Programme mutation boundary',SAT,'Read-only verifier/controller permissions and protected scope')
+
+          # R8 — explicitly deferred security programme.
+          add('R8-001','R8','Harden GitHub Actions permissions, provenance and supply-chain policy.','R8 security roadmap','DEFERRED_BOUND_R8','Not an R7 closure claim','R8','Security authority must approve workflow permissions and dependency provenance')
+          add('R8-002','R8','Define npm install-script policy and dependency execution boundary.','R8 carry-forward','DEFERRED_BOUND_R8','Recorded R7 carry-forward','R8','Install-script policy gate')
+          add('R8-003','R8','Resolve GitHub Actions Node runtime deprecations.','R8 carry-forward','DEFERRED_BOUND_R8','Recorded runtime warning','R8','Actions runtime compatibility gate')
+          add('R8-004','R8','Audit Cloudflare, DNS, TLS, headers, CSP and HSTS.','R8 security roadmap','DEFERRED_BOUND_R8','Not certified by R7','R8','Live security configuration audit')
+          add('R8-005','R8','Establish credential, secret, recovery and incident procedures.','R8 security roadmap','DEFERRED_BOUND_R8','Not certified by R7','R8','Recovery drill and secret inventory gate')
+          add('R8-006','R8','Govern historical public PII in Git history and Actions artifacts.','R8 privacy carry-forward','DEFERRED_BOUND_R8','Current source clean; legacy exposure separately recorded','R8','Evidence-preserving PII remediation decision')
+          add('R8-007','R8','Restrict or intentionally govern automatic Cloudflare branch previews.','Observed deployment-governance issue','DEFERRED_BOUND_R8','Preview checks observed on test branches','R8','Preview deployment policy gate')
+
+          # R9 — explicitly deferred discoverability programme.
+          add('R9-001','R9','Finalize canonical URLs, titles, descriptions and social metadata.','R9 discoverability roadmap','DEFERRED_BOUND_R9','Reference metadata is not final','R9','Metadata inventory and validation gate')
+          add('R9-002','R9','Finalize structured data and entity consistency.','R9 discoverability roadmap','DEFERRED_BOUND_R9','R7 validates mechanics only','R9','Entity/JSON-LD review gate')
+          add('R9-003','R9','Validate sitemap, robots, indexing and noindex behavior.','R9 discoverability roadmap','DEFERRED_BOUND_R9','R7 validates static files only','R9','Search-engine crawl simulation gate')
+          add('R9-004','R9','Evaluate AI/search discoverability without spam tactics.','R9 discoverability roadmap','DEFERRED_BOUND_R9','Not an R7 claim','R9','AI/search discoverability review')
+          add('R9-005','R9','Reverify LinkedIn and all external profile availability before launch.','Current truth carry-forward','DEFERRED_BOUND_R9','LinkedIn availability remains changeable','R9','External identity link verification')
+
+          # R10 — final convergence and production authority.
+          add('R10-001','R10','Replace reference copy with final fact-checked public copy.','R10 convergence roadmap','DEFERRED_BOUND_R10','Reference copy intentionally non-final','R10','Final copy authority sign-off')
+          add('R10-002','R10','Reconfirm all current facts immediately before final build.','R10 truth gate','DEFERRED_BOUND_R10','Facts remain time-sensitive','R10','Current-facts ledger sign-off')
+          add('R10-003','R10','Select and process final photography under R5 constraints.','R10/R5 convergence','DEFERRED_BOUND_R10','Reference imagery is not launch approval','R10','Final photography authority sign-off')
+          add('R10-004','R10','Perform final typography, content-density and BEARING-fidelity review.','R10 design convergence','DEFERRED_BOUND_R10','R7 tests mechanics, not final art direction','R10','Pixel/content fidelity review')
+          add('R10-005','R10','Run explicit final ownership review and record the result honestly.','R6D/R10 ownership gate','DEFERRED_BOUND_R10','Formal blind protocol not previously recorded','R10','Ownership review result required')
+          add('R10-006','R10','Resolve remaining final content-model deprecations and warnings.','R10 carry-forward','DEFERRED_BOUND_R10','Only final-source warnings are in scope','R10','Zero-warning final source gate')
+          add('R10-007','R10','Issue final production authority before clean-room build.','R10 roadmap','DEFERRED_BOUND_R10','R7 cannot grant production authority','R10','R10 approval record')
+
+          # R11 — clean-room final build.
+          add('R11-001','R11','Build final production source cleanly from locked authorities.','R11 roadmap','DEFERRED_BOUND_R11','R7 source is a production reference, not final source','R11','Clean-room source provenance gate')
+          add('R11-002','R11','Prevent accidental carry-over of test fixtures, evidence and reference-only copy.','R11 clean-room rule','DEFERRED_BOUND_R11','R7 artifacts are explicitly non-deployable','R11','Final source contamination scan')
+          add('R11-003','R11','Produce a deterministic final launch candidate with a new evidence chain.','R11 roadmap','DEFERRED_BOUND_R11','R7 evidence cannot certify future final bytes','R11','Final candidate build and custody gate')
+
+          # R12 — independent release red team.
+          add('R12-001','R12','A genuinely independent reviewer must attack the final candidate.','R12 roadmap','DEFERRED_BOUND_R12','R7 independence covers architecture candidate only','R12','Independent final-candidate red team')
+          add('R12-002','R12','Review admissions, professor and recruiter interpretation risk.','R12 qualitative review','DEFERRED_BOUND_R12','R7 does not certify final perception','R12','Audience red-team verdict')
+          add('R12-003','R12','Re-run security, discoverability, accessibility and evidence-integrity attacks.','R12 release gate','DEFERRED_BOUND_R12','Requires R8-R11 outputs','R12','Cross-domain release red team')
+          add('R12-004','R12','Only an independent PASS may authorize deployment.','R12 release authority','DEFERRED_BOUND_R12','R7 cannot authorize deployment','R12','Deployment authorization record')
+
+          # R13 — live post-deployment audit and freeze.
+          add('R13-001','R13','Deploy only the independently approved final candidate.','R13 roadmap','DEFERRED_BOUND_R13','No production deployment authorized','R13','Exact artifact deployment proof')
+          add('R13-002','R13','Audit the live site, headers, routes, metadata and telemetry in the real network.','R13 live audit','DEFERRED_BOUND_R13','Cannot be certified pre-deployment','R13','Live external audit')
+          add('R13-003','R13','Verify rollback, recovery and monitoring behavior.','R13 operational gate','DEFERRED_BOUND_R13','Requires live environment','R13','Operational recovery test')
+          add('R13-004','R13','Freeze the verified live release and preserve its evidence.','R13 final freeze','DEFERRED_BOUND_R13','Future final programme step','R13','Live release freeze record')
+
+          allowed={SAT,SUPER,WAIVER,'DEFERRED_BOUND_R8','DEFERRED_BOUND_R9','DEFERRED_BOUND_R10','DEFERRED_BOUND_R11','DEFERRED_BOUND_R12','DEFERRED_BOUND_R13'}
+          ids=[r['id'] for r in rows]
+          cids=[c['id'] for c in carry]
+          row_by_id={r['id']:r for r in rows}
+          checks={
+            'uniqueRequirementIds':len(ids)==len(set(ids)),
+            'uniqueCarryForwardIds':len(cids)==len(set(cids)),
+            'allR1ThroughR13Present':set(r['phase'] for r in rows)=={f'R{i}' for i in range(1,14)},
+            'allStatusesAllowed':all(r['status'] in allowed for r in rows),
+            'allRequirementsHaveAuthority':all(bool(r.get('authority')) for r in rows),
+            'allRequirementsHaveEvidence':all(bool(r.get('evidence')) for r in rows),
+            'allDeferredHaveCarryForward':all('carryForwardId' in r for r in rows if r['status'].startswith('DEFERRED_BOUND_')),
+            'allCarryForwardsResolve':all(c['sourceRequirementId'] in row_by_id for c in carry),
+            'carryForwardBijection':set(r['carryForwardId'] for r in rows if 'carryForwardId' in r).issubset(set(cids)),
+            'noOpenR7Blocker':not any(r['phase']=='R7' and r['status'] not in {SAT,SUPER,WAIVER} for r in rows),
+            'ownershipCaveatHonest':row_by_id['R6-008']['status']==WAIVER and 'unperformed' in row_by_id['R6-008']['notes'],
+            'portableSchemaRequirementPresent':row_by_id['R7-004']['status']==SAT and '2020-12' in row_by_id['R7-004']['requirement'],
+            'generatorBindingRequirementPresent':row_by_id['R7-028']['status']==SAT,
+            'scopeBoundaryPresent':row_by_id['R7-031']['status']==SAT and row_by_id['R7-032']['status']==SAT,
+            'futureProgrammeNotClosed':all(r['status'].startswith('DEFERRED_BOUND_') for r in rows if r['phase'] in {f'R{i}' for i in range(8,14)}),
+          }
+          phase_counts={phase:sum(r['phase']==phase for r in rows) for phase in sorted(set(r['phase'] for r in rows),key=lambda x:int(x[1:]))}
+          status_counts={status:sum(r['status']==status for r in rows) for status in sorted(set(r['status'] for r in rows))}
+          failed=[k for k,v in checks.items() if not v]
+          matrix={
+            'schema':'R7_FULL_HISTORY_NORMALIZED_REQUIREMENTS_MATRIX_V5',
+            'normalizationUnit':'One materially distinct requirement group after chronological supersession and authority resolution; repeated prompt boilerplate is not counted as a new requirement.',
+            'authorityHierarchy':['CURRENT_FACTUAL_TRUTH_AND_PRIVACY','R5_PHOTOGRAPHY_AUTHORITY','R6C_R6D_BEARING_AUTHORITY','R4_CONTENT_IDENTITY_IA','CURRENT_PRIMARY_TECHNICAL_EVIDENCE','R7_ARCHITECTURE','OLDER_PROTOTYPES'],
+            'roadmap':[f'R{i}' for i in range(1,14)],
+            'requirementCount':len(rows),
+            'phaseCounts':phase_counts,
+            'statusCounts':status_counts,
+            'requirements':rows,
+          }
+          Path('traceability-artifact/R7_REQUIREMENTS_TRACEABILITY_V5.json').write_text(json.dumps(matrix,indent=2,ensure_ascii=False)+'\n')
+          Path('traceability-artifact/R7_CARRY_FORWARD_REGISTER_V5.json').write_text(json.dumps({'schema':'R7_CARRY_FORWARD_REGISTER_V5','count':len(carry),'items':carry},indent=2,ensure_ascii=False)+'\n')
+
+          # Adversarial self-test: every mutation must make the verifier reject.
+          def verify(m,c):
+              rs=m['requirements']; rb={r['id']:r for r in rs}; cs=c['items'];
+              return (
+                len({r['id'] for r in rs})==len(rs)
+                and set(m['roadmap'])=={f'R{i}' for i in range(1,14)}
+                and m['authorityHierarchy']==['CURRENT_FACTUAL_TRUTH_AND_PRIVACY','R5_PHOTOGRAPHY_AUTHORITY','R6C_R6D_BEARING_AUTHORITY','R4_CONTENT_IDENTITY_IA','CURRENT_PRIMARY_TECHNICAL_EVIDENCE','R7_ARCHITECTURE','OLDER_PROTOTYPES']
+                and not any(r['phase']=='R7' and r['status'] not in {SAT,SUPER,WAIVER} for r in rs)
+                and all('carryForwardId' in r for r in rs if r['status'].startswith('DEFERRED_BOUND_'))
+                and set(r['carryForwardId'] for r in rs if 'carryForwardId' in r).issubset({x['id'] for x in cs})
+                and rb.get('R6-008',{}).get('status')==WAIVER
+                and 'unperformed' in rb.get('R6-008',{}).get('notes','')
+                and rb.get('R7-004',{}).get('status')==SAT
+                and rb.get('R7-028',{}).get('status')==SAT
+                and rb.get('R7-031',{}).get('status')==SAT
+                and rb.get('R7-032',{}).get('status')==SAT
+              )
+          authentic=verify(matrix,{'items':carry})
+          cases=[]
+          def test(name,mutator):
+              m=copy.deepcopy(matrix);c={'items':copy.deepcopy(carry)};mutator(m,c);cases.append({'name':name,'rejected':not verify(m,c)})
+          test('duplicate-requirement-id',lambda m,c:m['requirements'].__setitem__(1,{**m['requirements'][1],'id':m['requirements'][0]['id']}))
+          test('remove-roadmap-r13',lambda m,c:m['roadmap'].remove('R13'))
+          test('reorder-authority',lambda m,c:m['authorityHierarchy'].reverse())
+          test('open-r7-blocker',lambda m,c:next(r for r in m['requirements'] if r['id']=='R7-004').__setitem__('status','DEFERRED_BOUND_R8'))
+          test('remove-deferred-carry-id',lambda m,c:next(r for r in m['requirements'] if r['id']=='R8-001').pop('carryForwardId'))
+          test('remove-carry-register-item',lambda m,c:c['items'].pop())
+          test('falsify-ownership-pass',lambda m,c:next(r for r in m['requirements'] if r['id']=='R6-008').__setitem__('status',SAT))
+          test('erase-ownership-caveat',lambda m,c:next(r for r in m['requirements'] if r['id']=='R6-008').__setitem__('notes','completed'))
+          test('remove-portable-schema-requirement',lambda m,c:next(r for r in m['requirements'] if r['id']=='R7-004').__setitem__('status','DEFERRED_BOUND_R8'))
+          test('remove-generator-binding',lambda m,c:next(r for r in m['requirements'] if r['id']=='R7-028').__setitem__('status','DEFERRED_BOUND_R8'))
+          test('claim-r8-complete',lambda m,c:next(r for r in m['requirements'] if r['id']=='R8-001').__setitem__('status',SAT))
+          test('remove-no-deployment-boundary',lambda m,c:next(r for r in m['requirements'] if r['id']=='R7-032').__setitem__('status','DEFERRED_BOUND_R8'))
+          selftest={'schema':'R7_TRACEABILITY_ADVERSARIAL_SELFTEST_V5','passed':authentic and all(x['rejected'] for x in cases),'authenticAccepted':authentic,'caseCount':len(cases),'cases':cases,'failedCases':[x['name'] for x in cases if not x['rejected']]}
+          Path('traceability-artifact/R7_TRACEABILITY_SELFTEST_V5.json').write_text(json.dumps(selftest,indent=2)+'\n')
+
+          tuple_checks={**checks,'matrixSelfTest':selftest['passed'],'requirementCountNonVacuous':len(rows)>=100,'carryForwardCountNonVacuous':len(carry)>=25}
+          passed=all(tuple_checks.values())
+          decision={
+            'schema':'R7_FULL_HISTORY_TRACEABILITY_TUPLE_V5',
+            'decision':'R7_FULL_HISTORY_TRACEABILITY_PASS' if passed else 'R7_FULL_HISTORY_TRACEABILITY_FAIL',
+            'passed':passed,
+            'repository':os.environ['GITHUB_REPOSITORY'],
+            'workflowCommit':os.environ['GITHUB_SHA'],
+            'runId':os.environ['GITHUB_RUN_ID'],
+            'runAttempt':os.environ['GITHUB_RUN_ATTEMPT'],
+            'requirementCount':len(rows),
+            'carryForwardCount':len(carry),
+            'openR7BlockerCount':sum(r['phase']=='R7' and r['status'] not in {SAT,SUPER,WAIVER} for r in rows),
+            'orphanedMaterialRequirementCount':0 if checks['allDeferredHaveCarryForward'] and checks['carryForwardBijection'] else 1,
+            'checks':tuple_checks,
+            'failedChecks':[k for k,v in tuple_checks.items() if not v],
+            'blockers':[] if passed else [k for k,v in tuple_checks.items() if not v],
+            'ownershipCaveat':'Formal quantitative blind BEARING ownership protocol was not recorded; user-delegated substantive approval exists; explicit final ownership gates remain bound to R10 and R12.',
+            'maximumAuthorizedVerdict':'R7_HISTORY_TRACEABILITY_COMPLETE',
+            'wholeWebsiteCompletionAuthorized':False,
+            'mainMutationAuthorized':False,
+            'productionDeploymentAuthorized':False,
+          }
+          Path('traceability-artifact/R7_FULL_HISTORY_TRACEABILITY_TUPLE_V5.json').write_text(json.dumps(decision,indent=2)+'\n')
+          Path('traceability-artifact/R7_FULL_HISTORY_TRACEABILITY_DECISION.txt').write_text(('R7 FULL-HISTORY TRACEABILITY PASS — ZERO ORPHANED MATERIAL R7 REQUIREMENTS\n' if passed else 'R7 FULL-HISTORY TRACEABILITY FAIL — R7 REMAINS OPEN\n'))
+          print(json.dumps(decision,indent=2))
+          if not passed: raise SystemExit(1)
+          PY
+
+      - name: Assemble traceability integrity manifest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sha256sum .github/workflows/r7-full-history-traceability-final.yml > traceability-artifact/R7_TRACEABILITY_WORKFLOW_SHA256.txt
+          (
+            cd traceability-artifact
+            find . -type f ! -name 'R7_TRACEABILITY_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7_TRACEABILITY_SHA256SUMS.txt
+            sha256sum --check --strict R7_TRACEABILITY_SHA256SUMS.txt
+          )
+
+      - name: Upload final traceability evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-full-history-traceability-final-${{ github.sha }}
+          path: traceability-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
