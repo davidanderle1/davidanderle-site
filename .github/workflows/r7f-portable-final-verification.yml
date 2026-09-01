@@ -383,6 +383,12 @@ jobs:
             ('R7E_FULL_HISTORY_RECONCILED_PACKAGE_VALIDATION_V1',
              'R7E_PORTABLE_JSON_SCHEMA_PACKAGE_VALIDATION_V1',
              'builder package schema'),
+            ('identity.get("sourceCorrectionLayer") == "NONE — full-history reconciliation folded into canonical packed source"',
+             'identity.get("sourceCorrectionLayer") == "NONE — full-history reconciliation and portable Draft 2020-12 contract folded into canonical packed source"',
+             'builder source-correction identity'),
+            ('args.expected_artifact_name.startswith("r7e-full-history-reconciled-evidence-") and args.expected_artifact_digest.startswith("sha256:") and len(args.expected_artifact_digest) == 71',
+             'args.expected_artifact_name == f"r7e-portable-self-recording-v4-evidence-{args.expected_commit}" and args.expected_artifact_digest.startswith("sha256:") and len(args.expected_artifact_digest) == 71',
+             'builder artifact metadata identity'),
           )
           for root in roots:
             for path in sorted(p for p in root.rglob('*') if p.is_file() and p.suffix in {'.py','.sh','.mjs','.js'}):
@@ -415,11 +421,15 @@ jobs:
           required_classes={
             'builder gate identity',
             'builder candidate identity schema',
+            'builder source-correction identity',
+            'builder artifact metadata identity',
             'authenticate immutable commit instead of mutable branch head',
           }
           aligned_tokens={
             'builder gate identity':'R7E PORTABLE JSON SCHEMA BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F',
             'builder candidate identity schema':'R7E_PORTABLE_JSON_SCHEMA_CANDIDATE_IDENTITY_V1',
+            'builder source-correction identity':'NONE — full-history reconciliation and portable Draft 2020-12 contract folded into canonical packed source',
+            'builder artifact metadata identity':'r7e-portable-self-recording-v4-evidence-',
           }
           present={row['class'] for row in changes}
           if not required_classes.issubset(present):
