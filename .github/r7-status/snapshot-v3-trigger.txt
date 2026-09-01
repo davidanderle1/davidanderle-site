@@ -1,0 +1,2 @@
+snapshot request: 2026-09-01 authoritative chain v3
+chain: R7E v3 -> R7F v7 -> external v5 -> traceability v4 -> controller v5 -> closure audit v3
