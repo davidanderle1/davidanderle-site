@@ -1,0 +1,329 @@
+name: R7F portable self-recording independent verification final v1
+
+on:
+  push:
+    branches:
+      - r7f-portable-self-recording-final-20260901
+    paths:
+      - '.github/workflows/r7f-portable-self-recording-final-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7f-portable-self-recording-final-v1
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  BUILDER_BRANCH: r7e-portable-self-recording-final-20260901
+  BUILDER_WORKFLOW_PATH: .github/workflows/r7e-portable-self-recording-final-v3.yml
+  BUILDER_RUN_ID: '33503881317'
+  BUILDER_COMMIT: 991e4e44c290c101dd4a17bdb56ce105a1a2f663
+  BUILDER_ARTIFACT_ID: '9798928662'
+  BUILDER_ARTIFACT_NAME: r7e-portable-self-recording-final-v3-evidence-991e4e44c290c101dd4a17bdb56ce105a1a2f663
+  BUILDER_ARTIFACT_DIGEST: sha256:08ca71840ad029f5a0fda533e12661a79e7ca0cc0728d7f546d1cb56435c9321
+  BUILDER_TUPLE_ARTIFACT_ID: '9798929179'
+  BUILDER_TUPLE_ARTIFACT_NAME: r7e-portable-self-recording-final-v3-tuple-991e4e44c290c101dd4a17bdb56ce105a1a2f663
+  BUILDER_TUPLE_ARTIFACT_DIGEST: sha256:2687e1d4620037026ac7f76cdb0e00ad6d05dd196f992c87eee70f38f897967e
+  BUILDER_SOURCE_ARCHIVE_SHA256: 764271738ad8578de7d89c522d9cedd1a22ce00d1b8e5d06b271903b52a3923d
+  BUILDER_FROZEN_SOURCE_TREE_SHA256: 203f572ffa72ffb0790732c02c8f2b88cdeac8ec0df7f3450b1f4958ff3cd26e
+  BUILDER_FROZEN_SOURCE_TAR_SHA256: b639fdf11a0a6d4674b59d26327b996e71ec87190848c00685d25e2e4b1ec2f8
+  BUILDER_VERIFIED_DIST_TREE_SHA256: 3d76b6a74da4562426b222ac298f8837c02d61d5ce95cf76b181bef0d28d7cc4
+  BUILDER_STRESS_DIST_TREE_SHA256: 005bfb51b3af3eca95153d5a5f912ef635e75b9b1f566350a53914faf4d29b41
+  BUILDER_AXE_ADJUDICATION_FILE_SHA256: a99471dec79173f2b9c8b2de744ed019b26805c771d778a7d2269222485b7e4d
+  BUILDER_AXE_SEMANTIC_INVENTORY_SHA256: 48cb39c9ba19a42bbfa5547b00629466c0207521afffc79f1c96d7be102256ef
+  BUILDER_AXE_NODE_SET_SHA256: 8b255e4a380b6740a84afb77aa4eada22db93683a685bb00754cf271ae856e9c
+  BUILDER_AXE_BINDING_SET_SHA256: 6edbe91b0a595ec821f855434a0493dd8c438255e6435819e1702c4b6a6e53c8
+  BUILDER_AXE_INCOMPLETE_NODE_COUNT: '498'
+  BUILDER_GENERATED_PLAN_SHA256: 0e17b0fed9efd2466de3dd7088a23161e4d91c0519a5ec1e68226386a1feddbd
+  R7E_EXTERNAL_AUDIT_SHA256: 91b25337579b038fcf8c50ea31513824957c1ce1abb486321e68b1b9e1502bac
+  EXPECTED_LOCK_SHA256: d5278b3988360053a9e2d52bfb46417c80b3348437759f482c633c3f2ef0ef70
+  EXPECTED_AUDITOR_SHA256: 5dfbe687d1d29ff354e94868d62f28f58b402d1c5500974a8d7430a93ddbe823
+  AUTHORITATIVE_ARTIFACT_PREFIX: r7f-portable-self-recording-final-v1-evidence
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout immutable independent verifier
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Authenticate exact R7E evidence and tuple
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 022
+          mkdir -p builder-tuple outer-evidence tuple
+          test "$(node --version)" = 'v24.20.0'
+          test "$(npm --version)" = '11.19.0'
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/branches/${BUILDER_BRANCH}" --jq '.commit.sha')" = "$BUILDER_COMMIT"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILDER_RUN_ID}" > outer-evidence/r7e-run.json
+          jq -e --arg head "$BUILDER_COMMIT" --arg branch "$BUILDER_BRANCH" --arg path "$BUILDER_WORKFLOW_PATH" \
+            '.head_sha==$head and .head_branch==$branch and .path==$path and .status=="completed" and .conclusion=="success"' \
+            outer-evidence/r7e-run.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${BUILDER_ARTIFACT_ID}" > outer-evidence/r7e-artifact.json
+          jq -e --argjson id "$BUILDER_ARTIFACT_ID" --arg name "$BUILDER_ARTIFACT_NAME" --arg digest "$BUILDER_ARTIFACT_DIGEST" --argjson run "$BUILDER_RUN_ID" \
+            '.id==$id and .name==$name and .digest==$digest and .expired==false and .workflow_run.id==$run' \
+            outer-evidence/r7e-artifact.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${BUILDER_TUPLE_ARTIFACT_ID}" > outer-evidence/r7e-tuple-artifact.json
+          jq -e --argjson id "$BUILDER_TUPLE_ARTIFACT_ID" --arg name "$BUILDER_TUPLE_ARTIFACT_NAME" --arg digest "$BUILDER_TUPLE_ARTIFACT_DIGEST" --argjson run "$BUILDER_RUN_ID" \
+            '.id==$id and .name==$name and .digest==$digest and .expired==false and .workflow_run.id==$run' \
+            outer-evidence/r7e-tuple-artifact.json >/dev/null
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${BUILDER_TUPLE_ARTIFACT_ID}/zip" \
+            --output /tmp/r7e-tuple.zip
+          test "sha256:$(sha256sum /tmp/r7e-tuple.zip | awk '{print $1}')" = "$BUILDER_TUPLE_ARTIFACT_DIGEST"
+          unzip -q /tmp/r7e-tuple.zip -d builder-tuple
+          test -f builder-tuple/R7E_PORTABLE_SELF_RECORDING_TUPLE_V3.json
+          jq -e --arg repository "$GITHUB_REPOSITORY" --arg branch "$BUILDER_BRANCH" --arg commit "$BUILDER_COMMIT" --arg workflow "$BUILDER_WORKFLOW_PATH" --argjson run "$BUILDER_RUN_ID" --argjson artifact "$BUILDER_ARTIFACT_ID" --arg digest "$BUILDER_ARTIFACT_DIGEST" --arg plan "$BUILDER_GENERATED_PLAN_SHA256" '
+            .schema=="R7E_PORTABLE_SELF_RECORDING_AUTHORITATIVE_TUPLE_V3" and
+            .passed==true and .repository==$repository and .branch==$branch and .commit==$commit and
+            .workflowPath==$workflow and .runId==$run and .artifact.id==$artifact and
+            .artifact.digest==$digest and .generatedPlanSha256==$plan and
+            .scope=="R7 technical architecture only" and
+            .mainMutationAuthorized==false and .productionDeploymentAuthorized==false
+          ' builder-tuple/R7E_PORTABLE_SELF_RECORDING_TUPLE_V3.json >/dev/null
+
+      - name: Validate immutable input lock and authorize one runtime compatibility correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum .github/r7f-v6-builder-input.json | awk '{print $1}')" = "$EXPECTED_LOCK_SHA256"
+          test "$(sha256sum .github/r7f-v6-r7e-external-audit.json | awk '{print $1}')" = "$R7E_EXTERNAL_AUDIT_SHA256"
+          test "$(sha256sum .github/scripts/r7f-independent-portable-self-recording-audit.mjs | awk '{print $1}')" = "$EXPECTED_AUDITOR_SHA256"
+          jq -e --arg commit "$BUILDER_COMMIT" --argjson run "$BUILDER_RUN_ID" --argjson artifact "$BUILDER_ARTIFACT_ID" --arg digest "$BUILDER_ARTIFACT_DIGEST" '
+            .schema=="R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT" and
+            .builderHeadSha==$commit and .builderRunId==$run and .builderArtifactId==$artifact and
+            .builderArtifactDigest==$digest and .r7eExternalAuditSha256==env.R7E_EXTERNAL_AUDIT_SHA256
+          ' .github/r7f-v6-builder-input.json >/dev/null
+          jq -e '.passed==true and .decision=="R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS" and (.failedChecks|length)==0' \
+            .github/r7f-v6-r7e-external-audit.json >/dev/null
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          path=Path('.github/scripts/r7f-v3.sh')
+          before=path.read_bytes()
+          text=before.decode()
+          old="test \"$(<\"$BUILDER/R7E_GATE_DECISION.txt\")\" = 'R7E FULL-HISTORY RECONCILED BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F'"
+          new="test \"$(<\"$BUILDER/R7E_GATE_DECISION.txt\")\" = 'R7E PORTABLE JSON SCHEMA BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F'"
+          if text.count(old)!=1:
+              raise SystemExit(f'authorized compatibility anchor count={text.count(old)}')
+          path.write_text(text.replace(old,new,1))
+          after=path.read_bytes()
+          result={
+            'schema':'R7F_AUTHORIZED_RUNTIME_CORRECTION_V1',
+            'passed':True,
+            'correctionCount':1,
+            'corrections':[{
+              'file':'.github/scripts/r7f-v3.sh',
+              'reason':'Consume the exact portable-schema R7E gate without changing verifier logic.',
+              'old':old,
+              'new':new,
+              'beforeSha256':hashlib.sha256(before).hexdigest(),
+              'afterSha256':hashlib.sha256(after).hexdigest(),
+            }],
+            'scope':'Compatibility-only; no candidate, test threshold, evidence or adjudication change.',
+          }
+          Path('/tmp/r7f-authorized-runtime-correction.json').write_text(json.dumps(result,indent=2)+'\n')
+          PY
+          jq -e '.passed==true and .correctionCount==1 and (.corrections|length)==1' /tmp/r7f-authorized-runtime-correction.json >/dev/null
+          bash -n .github/scripts/r7f-v3.sh
+          node --check .github/scripts/r7f-independent-portable-self-recording-audit.mjs
+          sha256sum \
+            .github/r7f-v6-builder-input.json \
+            .github/r7f-v6-r7e-external-audit.json \
+            .github/scripts/r7f-v3.sh \
+            .github/scripts/r7f-v6-final.sh \
+            .github/scripts/r7f-v6-final-locked.sh \
+            .github/scripts/r7f-independent-portable-self-recording-audit.mjs \
+            .github/workflows/r7f-portable-self-recording-final-v1.yml \
+            > /tmp/r7f-outer-infrastructure.sha256
+
+      - name: Execute proven locked independent verifier
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/r7f-v6-final-locked.sh
+
+      - name: Independently audit portable schemas, R7E tuple and executor lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          node .github/scripts/r7f-independent-portable-self-recording-audit.mjs \
+            builder \
+            verifier-run1 \
+            builder-tuple/R7E_PORTABLE_SELF_RECORDING_TUPLE_V3.json \
+            /tmp/r7f-independent-portable-self-recording-audit.json
+          jq -e '
+            .schema=="R7F_INDEPENDENT_PORTABLE_SELF_RECORDING_AUDIT_V1" and
+            .passed==true and (.failedChecks|length)==0 and
+            .metrics.schemaJsonFileCount==9 and
+            .metrics.compiledSchemaCount==8 and
+            .metrics.canonicalRecordCount==12 and
+            .metrics.axeNodeCount==498 and
+            .metrics.generatedPlanRunStepCount==18
+          ' /tmp/r7f-independent-portable-self-recording-audit.json >/dev/null
+          cp /tmp/r7f-independent-portable-self-recording-audit.json artifact/R7F_EVIDENCE/
+          cp /tmp/r7f-authorized-runtime-correction.json artifact/R7F_EVIDENCE/
+          cp /tmp/r7f-outer-infrastructure.sha256 artifact/R7F_EVIDENCE/
+          cp builder-tuple/R7E_PORTABLE_SELF_RECORDING_TUPLE_V3.json artifact/R7F_EVIDENCE/
+          cp outer-evidence/r7e-run.json artifact/R7F_EVIDENCE/r7e-self-recording-run-metadata.json
+          cp outer-evidence/r7e-artifact.json artifact/R7F_EVIDENCE/r7e-self-recording-artifact-metadata.json
+          cp outer-evidence/r7e-tuple-artifact.json artifact/R7F_EVIDENCE/r7e-self-recording-tuple-artifact-metadata.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('artifact')
+          p=root/'R7F_PACKAGE_VALIDATION.json'
+          data=json.loads(p.read_text())
+          independent=json.loads((root/'R7F_EVIDENCE/r7f-independent-portable-self-recording-audit.json').read_text())
+          correction=json.loads((root/'R7F_EVIDENCE/r7f-authorized-runtime-correction.json').read_text())
+          tuple_data=json.loads((root/'R7F_EVIDENCE/R7E_PORTABLE_SELF_RECORDING_TUPLE_V3.json').read_text())
+          checks=dict(data.get('checks') or {})
+          checks.update({
+            'portable-self-recording-independent-audit':independent.get('passed') is True and independent.get('failedChecks')==[],
+            'portable-schema-nine-files':(independent.get('metrics') or {}).get('schemaJsonFileCount')==9,
+            'portable-schema-eight-compiled':(independent.get('metrics') or {}).get('compiledSchemaCount')==8,
+            'portable-schema-twelve-records':(independent.get('metrics') or {}).get('canonicalRecordCount')==12,
+            'self-recording-generated-plan-18-steps':(independent.get('metrics') or {}).get('generatedPlanRunStepCount')==18,
+            'self-recording-r7e-tuple':tuple_data.get('passed') is True and tuple_data.get('scope')=='R7 technical architecture only',
+            'single-authorized-runtime-correction':correction.get('passed') is True and correction.get('correctionCount')==1,
+            'outer-infrastructure-manifest':(root/'R7F_EVIDENCE/r7f-outer-infrastructure.sha256').is_file(),
+            'main-mutation-not-authorized':tuple_data.get('mainMutationAuthorized') is False,
+            'production-deployment-not-authorized':tuple_data.get('productionDeploymentAuthorized') is False,
+          })
+          data.update({
+            'passed':all(checks.values()),
+            'verificationVersion':'R7F-portable-self-recording-final-v1',
+            'checks':checks,
+            'failedChecks':[name for name,passed in checks.items() if not passed],
+            'portableSelfRecordingEvidence':{
+              'audit':'R7F_EVIDENCE/r7f-independent-portable-self-recording-audit.json',
+              'r7eTuple':'R7F_EVIDENCE/R7E_PORTABLE_SELF_RECORDING_TUPLE_V3.json',
+              'authorizedRuntimeCorrection':'R7F_EVIDENCE/r7f-authorized-runtime-correction.json',
+              'schemaTreeSha256':independent.get('schemaTreeSha256'),
+            },
+            'scope':'R7 technical architecture only',
+            'mainMutationAuthorized':False,
+            'productionDeploymentAuthorized':False,
+          })
+          p.write_text(json.dumps(data,indent=2)+'\n')
+          if not data['passed']:
+              raise SystemExit(json.dumps(data,indent=2))
+          index_path=root/'R7F_EVIDENCE_INDEX.json'
+          index=json.loads(index_path.read_text()) if index_path.exists() else {}
+          index.update({
+            'portableSelfRecordingAudit':'R7F_EVIDENCE/r7f-independent-portable-self-recording-audit.json',
+            'r7eSelfRecordingTuple':'R7F_EVIDENCE/R7E_PORTABLE_SELF_RECORDING_TUPLE_V3.json',
+            'authorizedRuntimeCorrection':'R7F_EVIDENCE/r7f-authorized-runtime-correction.json',
+            'outerInfrastructure':'R7F_EVIDENCE/r7f-outer-infrastructure.sha256',
+          })
+          index_path.write_text(json.dumps(index,indent=2)+'\n')
+          PY
+          printf 'R7F PORTABLE SELF-RECORDING INDEPENDENT VERIFICATION COMPLETE — READY FOR HISTORY-BOUND CONTROLLER\n' \
+            > artifact/R7F_GATE_DECISION.txt
+          rm -f artifact/R7F_ARTIFACT_SHA256SUMS.txt
+          (
+            cd artifact
+            find . -type f ! -name 'R7F_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7F_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload authoritative R7F evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-portable-self-recording-final-v1-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Materialize exact immutable R7F tuple
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_name="${AUTHORITATIVE_ARTIFACT_PREFIX}-${GITHUB_SHA}"
+          artifact_row=''
+          for attempt in $(seq 1 20); do
+            artifact_row="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+              | jq --arg name "$artifact_name" '[.artifacts[] | select(.name==$name and .expired==false)] | if length==1 then .[0] else empty end')"
+            if test -n "$artifact_row"; then break; fi
+            sleep 2
+          done
+          test -n "$artifact_row"
+          package_sha="$(sha256sum artifact/R7F_PACKAGE_VALIDATION.json | awk '{print $1}')"
+          independent_sha="$(sha256sum artifact/R7F_EVIDENCE/r7f-independent-portable-self-recording-audit.json | awk '{print $1}')"
+          correction_sha="$(sha256sum artifact/R7F_EVIDENCE/r7f-authorized-runtime-correction.json | awk '{print $1}')"
+          jq -n \
+            --arg schema 'R7F_PORTABLE_SELF_RECORDING_AUTHORITATIVE_TUPLE_V1' \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg branch "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg workflow '.github/workflows/r7f-portable-self-recording-final-v1.yml' \
+            --arg artifactId "$(jq -r '.id' <<<"$artifact_row")" \
+            --arg artifactName "$(jq -r '.name' <<<"$artifact_row")" \
+            --arg artifactDigest "$(jq -r '.digest' <<<"$artifact_row")" \
+            --arg builderCommit "$BUILDER_COMMIT" \
+            --arg builderRunId "$BUILDER_RUN_ID" \
+            --arg builderArtifactId "$BUILDER_ARTIFACT_ID" \
+            --arg builderArtifactDigest "$BUILDER_ARTIFACT_DIGEST" \
+            --arg builderTupleArtifactId "$BUILDER_TUPLE_ARTIFACT_ID" \
+            --arg builderTupleArtifactDigest "$BUILDER_TUPLE_ARTIFACT_DIGEST" \
+            --arg packageValidationSha256 "$package_sha" \
+            --arg independentAuditSha256 "$independent_sha" \
+            --arg runtimeCorrectionSha256 "$correction_sha" \
+            '{schema:$schema,passed:true,repository:$repository,branch:$branch,commit:$commit,runId:($runId|tonumber),runAttempt:($runAttempt|tonumber),workflowPath:$workflow,artifact:{id:($artifactId|tonumber),name:$artifactName,digest:$artifactDigest},builder:{commit:$builderCommit,runId:($builderRunId|tonumber),artifactId:($builderArtifactId|tonumber),artifactDigest:$builderArtifactDigest,tupleArtifactId:($builderTupleArtifactId|tonumber),tupleArtifactDigest:$builderTupleArtifactDigest},packageValidationSha256:$packageValidationSha256,independentAuditSha256:$independentAuditSha256,runtimeCorrectionSha256:$runtimeCorrectionSha256,scope:"R7 technical architecture only",mainMutationAuthorized:false,productionDeploymentAuthorized:false}' \
+            > tuple/R7F_PORTABLE_SELF_RECORDING_TUPLE_V1.json
+          jq -e '.passed==true and (.artifact.digest|startswith("sha256:")) and .scope=="R7 technical architecture only" and .mainMutationAuthorized==false and .productionDeploymentAuthorized==false' \
+            tuple/R7F_PORTABLE_SELF_RECORDING_TUPLE_V1.json >/dev/null
+
+      - name: Upload immutable R7F tuple
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-portable-self-recording-final-v1-tuple-${{ github.sha }}
+          path: tuple/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          include-hidden-files: true
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-portable-self-recording-final-v1-failure-${{ github.sha }}
+          path: |
+            artifact/
+            evidence/
+            outer-evidence/
+            builder-tuple/
+            tuple/
+            /tmp/r7f-authorized-runtime-correction.json
+            /tmp/r7f-independent-portable-self-recording-audit.json
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
