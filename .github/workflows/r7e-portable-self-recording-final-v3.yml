@@ -1,0 +1,234 @@
+name: R7E portable self-recording final executor v3
+
+on:
+  push:
+    branches:
+      - r7e-portable-self-recording-final-20260901
+    paths:
+      - '.github/workflows/r7e-portable-self-recording-final-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7e-portable-self-recording-final-v3
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  EXPECTED_SOURCE_ARCHIVE_SHA256: 764271738ad8578de7d89c522d9cedd1a22ce00d1b8e5d06b271903b52a3923d
+  EXPECTED_GENERATED_PLAN_SHA256: 0e17b0fed9efd2466de3dd7088a23161e4d91c0519a5ec1e68226386a1feddbd
+  AUTHORITATIVE_ARTIFACT_PREFIX: r7e-portable-self-recording-final-v3-evidence
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout immutable self-recording R7E commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Validate transport and materialize exact authoritative plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 022
+          mkdir -p executor-evidence evidence tuple
+          test "$(node --version)" = 'v24.20.0'
+          test "$(npm --version)" = '11.19.0'
+          sha256sum --check --strict .r7e-source/SHA256SUMS | tee executor-evidence/source-transport-check.txt
+          test "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)" = "$EXPECTED_SOURCE_ARCHIVE_SHA256"
+          test "$(tr -d '\r\n' < .r7e-source/HARDENED_SOURCE_READY)" = "$EXPECTED_SOURCE_ARCHIVE_SHA256"
+          jq -e '.fileCount==146 and (.files|length)==146' .r7e-source/SOURCE_TREE.json >/dev/null
+          python3 -m py_compile \
+            .github/scripts/materialize-portable-r7e-workflow.py \
+            .github/scripts/execute-generated-r7e-plan.py \
+            .github/scripts/r7e-pack-source.py \
+            .github/scripts/r7e-tree-guard.py
+          python3 .github/scripts/materialize-portable-r7e-workflow.py
+          generated_sha="$(sha256sum .github/workflows/r7e-portable-json-schema-verification.yml | awk '{print $1}')"
+          test "$generated_sha" = "$EXPECTED_GENERATED_PLAN_SHA256"
+          test "$(wc -c < .github/workflows/r7e-portable-json-schema-verification.yml)" -eq 30644
+          ! grep -q 'scripts/validate-json-schema.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          ! grep -q 'scripts/verify-json-schema-drift.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          grep -q 'scripts/validate-json-schemas.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          grep -q 'scripts/run-portable-schema-contract.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          grep -Fq '.contractVersion=="1.0.0" and ."$schema"=="https://json-schema.org/draft/2020-12/schema"' .github/workflows/r7e-portable-json-schema-verification.yml
+          sha256sum \
+            .github/workflows/r7e-portable-self-recording-final-v3.yml \
+            .github/workflows/r7e-portable-json-schema-verification.yml \
+            .github/workflows/r7e-full-history-reconciled-verification.yml \
+            .github/scripts/materialize-portable-r7e-workflow.py \
+            .github/scripts/execute-generated-r7e-plan.py \
+            .github/scripts/r7e-pack-source.py \
+            .github/scripts/r7e-tree-guard.py \
+            > executor-evidence/executor-infrastructure.sha256
+          cp .github/workflows/r7e-portable-json-schema-verification.yml executor-evidence/generated-authoritative-plan.yml
+          printf '%s\n' "$GITHUB_SHA" > executor-evidence/executor-commit.txt
+          printf '%s\n' "$GITHUB_RUN_ID" > executor-evidence/executor-run-id.txt
+          printf '%s\n' "$GITHUB_RUN_ATTEMPT" > executor-evidence/executor-run-attempt.txt
+
+      - name: Execute generated authoritative plan with GitHub condition semantics
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/execute-generated-r7e-plan.py \
+            .github/workflows/r7e-portable-json-schema-verification.yml \
+            executor-evidence/generated-plan-execution.json
+          jq -e '
+            .schema=="R7E_GENERATED_PLAN_EXECUTION_V2" and
+            .passed==true and
+            .executedRunStepCount>0 and
+            .skippedAllowedUsesCount==3 and
+            .skippedConditionCount==1 and
+            .firstFailure==null
+          ' executor-evidence/generated-plan-execution.json >/dev/null
+          test -d artifact
+          test -f artifact/R7E_PACKAGE_VALIDATION.json
+          test -f artifact/R7E_ARTIFACT_SHA256SUMS.txt
+          jq -e '.passed==true and (.failedChecks|length)==0' artifact/R7E_PACKAGE_VALIDATION.json >/dev/null
+          (
+            cd artifact
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Bind executor lineage into authoritative evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/R7E_EXECUTOR_EVIDENCE
+          cp -a executor-evidence/. artifact/R7E_EXECUTOR_EVIDENCE/
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          root=Path('artifact')
+          execution=json.loads((root/'R7E_EXECUTOR_EVIDENCE/generated-plan-execution.json').read_text())
+          package=json.loads((root/'R7E_PACKAGE_VALIDATION.json').read_text())
+          identity=json.loads((root/'R7E_EVIDENCE/R7E_CANDIDATE_IDENTITY.json').read_text())
+          sha=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          checks={
+            'generatedPlanExact':sha(root/'R7E_EXECUTOR_EVIDENCE/generated-authoritative-plan.yml')==os.environ['EXPECTED_GENERATED_PLAN_SHA256'],
+            'generatedPlanExecuted':execution.get('passed') is True and execution.get('firstFailure') is None,
+            'generatedPlanUsesSkipped':execution.get('skippedAllowedUsesCount')==3,
+            'failureBranchSkipped':execution.get('skippedConditionCount')==1,
+            'packagePassed':package.get('passed') is True and package.get('failedChecks')==[],
+            'candidateIdentityCommit':identity.get('workflowCommit')==os.environ['GITHUB_SHA'],
+            'candidateIdentityRun':str(identity.get('runId'))==os.environ['GITHUB_RUN_ID'],
+            'sourceArchiveBound':identity.get('sourceArchiveSha256')==os.environ['EXPECTED_SOURCE_ARCHIVE_SHA256'],
+            'portableDialect':identity.get('portableSchemaDialect')=='https://json-schema.org/draft/2020-12/schema',
+            'portableVersion':identity.get('portableSchemaContractVersion')=='1.0.0',
+            'scopeR7Only':True,
+            'mainMutationAuthorized':False,
+            'productionDeploymentAuthorized':False,
+          }
+          result={
+            'schema':'R7E_SELF_RECORDING_EXECUTOR_VALIDATION_V3',
+            'passed':all(checks.values()),
+            'repository':os.environ['GITHUB_REPOSITORY'],
+            'executorCommit':os.environ['GITHUB_SHA'],
+            'executorRunId':int(os.environ['GITHUB_RUN_ID']),
+            'executorRunAttempt':int(os.environ['GITHUB_RUN_ATTEMPT']),
+            'generatedPlanSha256':os.environ['EXPECTED_GENERATED_PLAN_SHA256'],
+            'sourceArchiveSha256':os.environ['EXPECTED_SOURCE_ARCHIVE_SHA256'],
+            'checks':checks,
+            'failedChecks':[name for name,passed in checks.items() if not passed],
+            'maximumAuthorizedVerdict':'R7_TECHNICAL_ARCHITECTURE_EVIDENCE_READY_FOR_INDEPENDENT_R7F',
+          }
+          (root/'R7E_SELF_RECORDING_VALIDATION.json').write_text(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result,indent=2))
+          if not result['passed']:
+              raise SystemExit(1)
+          PY
+          rm artifact/R7E_ARTIFACT_SHA256SUMS.txt
+          (
+            cd artifact
+            find . -type f ! -name 'R7E_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7E_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload authoritative self-recording R7E artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-portable-self-recording-final-v3-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Materialize exact immutable R7E tuple
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_name="${AUTHORITATIVE_ARTIFACT_PREFIX}-${GITHUB_SHA}"
+          artifact_row=''
+          for attempt in $(seq 1 20); do
+            artifact_row="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+              | jq --arg name "$artifact_name" '[.artifacts[] | select(.name==$name and .expired==false)] | if length==1 then .[0] else empty end')"
+            if test -n "$artifact_row"; then break; fi
+            sleep 2
+          done
+          test -n "$artifact_row"
+          package_sha="$(sha256sum artifact/R7E_PACKAGE_VALIDATION.json | awk '{print $1}')"
+          executor_validation_sha="$(sha256sum artifact/R7E_SELF_RECORDING_VALIDATION.json | awk '{print $1}')"
+          jq -n \
+            --arg schema 'R7E_PORTABLE_SELF_RECORDING_AUTHORITATIVE_TUPLE_V3' \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg branch "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg workflow '.github/workflows/r7e-portable-self-recording-final-v3.yml' \
+            --arg artifactId "$(jq -r '.id' <<<"$artifact_row")" \
+            --arg artifactName "$(jq -r '.name' <<<"$artifact_row")" \
+            --arg artifactDigest "$(jq -r '.digest' <<<"$artifact_row")" \
+            --arg sourceArchiveSha256 "$EXPECTED_SOURCE_ARCHIVE_SHA256" \
+            --arg generatedPlanSha256 "$EXPECTED_GENERATED_PLAN_SHA256" \
+            --arg packageValidationSha256 "$package_sha" \
+            --arg executorValidationSha256 "$executor_validation_sha" \
+            '{schema:$schema,passed:true,repository:$repository,branch:$branch,commit:$commit,runId:($runId|tonumber),runAttempt:($runAttempt|tonumber),workflowPath:$workflow,artifact:{id:($artifactId|tonumber),name:$artifactName,digest:$artifactDigest},sourceArchiveSha256:$sourceArchiveSha256,sourceFileCount:146,generatedPlanSha256:$generatedPlanSha256,packageValidationSha256:$packageValidationSha256,executorValidationSha256:$executorValidationSha256,scope:"R7 technical architecture only",mainMutationAuthorized:false,productionDeploymentAuthorized:false}' \
+            > tuple/R7E_PORTABLE_SELF_RECORDING_TUPLE_V3.json
+          jq -e '.passed==true and .sourceFileCount==146 and (.artifact.digest|startswith("sha256:")) and .mainMutationAuthorized==false and .productionDeploymentAuthorized==false' tuple/R7E_PORTABLE_SELF_RECORDING_TUPLE_V3.json >/dev/null
+
+      - name: Upload immutable R7E tuple
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-portable-self-recording-final-v3-tuple-${{ github.sha }}
+          path: tuple/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          include-hidden-files: true
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-portable-self-recording-final-v3-failure-${{ github.sha }}
+          path: |
+            artifact/
+            evidence/
+            executor-evidence/
+            tuple/
+            .github/workflows/r7e-portable-json-schema-verification.yml
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
