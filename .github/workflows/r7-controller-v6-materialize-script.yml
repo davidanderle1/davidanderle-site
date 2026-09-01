@@ -30,6 +30,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p .github/scripts
           cat .github/r7-controller-v6/controller.part*.b64 | tr -d '\r\n' | base64 --decode | gzip --decompress > .github/scripts/r7-history-bound-controller-v6.py
           test "$(sha256sum .github/scripts/r7-history-bound-controller-v6.py | awk '{print $1}')" = 'b95b969a22301d8ec6b298cd03f7c3d2ce13b90096962095818465fabdd2a74e'
           python3 -m py_compile .github/scripts/r7-history-bound-controller-v6.py
