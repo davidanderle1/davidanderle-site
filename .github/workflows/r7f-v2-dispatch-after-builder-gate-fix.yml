@@ -1,0 +1,28 @@
+name: Dispatch R7F v2 after builder-gate alignment
+
+on:
+  push:
+    branches:
+      - r7f-portable-self-recording-final-20260901
+    paths:
+      - '.github/workflows/r7f-v2-dispatch-after-builder-gate-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch exact verifier workflow at current branch head
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run r7f-portable-self-recording-final-v2.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref r7f-portable-self-recording-final-20260901
