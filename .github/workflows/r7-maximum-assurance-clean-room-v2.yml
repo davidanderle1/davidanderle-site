@@ -1,0 +1,469 @@
+name: R7 maximum-assurance clean-room rebuild v2
+
+on:
+  push:
+    branches:
+      - r7-maximum-assurance-rebuild-20260901
+    paths:
+      - '.github/workflows/r7-maximum-assurance-clean-room-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7-maximum-assurance-clean-room-v2-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  R7E_COMMIT: ea592cde4f4a09f18442308ff14e1eeb2621bf33
+  R7E_RUN_ID: '33509839046'
+  R7E_ARTIFACT_ID: '9801298633'
+  R7E_ARTIFACT_SHA256: 8c98377f442bdc1ab5ed45f240c38ec6773ca29ca8f887375e0ec7dc6aa99d3a
+  FROZEN_SOURCE_TREE_SHA256: 203f572ffa72ffb0790732c02c8f2b88cdeac8ec0df7f3450b1f4958ff3cd26e
+  FROZEN_SOURCE_TAR_SHA256: b639fdf11a0a6d4674b59d26327b996e71ec87190848c00685d25e2e4b1ec2f8
+  VERIFIED_DIST_TREE_SHA256: 3d76b6a74da4562426b222ac298f8837c02d61d5ce95cf76b181bef0d28d7cc4
+  STRESS_DIST_TREE_SHA256: 005bfb51b3af3eca95153d5a5f912ef635e75b9b1f566350a53914faf4d29b41
+  MAIN_BASELINE_SHA: 74d24bd30090991295429ad7600df6f33f668e44
+
+jobs:
+  clean-room-v2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout isolated read-only audit authority
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Acquire and authenticate exact R7E input
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          umask 022
+          rm -rf input run-a run-b artifact-source artifact-dist artifact-stress assurance-v2
+          mkdir -p input run-a run-b artifact-source artifact-dist artifact-stress assurance-v2
+
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/branches/main" \
+            --output input/main.json
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${R7E_RUN_ID}" \
+            --output input/r7e-run.json
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7E_ARTIFACT_ID}" \
+            --output input/r7e-artifact.json
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7E_ARTIFACT_ID}/zip" \
+            --output input/r7e.zip
+
+          jq -e --arg sha "$MAIN_BASELINE_SHA" '.commit.sha==$sha' input/main.json >/dev/null
+          jq -e --arg sha "$R7E_COMMIT" --argjson id "$R7E_RUN_ID" \
+            '.id==$id and .run_attempt==1 and .head_sha==$sha and .status=="completed" and .conclusion=="success"' \
+            input/r7e-run.json >/dev/null
+          jq -e --arg sha "$R7E_COMMIT" --arg digest "sha256:${R7E_ARTIFACT_SHA256}" --argjson id "$R7E_ARTIFACT_ID" --argjson run "$R7E_RUN_ID" \
+            '.id==$id and .digest==$digest and .expired==false and .workflow_run.id==$run and .workflow_run.head_sha==$sha' \
+            input/r7e-artifact.json >/dev/null
+          test "$(sha256sum input/r7e.zip | awk '{print $1}')" = "$R7E_ARTIFACT_SHA256"
+          test "$(node --version)" = 'v24.20.0'
+          test "$(npm --version)" = '11.19.0'
+
+      - name: Safe-extract, verify internal manifest, and stage three copies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, re, stat, unicodedata, zipfile
+          from pathlib import Path, PurePosixPath
+
+          source=Path('input/r7e.zip')
+          target=Path('input/r7e')
+          target.mkdir()
+          names=set(); folded=set(); normalized=set()
+          with zipfile.ZipFile(source) as archive:
+              for info in archive.infolist():
+                  name=info.filename
+                  path=PurePosixPath(name)
+                  if info.flag_bits & 1:
+                      raise SystemExit(f'encrypted member: {name}')
+                  if path.is_absolute() or '..' in path.parts or '\\' in name or '\x00' in name:
+                      raise SystemExit(f'unsafe member: {name}')
+                  if name in names or name.casefold() in folded or unicodedata.normalize('NFC',name) in normalized:
+                      raise SystemExit(f'colliding member: {name}')
+                  names.add(name); folded.add(name.casefold()); normalized.add(unicodedata.normalize('NFC',name))
+                  kind=stat.S_IFMT(info.external_attr >> 16)
+                  if kind not in (0,stat.S_IFREG,stat.S_IFDIR):
+                      raise SystemExit(f'special member: {name}')
+              archive.extractall(target)
+
+          manifest=target/'R7E_ARTIFACT_SHA256SUMS.txt'
+          expected={}
+          for line in manifest.read_text().splitlines():
+              if not line:
+                  continue
+              digest,name=line.split('  ',1)
+              name=name.lstrip('*').removeprefix('./')
+              if not re.fullmatch(r'[0-9a-f]{64}',digest) or name in expected:
+                  raise SystemExit('invalid internal manifest')
+              expected[name]=digest
+          actual={
+              path.relative_to(target).as_posix():hashlib.sha256(path.read_bytes()).hexdigest()
+              for path in target.rglob('*') if path.is_file() and path!=manifest
+          }
+          if expected!=actual:
+              raise SystemExit(f'internal manifest mismatch expected={len(expected)} actual={len(actual)}')
+          Path('assurance-v2/input-authentication.json').write_text(json.dumps({
+              'schema':'R7_MAX_ASSURANCE_V2_INPUT_AUTHENTICATION',
+              'passed':True,
+              'outerSha256':hashlib.sha256(source.read_bytes()).hexdigest(),
+              'memberCount':len(names),
+              'manifestEntryCount':len(expected),
+          },indent=2)+'\n')
+          PY
+
+          test "$(sha256sum input/r7e/BEARING_FROZEN_SOURCE.tar | awk '{print $1}')" = "$FROZEN_SOURCE_TAR_SHA256"
+          cp -a input/r7e/BEARING_PRODUCTION_SOURCE/. artifact-source/
+          cp -a input/r7e/BEARING_VERIFIED_DIST/. artifact-dist/
+          cp -a input/r7e/BEARING_SCALE_SITE_500/. artifact-stress/
+          tar -xf input/r7e/BEARING_FROZEN_SOURCE.tar -C run-a
+          tar -xf input/r7e/BEARING_FROZEN_SOURCE.tar -C run-b
+
+      - name: Independently verify both pristine source trees
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, os, stat
+          from pathlib import Path
+
+          excluded_top={'.git','node_modules','dist','.astro','.r7e-tmp'}
+          excluded_prefix=('public/assets/portrait/','public/assets/js/','public/artifacts/','src/data/generated/')
+
+          def scan(root):
+              root=Path(root)
+              rows=[]
+              for path in sorted(root.rglob('*'),key=lambda p:p.relative_to(root).as_posix()):
+                  rel=path.relative_to(root).as_posix()
+                  if rel.split('/')[0] in excluded_top or rel.startswith(excluded_prefix):
+                      continue
+                  st=path.lstat()
+                  if path.is_symlink():
+                      rows.append({'path':rel,'type':'symlink','mode':oct(stat.S_IMODE(st.st_mode)),'target':os.readlink(path)})
+                  elif path.is_file():
+                      rows.append({
+                          'path':rel,'type':'file','mode':oct(stat.S_IMODE(st.st_mode)),
+                          'size':st.st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+                      })
+              return rows
+
+          def digest(rows):
+              return hashlib.sha256((json.dumps(rows,sort_keys=True,separators=(',',':'))+'\n').encode()).hexdigest()
+
+          a=scan('run-a'); b=scan('run-b')
+          checks={
+              'source-count-146':len(a)==len(b)==146,
+              'pristine-trees-equal':a==b,
+              'pristine-tree-authoritative':digest(a)==os.environ['FROZEN_SOURCE_TREE_SHA256'],
+          }
+          failed=[name for name,ok in checks.items() if not ok]
+          Path('assurance-v2/pristine-source.json').write_text(json.dumps({
+              'schema':'R7_MAX_ASSURANCE_V2_PRISTINE_SOURCE',
+              'passed':not failed,'checks':checks,'failedChecks':failed,
+              'treeSha256':digest(a),
+          },indent=2)+'\n')
+          if failed:
+              raise SystemExit(failed)
+          PY
+
+      - name: Fresh full verification A
+        shell: bash
+        working-directory: run-a
+        run: |
+          set -Eeuo pipefail
+          npm ci 2>&1 | tee ../assurance-v2/run-a-npm-ci.log
+          npx playwright install --with-deps chromium 2>&1 | tee ../assurance-v2/playwright-install.log
+          npm run verify:all 2>&1 | tee ../assurance-v2/run-a-verify-all.log
+
+      - name: Fresh full verification B
+        shell: bash
+        working-directory: run-b
+        run: |
+          set -Eeuo pipefail
+          npm ci 2>&1 | tee ../assurance-v2/run-b-npm-ci.log
+          npm run verify:all 2>&1 | tee ../assurance-v2/run-b-verify-all.log
+
+      - name: Independent semantic reproducibility adjudication
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, os, re, stat
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
+
+          excluded_top={'.git','node_modules','dist','.astro','.r7e-tmp'}
+          excluded_prefix=('public/assets/portrait/','public/assets/js/','public/artifacts/','src/data/generated/')
+
+          def rows(root,source=False,exclude=()):
+              root=Path(root)
+              output=[]
+              for path in sorted(root.rglob('*'),key=lambda p:p.relative_to(root).as_posix()):
+                  rel=path.relative_to(root).as_posix()
+                  if rel in exclude:
+                      continue
+                  if source and (rel.split('/')[0] in excluded_top or rel.startswith(excluded_prefix)):
+                      continue
+                  st=path.lstat()
+                  if path.is_symlink():
+                      output.append({'path':rel,'type':'symlink','mode':oct(stat.S_IMODE(st.st_mode)),'target':os.readlink(path)})
+                  elif path.is_file():
+                      output.append({
+                          'path':rel,'type':'file','mode':oct(stat.S_IMODE(st.st_mode)),
+                          'size':st.st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+                      })
+              return output
+
+          def digest(items):
+              return hashlib.sha256((json.dumps(items,sort_keys=True,separators=(',',':'))+'\n').encode()).hexdigest()
+
+          def semantic(items):
+              return [{key:row[key] for key in ('path','type','size','sha256') if key in row} for row in items]
+
+          def compare(left,right):
+              l={row['path']:row for row in left}; r={row['path']:row for row in right}
+              return {
+                  'onlyLeft':sorted(set(l)-set(r)),
+                  'onlyRight':sorted(set(r)-set(l)),
+                  'changed':sorted(key for key in set(l)&set(r) if l[key]!=r[key]),
+              }
+
+          source_a=rows('run-a',source=True)
+          source_b=rows('run-b',source=True)
+          dist_a=rows('run-a/dist')
+          dist_b=rows('run-b/dist')
+          artifact_dist=rows('artifact-dist')
+          stress_a=rows('run-a/.r7e-tmp/stress/dist',exclude=('TEST_ONLY_DO_NOT_DEPLOY.txt',))
+          stress_b=rows('run-b/.r7e-tmp/stress/dist',exclude=('TEST_ONLY_DO_NOT_DEPLOY.txt',))
+          artifact_stress=rows('artifact-stress',exclude=('TEST_ONLY_DO_NOT_DEPLOY.txt',))
+
+          auth_dist=json.loads(Path('input/r7e/R7E_EVIDENCE/run1-dist-tree.json').read_text())
+          auth_stress=json.loads(Path('input/r7e/R7E_EVIDENCE/stress-dist-tree.json').read_text())
+          auth_dist_sem=semantic(auth_dist['entries'])
+          auth_stress_sem=semantic(auth_stress['entries'])
+          da=semantic(dist_a); db=semantic(dist_b); ad=semantic(artifact_dist)
+          sa=semantic(stress_a); sb=semantic(stress_b); ast=semantic(artifact_stress)
+
+          checks={
+              'post-run-source-a-immutable':digest(source_a)==os.environ['FROZEN_SOURCE_TREE_SHA256'],
+              'post-run-source-b-immutable':digest(source_b)==os.environ['FROZEN_SOURCE_TREE_SHA256'],
+              'authoritative-dist-manifest-bound':auth_dist.get('treeSha256')==os.environ['VERIFIED_DIST_TREE_SHA256'] and auth_dist.get('entryCount')==34,
+              'authoritative-stress-manifest-bound':auth_stress.get('treeSha256')==os.environ['STRESS_DIST_TREE_SHA256'] and auth_stress.get('entryCount')==534,
+              'fresh-dist-a-content-authoritative':da==auth_dist_sem,
+              'fresh-dist-b-content-authoritative':db==auth_dist_sem,
+              'fresh-dist-a-b-byte-and-mode-identical':dist_a==dist_b,
+              'artifact-dist-content-authoritative':ad==auth_dist_sem,
+              'fresh-stress-a-content-authoritative':sa==auth_stress_sem,
+              'fresh-stress-b-content-authoritative':sb==auth_stress_sem,
+              'fresh-stress-a-b-byte-and-mode-identical':stress_a==stress_b,
+              'artifact-stress-content-authoritative':ast==auth_stress_sem,
+              'production-count-34':len(dist_a)==34,
+              'stress-count-534':len(stress_a)==534,
+          }
+
+          class Parser(HTMLParser):
+              def __init__(self):
+                  super().__init__(convert_charrefs=True)
+                  self.links=[]; self.resources=[]; self.scripts=[]; self.ids=set(); self.handlers=[]
+              def handle_starttag(self,tag,attrs):
+                  data=dict(attrs)
+                  if 'id' in data: self.ids.add(data['id'])
+                  if tag=='a' and data.get('href'): self.links.append(data['href'])
+                  if tag=='script':
+                      typ=(data.get('type') or '').lower()
+                      self.scripts.append({'src':data.get('src'),'type':typ})
+                      if data.get('src'): self.resources.append(data['src'])
+                  if tag in {'img','source'}:
+                      for key in ('src','srcset'):
+                          if data.get(key): self.resources.append(data[key])
+                  if tag=='link' and set((data.get('rel') or '').lower().split()) & {'stylesheet','preload','modulepreload','icon'} and data.get('href'):
+                      self.resources.append(data['href'])
+                  self.handlers.extend(key for key in data if key.lower().startswith('on'))
+              handle_startendtag=handle_starttag
+
+          def target_for(root,base,url):
+              split=urlsplit(url); path=unquote(split.path)
+              if path.startswith('/'):
+                  rel='index.html' if path=='/' else path.lstrip('/')+('index.html' if path.endswith('/') else '')
+                  return root/rel
+              if not path:
+                  return base
+              target=(base.parent/path).resolve()
+              try: target.relative_to(root.resolve())
+              except ValueError: return None
+              return target/'index.html' if target.is_dir() else target
+
+          root=Path('run-a/dist')
+          html=sorted(root.rglob('*.html'))
+          expected={
+              '404.html','index.html','about/index.html','about/no-photo/index.html','archive/index.html',
+              'contact/index.html','cv/index.html','privacy/index.html','security/index.html','work/index.html',
+              'work/merkle-poseidon/index.html','work/volatility-cascade-engine/index.html','writing/index.html',
+              'writing/protecting-retail-investors/index.html',
+          }
+          actual={p.relative_to(root).as_posix() for p in html}
+          broken=[]; third_party=[]; executable={}
+          cache={}
+          for page in html:
+              parser=Parser(); parser.feed(page.read_text()); cache[page.resolve()]=parser
+              rel=page.relative_to(root).as_posix()
+              executable[rel]=[s for s in parser.scripts if s['type'] not in {'application/ld+json','application/json','speculationrules'}]
+              if parser.handlers: broken.append({'file':rel,'handlers':parser.handlers})
+              for raw in parser.resources:
+                  for item in [part.strip().split(' ')[0] for part in raw.split(',')]:
+                      split=urlsplit(item)
+                      if split.scheme in {'http','https'} and split.netloc not in {'davidanderle.com','www.davidanderle.com'}:
+                          third_party.append({'file':rel,'resource':item})
+                      elif not split.scheme:
+                          target=target_for(root,page,item)
+                          if target is None or not target.exists(): broken.append({'file':rel,'resource':item})
+              for href in parser.links:
+                  split=urlsplit(href)
+                  if split.scheme or href.startswith('//') or href.startswith('#'): continue
+                  target=target_for(root,page,href)
+                  if target is None or not target.exists():
+                      broken.append({'file':rel,'href':href})
+                  elif split.fragment:
+                      parser2=cache.get(target.resolve())
+                      if parser2 is None:
+                          parser2=Parser(); parser2.feed(target.read_text()); cache[target.resolve()]=parser2
+                      if unquote(split.fragment) not in parser2.ids:
+                          broken.append({'file':rel,'href':href,'fragment':split.fragment})
+
+          vce='work/volatility-cascade-engine/index.html'
+          checks.update({
+              'production-route-set-exact':actual==expected,
+              'no-broken-internal-links-resources-or-fragments':not broken,
+              'no-third-party-runtime-assets':not third_party,
+              'ordinary-routes-zero-executable-js':all(not scripts for name,scripts in executable.items() if name!=vce),
+              'vce-one-bounded-executable-script':len(executable.get(vce,[]))==1 and bool(executable[vce][0]['src']),
+              'production-only-one-js-file':len(list(root.rglob('*.js')))==1,
+          })
+
+          evidence=Path('run-a/.r7e-tmp')
+          invalid=json.loads((evidence/'invalid-fixture-results.json').read_text())
+          lineage=json.loads((evidence/'stress/lineage.json').read_text())
+          browser=json.loads((evidence/'playwright/browser-results.json').read_text())
+          axe=json.loads((evidence/'playwright/axe-results.json').read_text())
+          lighthouse=json.loads((evidence/'lighthouse/summary.json').read_text())
+          network=json.loads((evidence/'network/audit.json').read_text())
+          inventory=json.loads((evidence/'axe-adjudication/inventory.json').read_text())
+          schema=json.loads((evidence/'portable-schema-contract.json').read_text())
+
+          def playwright_ok(data):
+              stats=data.get('stats') or {}
+              return stats.get('unexpected',0)==0 and stats.get('flaky',0)==0 and stats.get('expected',0)>0
+
+          checks.update({
+              'fresh-invalid-fixtures-29-rejected':isinstance(invalid,list) and len(invalid)==29 and all(row.get('validationFailed') is True for row in invalid),
+              'fresh-lineage-500-complete':lineage.get('passed') is True and lineage.get('expectedSyntheticCount')==500 and lineage.get('emittedDetailPageCount')==500,
+              'fresh-browser-playwright-clean':playwright_ok(browser),
+              'fresh-axe-playwright-clean':playwright_ok(axe),
+              'fresh-axe-zero-violations':inventory.get('passed') is True and inventory.get('metrics',{}).get('totalViolations')==0 and inventory.get('metrics',{}).get('totalIncompleteNodes')==498,
+              'fresh-lighthouse-clean':lighthouse.get('pass') is True and len(lighthouse.get('results') or [])==2,
+              'fresh-network-zero-third-party':network.get('runtime')=='playwright' and network.get('genuineThirdPartyRuntimeRequestCount')==0,
+              'fresh-portable-schema-contract':schema.get('passed') is True and schema.get('contractVersion')=='1.0.0' and schema.get('validatedProductionRecordCount')==12,
+          })
+
+          failed=[name for name,ok in checks.items() if not ok]
+          result={
+              'schema':'R7_MAXIMUM_ASSURANCE_CLEAN_ROOM_V2',
+              'decision':'R7_TECHNICAL_ARCHITECTURE_CLOSED' if not failed else 'R7_NOT_CLOSED',
+              'passed':not failed,
+              'checks':checks,
+              'failedChecks':failed,
+              'freshFullVerificationRuns':2,
+              'freshDistModeTreeSha256':digest(dist_a),
+              'authoritativeDistModeTreeSha256':auth_dist.get('treeSha256'),
+              'freshStressModeTreeSha256':digest(stress_a),
+              'authoritativeStressModeTreeSha256':auth_stress.get('treeSha256'),
+              'semanticDiffs':{
+                  'freshDistA_vs_authoritative':compare(da,auth_dist_sem),
+                  'freshDistB_vs_authoritative':compare(db,auth_dist_sem),
+                  'artifactDist_vs_authoritative':compare(ad,auth_dist_sem),
+                  'freshStressA_vs_authoritative':compare(sa,auth_stress_sem),
+                  'freshStressB_vs_authoritative':compare(sb,auth_stress_sem),
+                  'artifactStress_vs_authoritative':compare(ast,auth_stress_sem),
+              },
+              'broken':broken,
+              'thirdPartyRuntime':third_party,
+              'scope':{
+                  'wholeWebsiteProgrammeComplete':False,
+                  'r8ThroughR13Closed':False,
+                  'mainMutationAuthorized':False,
+                  'productionDeploymentAuthorized':False,
+              },
+          }
+          Path('assurance-v2/R7_MAXIMUM_ASSURANCE_CLEAN_ROOM_V2.json').write_text(json.dumps(result,indent=2)+'\n')
+          Path('assurance-v2/R7_MAXIMUM_ASSURANCE_DECISION.txt').write_text(
+              ('R7 TECHNICAL ARCHITECTURE CLOSED — MAXIMUM-ASSURANCE CLEAN-ROOM V2 PASS; '
+               'R8-R13 REMAIN OPEN; NO MAIN MUTATION OR DEPLOYMENT AUTHORIZED\n')
+              if not failed else
+              'R7 NOT CLOSED — MAXIMUM-ASSURANCE CLEAN-ROOM V2 FAILED\n'
+          )
+          if failed:
+              raise SystemExit(f'failed checks: {failed}')
+          PY
+
+          rm -f assurance-v2/SHA256SUMS.txt
+          (
+            cd assurance-v2
+            find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+            sha256sum --check --strict SHA256SUMS.txt
+          )
+
+      - name: Upload immutable maximum-assurance v2 evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-maximum-assurance-clean-room-v2-${{ github.sha }}
+          path: assurance-v2/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Upload fail-closed v2 diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-maximum-assurance-clean-room-v2-failure-${{ github.sha }}
+          path: |
+            assurance-v2/
+            input/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
