@@ -113,6 +113,33 @@ def main() -> None:
     job_env = job.get("env") or {}
     executed: list[dict[str, Any]] = []
     skipped_uses: list[dict[str, str]] = []
+    skipped_conditions: list[dict[str, str]] = []
+    failed = False
+    first_failure: dict[str, Any] | None = None
+    script_path = ROOT / ".r7e-plan-step.sh"
+    workflow_display = (
+        str(workflow_path.relative_to(ROOT))
+        if workflow_path == ROOT or ROOT in workflow_path.parents
+        else str(workflow_path)
+    )
+
+    def persist_report() -> None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report = {
+            "schema": "R7E_GENERATED_PLAN_EXECUTION_V2",
+            "passed": not failed,
+            "workflow": workflow_display,
+            "workflowSha256": subprocess.check_output(["sha256sum", str(workflow_path)], text=True).split()[0],
+            "runner": job.get("runs-on"),
+            "executedRunStepCount": len(executed),
+            "skippedAllowedUsesCount": len(skipped_uses),
+            "skippedAllowedUses": skipped_uses,
+            "skippedConditionCount": len(skipped_conditions),
+            "skippedConditions": skipped_conditions,
+            "firstFailure": first_failure,
+            "steps": executed,
+        }
+        report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     for index, step in enumerate(steps, start=1):
         if not isinstance(step, dict):
@@ -131,8 +158,24 @@ def main() -> None:
             continue
 
         condition = str(step.get("if") or "").strip()
-        if condition and condition not in ("always()", "${{ always() }}", "success()", "${{ success() }}"):
+        if condition in ("", "success()", "${{ success() }}"):
+            condition_kind = "success"
+        elif condition in ("always()", "${{ always() }}"):
+            condition_kind = "always"
+        elif condition in ("failure()", "${{ failure() }}"):
+            condition_kind = "failure"
+        else:
             fail(f"Unsupported run-step condition in {name!r}: {condition}")
+
+        should_run = (
+            condition_kind == "always"
+            or (condition_kind == "success" and not failed)
+            or (condition_kind == "failure" and failed)
+        )
+        if not should_run:
+            skipped_conditions.append({"name": name, "condition": condition_kind})
+            continue
+
         shell = str(step.get("shell") or "bash")
         if shell not in ("bash", "bash --noprofile --norc -e -o pipefail {0}"):
             fail(f"Unsupported shell in {name!r}: {shell}")
@@ -140,7 +183,6 @@ def main() -> None:
         script = substitute(str(run))
         cwd = safe_working_directory(step.get("working-directory"))
         env = normalized_env(workflow_env, job_env, step.get("env"))
-        script_path = ROOT / ".r7e-plan-step.sh"
         script_path.write_text("set -euo pipefail\n" + script + "\n", encoding="utf-8")
         started = time.time()
         print(f"::group::{index:02d} {name}", flush=True)
@@ -152,38 +194,32 @@ def main() -> None:
         )
         print("::endgroup::", flush=True)
         elapsed = round(time.time() - started, 3)
-        executed.append(
-            {
-                "index": index,
-                "name": name,
-                "workingDirectory": str(cwd.relative_to(ROOT)) if cwd != ROOT else ".",
-                "exitCode": completed.returncode,
-                "elapsedSeconds": elapsed,
-            }
-        )
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report = {
-            "schema": "R7E_GENERATED_PLAN_EXECUTION_V1",
-            "passed": all(row["exitCode"] == 0 for row in executed),
-            "workflow": str(workflow_path.relative_to(ROOT)),
-            "workflowSha256": subprocess.check_output(["sha256sum", str(workflow_path)], text=True).split()[0],
-            "runner": job.get("runs-on"),
-            "executedRunStepCount": len(executed),
-            "skippedAllowedUsesCount": len(skipped_uses),
-            "skippedAllowedUses": skipped_uses,
-            "steps": executed,
+        row = {
+            "index": index,
+            "name": name,
+            "condition": condition_kind,
+            "workingDirectory": str(cwd.relative_to(ROOT)) if cwd != ROOT else ".",
+            "exitCode": completed.returncode,
+            "elapsedSeconds": elapsed,
         }
-        report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        executed.append(row)
         if completed.returncode != 0:
-            fail(f"Generated plan step failed: {name} (exit {completed.returncode})")
+            failed = True
+            if first_failure is None:
+                first_failure = dict(row)
+        persist_report()
 
     script_path.unlink(missing_ok=True)
     if not executed:
         fail("Generated plan executed no run steps")
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    report["passed"] = True
-    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(report, indent=2))
+    persist_report()
+    print(report_path.read_text(encoding="utf-8"))
+    if failed:
+        assert first_failure is not None
+        fail(
+            f"Generated plan failed at {first_failure['name']} "
+            f"(exit {first_failure['exitCode']})"
+        )
 
 
 if __name__ == "__main__":
