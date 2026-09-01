@@ -132,7 +132,7 @@ jobs:
           npm run schema:check > ../evidence/portable-schema-check.stdout.txt 2> ../evidence/portable-schema-check.stderr.txt
           npm run schema:contract > ../evidence/portable-schema-contract.stdout.txt 2> ../evidence/portable-schema-contract.stderr.txt
           test "$(find schemas -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 9
-          jq -e '.contractVersion=="1.0.0" and .dialect=="https://json-schema.org/draft/2020-12/schema" and (.schemas|length)==8' schemas/index.json >/dev/null
+          jq -e '.contractVersion=="1.0.0" and ."$schema"=="https://json-schema.org/draft/2020-12/schema" and (.schemas|length)==8' schemas/index.json >/dev/null
           for file in schemas/*.schema.json; do
             jq -e '."$schema"=="https://json-schema.org/draft/2020-12/schema" and ."x-contract-version"=="1.0.0"' "$file" >/dev/null
           done
