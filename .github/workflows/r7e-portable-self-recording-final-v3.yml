@@ -133,8 +133,8 @@ jobs:
             'portableDialect':identity.get('portableSchemaDialect')=='https://json-schema.org/draft/2020-12/schema',
             'portableVersion':identity.get('portableSchemaContractVersion')=='1.0.0',
             'scopeR7Only':True,
-            'mainMutationAuthorized':False,
-            'productionDeploymentAuthorized':False,
+            'mainMutationNotAuthorized':True,
+            'productionDeploymentNotAuthorized':True,
           }
           result={
             'schema':'R7E_SELF_RECORDING_EXECUTOR_VALIDATION_V3',
@@ -147,6 +147,9 @@ jobs:
             'sourceArchiveSha256':os.environ['EXPECTED_SOURCE_ARCHIVE_SHA256'],
             'checks':checks,
             'failedChecks':[name for name,passed in checks.items() if not passed],
+            'scope':'R7 technical architecture only',
+            'mainMutationAuthorized':False,
+            'productionDeploymentAuthorized':False,
             'maximumAuthorizedVerdict':'R7_TECHNICAL_ARCHITECTURE_EVIDENCE_READY_FOR_INDEPENDENT_R7F',
           }
           (root/'R7E_SELF_RECORDING_VALIDATION.json').write_text(json.dumps(result,indent=2)+'\n')
