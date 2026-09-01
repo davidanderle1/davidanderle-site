@@ -1,0 +1,88 @@
+name: R7 maximum-assurance clean-room rebuild
+
+on:
+  push:
+    branches:
+      - r7-maximum-assurance-rebuild-20260901
+    paths:
+      - '.github/workflows/r7-maximum-assurance-clean-room.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7-maximum-assurance-clean-room-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  R7E_COMMIT: ea592cde4f4a09f18442308ff14e1eeb2621bf33
+  R7E_RUN_ID: '33509839046'
+  R7E_ARTIFACT_ID: '9801298633'
+  R7E_ARTIFACT_SHA256: 8c98377f442bdc1ab5ed45f240c38ec6773ca29ca8f887375e0ec7dc6aa99d3a
+  R7E_SOURCE_ARCHIVE_SHA256: 764271738ad8578de7d89c522d9cedd1a22ce00d1b8e5d06b271903b52a3923d
+  FROZEN_SOURCE_TREE_SHA256: 203f572ffa72ffb0790732c02c8f2b88cdeac8ec0df7f3450b1f4958ff3cd26e
+  FROZEN_SOURCE_TAR_SHA256: b639fdf11a0a6d4674b59d26327b996e71ec87190848c00685d25e2e4b1ec2f8
+  VERIFIED_DIST_TREE_SHA256: 3d76b6a74da4562426b222ac298f8837c02d61d5ce95cf76b181bef0d28d7cc4
+  STRESS_DIST_TREE_SHA256: 005bfb51b3af3eca95153d5a5f912ef635e75b9b1f566350a53914faf4d29b41
+  MAIN_BASELINE_SHA: 74d24bd30090991295429ad7600df6f33f668e44
+
+jobs:
+  clean-room:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout isolated maximum-assurance authority
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Reconstruct and execute hash-verified clean-room runner
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          cat .github/r7-maximum-assurance/runner.part*.b64 | tr -d '\r\n' > /tmp/r7-max-runner.b64
+          test "$(sha256sum /tmp/r7-max-runner.b64 | awk '{print $1}')" = 'bbc3a69a6334c12ae9efd93e14908d368d72bc9b4f755f70dbea4154f0d2674e'
+          base64 --decode /tmp/r7-max-runner.b64 > /tmp/r7-max-runner.sh.gz
+          test "$(sha256sum /tmp/r7-max-runner.sh.gz | awk '{print $1}')" = '6b9682a1c10e41d164f464d12812365f81d80ceca8bae65a106c1c95ccb7b703'
+          gzip --test /tmp/r7-max-runner.sh.gz
+          gzip --decompress --stdout /tmp/r7-max-runner.sh.gz > /tmp/r7-max-runner.sh
+          test "$(sha256sum /tmp/r7-max-runner.sh | awk '{print $1}')" = '6b908730aef2083302f0a468210b8061e883e3f1b74ee7d11ab7f7e297982180'
+          bash -n /tmp/r7-max-runner.sh
+          bash /tmp/r7-max-runner.sh
+
+      - name: Upload maximum-assurance clean-room evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-maximum-assurance-clean-room-${{ github.sha }}
+          path: assurance/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Upload fail-closed diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-maximum-assurance-clean-room-failure-${{ github.sha }}
+          path: |
+            assurance/
+            input/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
