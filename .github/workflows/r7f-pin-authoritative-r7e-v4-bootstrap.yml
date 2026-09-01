@@ -1,0 +1,181 @@
+name: Bootstrap exact authoritative R7E v4 pin for final R7F
+
+on:
+  push:
+    branches:
+      - r7f-portable-final-20260901
+    paths:
+      - '.github/workflows/r7f-pin-authoritative-r7e-v4-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7f-pin-authoritative-r7e-v4-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated final R7F branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Pin selector to exact immutable R7E v4 tuple
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/r7f-portable-final-verification.yml')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one anchor, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '  R7E_BRANCH: r7e-portable-json-schema-verification-20260831\n  R7E_WORKFLOW_PATH: .github/workflows/r7e-portable-json-schema-verification.yml\n',
+              '  R7E_BRANCH: r7e-portable-self-recording-final-20260901\n'
+              '  R7E_WORKFLOW_PATH: .github/workflows/r7e-portable-authoritative-executor-v4.yml\n'
+              "  R7E_RUN_ID: '33509839046'\n"
+              '  R7E_COMMIT: ea592cde4f4a09f18442308ff14e1eeb2621bf33\n'
+              "  R7E_EVIDENCE_ARTIFACT_ID: '9801298633'\n"
+              '  R7E_EVIDENCE_ARTIFACT_NAME: r7e-portable-self-recording-v4-evidence-ea592cde4f4a09f18442308ff14e1eeb2621bf33\n'
+              '  R7E_EVIDENCE_ARTIFACT_DIGEST: sha256:8c98377f442bdc1ab5ed45f240c38ec6773ca29ca8f887375e0ec7dc6aa99d3a\n'
+              "  R7E_LINEAGE_ARTIFACT_ID: '9801300076'\n"
+              '  R7E_LINEAGE_ARTIFACT_NAME: r7e-portable-self-recording-v4-lineage-ea592cde4f4a09f18442308ff14e1eeb2621bf33\n'
+              '  R7E_LINEAGE_ARTIFACT_DIGEST: sha256:0c5190fa0e0c42b2a5f80ec6fe8211743e0680d3de4dece8d5df98eb10e8cc33\n',
+              'R7E selector environment',
+          )
+          replace_once(
+              '              [[ -n "$run_id" && -n "$head_sha" ]] || continue\n',
+              '              [[ -n "$run_id" && -n "$head_sha" ]] || continue\n'
+              '              [[ "$run_id" == "$R7E_RUN_ID" && "$head_sha" == "$R7E_COMMIT" ]] || continue\n',
+              'exact run and commit pin',
+          )
+          replace_once(
+              '              jq --arg prefix "r7e-portable-json-schema-evidence-$head_sha" \\\n',
+              '              jq --arg prefix "$R7E_EVIDENCE_ARTIFACT_NAME" \\\n',
+              'evidence artifact selector',
+          )
+          replace_once(
+              '              artifact_digest="$(jq -r \'.digest\' /tmp/r7e-artifact.json)"\n',
+              '              artifact_digest="$(jq -r \'.digest\' /tmp/r7e-artifact.json)"\n'
+              '              [[ "$artifact_id" == "$R7E_EVIDENCE_ARTIFACT_ID" ]] || continue\n'
+              '              [[ "$artifact_name" == "$R7E_EVIDENCE_ARTIFACT_NAME" ]] || continue\n'
+              '              [[ "$artifact_digest" == "$R7E_EVIDENCE_ARTIFACT_DIGEST" ]] || continue\n',
+              'exact evidence artifact pin',
+          )
+
+          lineage_anchor = '''              [[ -f /tmp/r7e-artifact/R7E_ARTIFACT_SHA256SUMS.txt ]] || continue
+              if ! (cd /tmp/r7e-artifact && sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt >/tmp/r7e-internal-manifest.txt); then
+                continue
+              fi
+'''
+          lineage_insert = lineage_anchor + '''
+              jq --arg name "$R7E_LINEAGE_ARTIFACT_NAME" \\
+                '[.artifacts[] | select(.name==$name and .expired==false)]' \\
+                /tmp/r7e-artifacts.json > /tmp/r7e-lineage-matches.json
+              [[ "$(jq 'length' /tmp/r7e-lineage-matches.json)" -eq 1 ]] || continue
+              jq '.[0]' /tmp/r7e-lineage-matches.json > /tmp/r7e-lineage-artifact.json
+              lineage_id="$(jq -r '.id' /tmp/r7e-lineage-artifact.json)"
+              lineage_name="$(jq -r '.name' /tmp/r7e-lineage-artifact.json)"
+              lineage_digest="$(jq -r '.digest' /tmp/r7e-lineage-artifact.json)"
+              [[ "$lineage_id" == "$R7E_LINEAGE_ARTIFACT_ID" ]] || continue
+              [[ "$lineage_name" == "$R7E_LINEAGE_ARTIFACT_NAME" ]] || continue
+              [[ "$lineage_digest" == "$R7E_LINEAGE_ARTIFACT_DIGEST" ]] || continue
+              rm -rf /tmp/r7e-lineage /tmp/r7e-lineage.zip
+              mkdir -p /tmp/r7e-lineage
+              if ! curl --fail --silent --show-error --location \\
+                    -H "Authorization: Bearer $GH_TOKEN" \\
+                    -H 'Accept: application/vnd.github+json' \\
+                    "https://api.github.com/repos/$repo/actions/artifacts/$lineage_id/zip" \\
+                    --output /tmp/r7e-lineage.zip; then
+                continue
+              fi
+              [[ "sha256:$(sha256sum /tmp/r7e-lineage.zip | awk '{print $1}')" == "$lineage_digest" ]] || continue
+              if ! python3 - <<'PY_LINEAGE_ZIP'
+              import stat, zipfile
+              from pathlib import PurePosixPath
+              with zipfile.ZipFile('/tmp/r7e-lineage.zip') as z:
+                  names=[]
+                  for info in z.infolist():
+                      q=PurePosixPath(info.filename)
+                      if q.is_absolute() or '..' in q.parts or '\\\\' in info.filename:
+                          raise SystemExit(1)
+                      if ((info.external_attr >> 16) & 0o170000) == stat.S_IFLNK:
+                          raise SystemExit(1)
+                      names.append(info.filename)
+                  if len(names) != len(set(names)):
+                      raise SystemExit(1)
+                  z.extractall('/tmp/r7e-lineage')
+              PY_LINEAGE_ZIP
+              then
+                continue
+              fi
+              [[ -f /tmp/r7e-lineage/EXECUTOR_LINEAGE_SHA256SUMS.txt ]] || continue
+              if ! (cd /tmp/r7e-lineage && sha256sum --check --strict EXECUTOR_LINEAGE_SHA256SUMS.txt >/tmp/r7e-lineage-manifest.txt); then
+                continue
+              fi
+              if ! jq -e \\
+                    --arg commit "$R7E_COMMIT" \\
+                    --arg run "$R7E_RUN_ID" \\
+                    --arg evidenceId "$R7E_EVIDENCE_ARTIFACT_ID" \\
+                    --arg evidenceName "$R7E_EVIDENCE_ARTIFACT_NAME" \\
+                    --arg evidenceDigest "$R7E_EVIDENCE_ARTIFACT_DIGEST" \\
+                    '.schema=="R7E_PORTABLE_SELF_RECORDING_AUTHORITATIVE_TUPLE_V4" and
+                     .passed==true and .branchHeadUnchanged==true and
+                     .commit==$commit and (.runId|tostring)==$run and
+                     (.artifact.id|tostring)==$evidenceId and
+                     .artifact.name==$evidenceName and .artifact.digest==$evidenceDigest and
+                     .workflowPath==".github/workflows/r7e-portable-authoritative-executor-v4.yml" and
+                     .sourceFileCount==146 and .generatedPlan.executedRunStepCount==18 and
+                     .candidateIdentity.axeIncompleteNodeCount==498 and
+                     .candidateIdentity.portableSchemaContractVersion=="1.0.0"' \\
+                    /tmp/r7e-lineage/portable-r7e-v4.json >/dev/null; then
+                continue
+              fi
+'''
+          replace_once(lineage_anchor, lineage_insert, 'lineage authentication insertion')
+
+          copy_anchor = '''              cp /tmp/r7e-artifact/R7E_EVIDENCE/R7E_CANDIDATE_IDENTITY.json builder-selection/r7e-identity.json
+'''
+          copy_insert = copy_anchor + '''              cp /tmp/r7e-lineage-artifact.json builder-selection/r7e-lineage-artifact.json
+              cp /tmp/r7e-lineage/portable-r7e-v4.json builder-selection/r7e-authoritative-tuple-v4.json
+              cp /tmp/r7e-lineage/EXECUTOR_LINEAGE_SHA256SUMS.txt builder-selection/r7e-lineage-sha256sums.txt
+              cp /tmp/r7e-lineage-manifest.txt builder-selection/r7e-lineage-manifest-check.txt
+'''
+          replace_once(copy_anchor, copy_insert, 'lineage evidence copy')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          ruby -ryaml -e 'YAML.safe_load(File.read(ARGV[0]), aliases: true)' .github/workflows/r7f-portable-final-verification.yml
+          grep -q 'R7E_BRANCH: r7e-portable-self-recording-final-20260901' .github/workflows/r7f-portable-final-verification.yml
+          grep -q 'R7E_RUN_ID:' .github/workflows/r7f-portable-final-verification.yml
+          grep -q 'R7E_LINEAGE_ARTIFACT_DIGEST:' .github/workflows/r7f-portable-final-verification.yml
+          grep -q 'R7E_PORTABLE_SELF_RECORDING_AUTHORITATIVE_TUPLE_V4' .github/workflows/r7f-portable-final-verification.yml
+          ! grep -q 'r7e-portable-json-schema-evidence-$head_sha' .github/workflows/r7f-portable-final-verification.yml
+
+      - name: Commit exact pinned final R7F workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/r7f-portable-final-verification.yml
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7F: pin exact authoritative R7E v4 evidence and lineage'
+          git push origin HEAD:r7f-portable-final-20260901
