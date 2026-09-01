@@ -1,0 +1,176 @@
+name: R7 hash-verified independent final closure audit v3
+
+on:
+  push:
+    branches:
+      - r7-controller-external-audit-v2-final-20260901
+    paths:
+      - '.github/workflows/r7-controller-external-audit-v3-chunked.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7-controller-external-audit-v3-chunked-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  CONTROLLER_RUN_ID: '33533458534'
+  CONTROLLER_ARTIFACT_ID: '9810648873'
+  R7E_RUN_ID: '33509839046'
+  R7E_EVIDENCE_ID: '9801298633'
+  R7E_LINEAGE_ID: '9801300076'
+  R7F_RUN_ID: '33529955290'
+  R7F_ARTIFACT_ID: '9809477818'
+  EXTERNAL_RUN_ID: '33516274989'
+  EXTERNAL_ARTIFACT_ID: '9809668499'
+  TRACEABILITY_RUN_ID: '33532340086'
+  TRACEABILITY_ARTIFACT_ID: '9810218410'
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout immutable independent audit authority
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Reconstruct hash-verified independent auditor
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 022
+          rm -rf audit-input final-audit-artifact
+          mkdir -p audit-input final-audit-artifact .github/scripts
+          test "$(find .github/r7-final-audit-v1/chunks -maxdepth 1 -type f -name 'audit.part*.b64' | wc -l)" -eq 12
+          cat .github/r7-final-audit-v1/chunks/audit.part*.b64 | tr -d '\r\n' > /tmp/r7-final-audit.b64
+          test "$(sha256sum /tmp/r7-final-audit.b64 | awk '{print $1}')" = 'db9786e481930b07c5ea33271adcff819c0da300c6dd2c0ede254d111a83bd53'
+          base64 --decode /tmp/r7-final-audit.b64 > /tmp/r7-final-audit.py.gz
+          test "$(sha256sum /tmp/r7-final-audit.py.gz | awk '{print $1}')" = '1f4c763df0d6204e4a6a7881619be79926b87952cf9dbe39ce3c260721fb196b'
+          gzip --test /tmp/r7-final-audit.py.gz
+          gzip --decompress --stdout /tmp/r7-final-audit.py.gz > .github/scripts/r7-controller-external-audit-v1.py
+          test "$(sha256sum .github/scripts/r7-controller-external-audit-v1.py | awk '{print $1}')" = '436eddabd69cdfbf7993a6f9dddad6aa99ffdcef14bdfa73d3cee615de33f3ef'
+          python3 -m py_compile .github/scripts/r7-controller-external-audit-v1.py
+
+      - name: Acquire and authenticate exact live metadata and artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/branches/main" > audit-input/MAIN_BRANCH.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CONTROLLER_RUN_ID}" > audit-input/CONTROLLER_RUN.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${CONTROLLER_ARTIFACT_ID}" > audit-input/CONTROLLER_ARTIFACT.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${R7E_RUN_ID}" > audit-input/R7E_RUN.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7E_EVIDENCE_ID}" > audit-input/R7E_ARTIFACT.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7E_LINEAGE_ID}" > audit-input/R7E_LINEAGE_ARTIFACT.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${R7F_RUN_ID}" > audit-input/R7F_RUN.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7F_ARTIFACT_ID}" > audit-input/R7F_ARTIFACT.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${EXTERNAL_RUN_ID}" > audit-input/EXTERNAL_RUN.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${EXTERNAL_ARTIFACT_ID}" > audit-input/EXTERNAL_ARTIFACT.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${TRACEABILITY_RUN_ID}" > audit-input/TRACEABILITY_RUN.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${TRACEABILITY_ARTIFACT_ID}" > audit-input/TRACEABILITY_ARTIFACT.json
+
+          jq -e '.commit.sha=="74d24bd30090991295429ad7600df6f33f668e44"' audit-input/MAIN_BRANCH.json >/dev/null
+          jq -e '.id==33533458534 and .run_attempt==1 and .head_sha=="ac64bcc802812c4bfbffcadf310d1025640a037e" and .path==".github/workflows/r7-history-bound-controller-v6-final.yml" and .status=="completed" and .conclusion=="success"' audit-input/CONTROLLER_RUN.json >/dev/null
+          jq -e '.id==9810648873 and .digest=="sha256:6c729708e82af29a9caac22582ba9d42a3c131388e077438e26575ba6ad16114" and .expired==false' audit-input/CONTROLLER_ARTIFACT.json >/dev/null
+          jq -e '.id==33509839046 and .run_attempt==1 and .status=="completed" and .conclusion=="success"' audit-input/R7E_RUN.json >/dev/null
+          jq -e '.id==33529955290 and .run_attempt==1 and .status=="completed" and .conclusion=="success"' audit-input/R7F_RUN.json >/dev/null
+          jq -e '.id==33516274989 and .run_attempt==2 and .status=="completed" and .conclusion=="success"' audit-input/EXTERNAL_RUN.json >/dev/null
+          jq -e '.id==33532340086 and .run_attempt==1 and .status=="completed" and .conclusion=="success"' audit-input/TRACEABILITY_RUN.json >/dev/null
+
+          download() {
+            local id="$1" target="$2"
+            curl --fail --silent --show-error --location \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" \
+              --output "audit-input/${target}"
+          }
+          download "$CONTROLLER_ARTIFACT_ID" CONTROLLER.zip
+          download "$R7E_EVIDENCE_ID" R7E.zip
+          download "$R7E_LINEAGE_ID" R7E_LINEAGE.zip
+          download "$R7F_ARTIFACT_ID" R7F.zip
+          download "$EXTERNAL_ARTIFACT_ID" EXTERNAL.zip
+          download "$TRACEABILITY_ARTIFACT_ID" TRACEABILITY.zip
+
+          test "$(sha256sum audit-input/CONTROLLER.zip | awk '{print $1}')" = '6c729708e82af29a9caac22582ba9d42a3c131388e077438e26575ba6ad16114'
+          test "$(sha256sum audit-input/R7E.zip | awk '{print $1}')" = '8c98377f442bdc1ab5ed45f240c38ec6773ca29ca8f887375e0ec7dc6aa99d3a'
+          test "$(sha256sum audit-input/R7E_LINEAGE.zip | awk '{print $1}')" = '0c5190fa0e0c42b2a5f80ec6fe8211743e0680d3de4dece8d5df98eb10e8cc33'
+          test "$(sha256sum audit-input/R7F.zip | awk '{print $1}')" = '57189e46a9b9fe7d110e324d620076d046d0cc0bf2db9e8d4f126097825ca574'
+          test "$(sha256sum audit-input/EXTERNAL.zip | awk '{print $1}')" = '3ff4193680c19c1db6bbe61f54ff3ef75d9a4070acfefa5dbfe86999419a6f09'
+          test "$(sha256sum audit-input/TRACEABILITY.zip | awk '{print $1}')" = '6074771e6441607dc354b20a405b1a076540fa401bca01ba696b0eb33f8be64c'
+
+      - name: Independently recompute final closure and twenty mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/r7-controller-external-audit-v1.py \
+            --input audit-input \
+            --output final-audit-artifact
+          jq -e '
+            .schema=="R7_FINAL_ENGINEERING_CLOSURE_V1" and
+            .decision=="R7_TECHNICAL_ARCHITECTURE_CLOSED" and
+            .passed==true and .checkCount==25 and .passedCheckCount==25 and
+            .selftestPassed==true and .selftestCaseCount==20 and
+            .maximumAuthorizedVerdict=="R7_TECHNICAL_ARCHITECTURE_CLOSED" and
+            .wholeWebsiteProgrammeComplete==false and
+            .r8ThroughR13Closed==false and
+            .mainMutationAuthorized==false and
+            .productionDeploymentAuthorized==false and
+            (.failedChecks|length)==0 and (.blockers|length)==0
+          ' final-audit-artifact/R7_FINAL_ENGINEERING_CLOSURE_V1.json >/dev/null
+          jq -e '
+            .schema=="R7_FINAL_EXTERNAL_AUDIT_SELFTEST_V1" and
+            .passed==true and .caseCount==20 and .passedCaseCount==20 and
+            (.failedCases|length)==0 and ([.cases[].rejected]|all(.==true))
+          ' final-audit-artifact/R7_FINAL_EXTERNAL_AUDIT_SELFTEST_V1.json >/dev/null
+
+      - name: Bind independent implementation and live metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final-audit-artifact/R7_FINAL_AUDIT_IMPLEMENTATION final-audit-artifact/R7_FINAL_AUDIT_LIVE_METADATA
+          cp .github/scripts/r7-controller-external-audit-v1.py final-audit-artifact/R7_FINAL_AUDIT_IMPLEMENTATION/
+          cp .github/workflows/r7-controller-external-audit-v3-chunked.yml final-audit-artifact/R7_FINAL_AUDIT_IMPLEMENTATION/
+          cp audit-input/*.json final-audit-artifact/R7_FINAL_AUDIT_LIVE_METADATA/
+          sha256sum \
+            .github/scripts/r7-controller-external-audit-v1.py \
+            .github/workflows/r7-controller-external-audit-v3-chunked.yml \
+            > final-audit-artifact/R7_FINAL_AUDIT_IMPLEMENTATION_SHA256.txt
+          rm -f final-audit-artifact/R7_FINAL_EXTERNAL_AUDIT_SHA256SUMS.txt
+          (
+            cd final-audit-artifact
+            find . -type f ! -name 'R7_FINAL_EXTERNAL_AUDIT_SHA256SUMS.txt' -print0 \
+              | sort -z | xargs -0 sha256sum > R7_FINAL_EXTERNAL_AUDIT_SHA256SUMS.txt
+            sha256sum --check --strict R7_FINAL_EXTERNAL_AUDIT_SHA256SUMS.txt
+          )
+
+      - name: Upload immutable final R7 closure evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-final-engineering-closure-v3-${{ github.sha }}
+          path: final-audit-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Upload fail-closed diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-final-engineering-closure-v3-failure-${{ github.sha }}
+          path: |
+            audit-input/
+            final-audit-artifact/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
