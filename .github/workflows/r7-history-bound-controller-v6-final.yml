@@ -1,0 +1,154 @@
+name: R7 exact read-only history-bound controller v6
+
+on:
+  push:
+    branches:
+      - r7-history-bound-controller-v6-final-20260901
+    paths:
+      - '.github/workflows/r7-history-bound-controller-v6-final.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7-history-bound-controller-v6-final-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  R7E_RUN_ID: '33509839046'
+  R7E_EVIDENCE_ID: '9801298633'
+  R7E_LINEAGE_ID: '9801300076'
+  R7F_RUN_ID: '33529955290'
+  R7F_ARTIFACT_ID: '9809477818'
+  EXTERNAL_RUN_ID: '33516274989'
+  EXTERNAL_ARTIFACT_ID: '9809668499'
+  TRACEABILITY_RUN_ID: '33532340086'
+  TRACEABILITY_ARTIFACT_ID: '9810218410'
+
+jobs:
+  decide:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable read-only controller authority
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify controller infrastructure and acquire exact upstream tuples
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 022
+          test "$(sha256sum .github/scripts/r7-history-bound-controller-v6.py | awk '{print $1}')" = 'b95b969a22301d8ec6b298cd03f7c3d2ce13b90096962095818465fabdd2a74e'
+          test "$(sha256sum .github/r7-controller-v6/input-lock.json | awk '{print $1}')" = '3b2ab03ac45a99102bc9e1a96c25db2ba3654504519bd73eeea9e481dc2dc952'
+          python3 -m py_compile .github/scripts/r7-history-bound-controller-v6.py
+          rm -rf controller-input controller-artifact
+          mkdir -p controller-input controller-artifact
+
+          gh api "repos/${GITHUB_REPOSITORY}/branches/main" > controller-input/MAIN_BRANCH.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${R7E_RUN_ID}" > controller-input/R7E_RUN.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7E_EVIDENCE_ID}" > controller-input/R7E_ARTIFACT.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7E_LINEAGE_ID}" > controller-input/R7E_LINEAGE_ARTIFACT.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${R7F_RUN_ID}" > controller-input/R7F_RUN.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${R7F_ARTIFACT_ID}" > controller-input/R7F_ARTIFACT.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${EXTERNAL_RUN_ID}" > controller-input/EXTERNAL_RUN.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${EXTERNAL_ARTIFACT_ID}" > controller-input/EXTERNAL_ARTIFACT.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${TRACEABILITY_RUN_ID}" > controller-input/TRACEABILITY_RUN.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${TRACEABILITY_ARTIFACT_ID}" > controller-input/TRACEABILITY_ARTIFACT.json
+
+          download() {
+            local id="$1" target="$2"
+            curl --fail --silent --show-error --location \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" \
+              --output "controller-input/${target}"
+          }
+          download "$R7E_EVIDENCE_ID" R7E.zip
+          download "$R7E_LINEAGE_ID" R7E_LINEAGE.zip
+          download "$R7F_ARTIFACT_ID" R7F.zip
+          download "$EXTERNAL_ARTIFACT_ID" EXTERNAL.zip
+          download "$TRACEABILITY_ARTIFACT_ID" TRACEABILITY.zip
+
+          jq -e '.commit.sha=="74d24bd30090991295429ad7600df6f33f668e44"' controller-input/MAIN_BRANCH.json >/dev/null
+          jq -e '.id==33509839046 and .run_attempt==1 and .status=="completed" and .conclusion=="success"' controller-input/R7E_RUN.json >/dev/null
+          jq -e '.id==33529955290 and .run_attempt==1 and .status=="completed" and .conclusion=="success"' controller-input/R7F_RUN.json >/dev/null
+          jq -e '.id==33516274989 and .run_attempt==2 and .status=="completed" and .conclusion=="success"' controller-input/EXTERNAL_RUN.json >/dev/null
+          jq -e '.id==33532340086 and .run_attempt==1 and .status=="completed" and .conclusion=="success"' controller-input/TRACEABILITY_RUN.json >/dev/null
+
+      - name: Execute exact controller and twenty adversarial mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/r7-history-bound-controller-v6.py \
+            --lock .github/r7-controller-v6/input-lock.json \
+            --input controller-input \
+            --output controller-artifact
+          jq -e '
+            .schema=="R7_HISTORY_BOUND_FINAL_CONTROLLER_V6" and
+            .passed==true and .decision=="R7_CLOSED" and
+            .maximumAuthorizedVerdict=="R7_TECHNICAL_ARCHITECTURE_CLOSED" and
+            .selftestPassed==true and .selftestCaseCount==20 and
+            .wholeWebsiteCompletionAuthorized==false and
+            .r8ThroughR13Closed==false and
+            .mainMutationAuthorized==false and
+            .productionDeploymentAuthorized==false and
+            (.failedChecks|length)==0 and (.blockers|length)==0
+          ' controller-artifact/R7_HISTORY_BOUND_FINAL_CONTROLLER_V6.json >/dev/null
+          jq -e '
+            .schema=="R7_HISTORY_BOUND_CONTROLLER_SELFTEST_V6" and
+            .passed==true and .authenticAccepted==true and
+            .caseCount==20 and .passedCaseCount==20 and
+            (.failedCases|length)==0 and ([.cases[].rejected]|all(.==true))
+          ' controller-artifact/R7_HISTORY_BOUND_CONTROLLER_SELFTEST_V6.json >/dev/null
+
+      - name: Bind controller implementation and workflow into immutable evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p controller-artifact/R7_CONTROLLER_IMPLEMENTATION
+          cp .github/scripts/r7-history-bound-controller-v6.py controller-artifact/R7_CONTROLLER_IMPLEMENTATION/
+          cp .github/r7-controller-v6/input-lock.json controller-artifact/R7_CONTROLLER_IMPLEMENTATION/
+          cp .github/workflows/r7-history-bound-controller-v6-final.yml controller-artifact/R7_CONTROLLER_IMPLEMENTATION/
+          sha256sum \
+            .github/scripts/r7-history-bound-controller-v6.py \
+            .github/r7-controller-v6/input-lock.json \
+            .github/workflows/r7-history-bound-controller-v6-final.yml \
+            > controller-artifact/R7_CONTROLLER_IMPLEMENTATION_SHA256.txt
+          rm -f controller-artifact/R7_CONTROLLER_ARTIFACT_SHA256SUMS.txt
+          (
+            cd controller-artifact
+            find . -type f ! -name 'R7_CONTROLLER_ARTIFACT_SHA256SUMS.txt' -print0 \
+              | sort -z | xargs -0 sha256sum > R7_CONTROLLER_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7_CONTROLLER_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload immutable controller v6 evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-history-bound-controller-v6-evidence-${{ github.sha }}
+          path: controller-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Upload fail-closed diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-history-bound-controller-v6-failure-${{ github.sha }}
+          path: |
+            controller-input/
+            controller-artifact/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
