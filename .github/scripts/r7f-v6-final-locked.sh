@@ -90,8 +90,8 @@ checks={
  'bindingSet':lock.get('builderAxeBindingFingerprintSetSha256')==os.environ['BUILDER_AXE_BINDING_SET_SHA256'],
  'incompleteNodeCount':str(lock.get('builderAxeIncompleteNodeCount'))==os.environ['BUILDER_AXE_INCOMPLETE_NODE_COUNT'],
  'externalAuditSha':lock.get('r7eExternalAuditSha256')==os.environ['R7E_EXTERNAL_AUDIT_SHA256']==audit_sha,
- 'externalAuditPassed':audit.get('passed') is True and audit.get('decision')=='R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS' and audit.get('blockers')==[],
- 'externalAuditTuple':str((audit.get('builder') or {}).get('runId'))==os.environ['BUILDER_RUN_ID'] and str((audit.get('builder') or {}).get('artifactId'))==os.environ['BUILDER_ARTIFACT_ID'] and (audit.get('builder') or {}).get('headSha')==os.environ['BUILDER_COMMIT'] and (audit.get('builder') or {}).get('artifactDigest')==os.environ['BUILDER_ARTIFACT_DIGEST'],
+ 'externalAuditPassed':audit.get('passed') is True and audit.get('decision')=='R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS' and audit.get('failedChecks')==[] and audit.get('errors')==[],
+ 'externalAuditTuple':str((audit.get('builder') or {}).get('runId'))==os.environ['BUILDER_RUN_ID'] and str(((audit.get('builder') or {}).get('artifact') or {}).get('id'))==os.environ['BUILDER_ARTIFACT_ID'] and (audit.get('builder') or {}).get('commit')==os.environ['BUILDER_COMMIT'] and ((audit.get('builder') or {}).get('artifact') or {}).get('digest')==os.environ['BUILDER_ARTIFACT_DIGEST'],
  'hashShapes':all(isinstance(lock.get(name),str) and len(lock[name])==64 for name in (
    'builderSourceArchiveSha256','builderFrozenSourceTreeSha256','builderFrozenSourceTarSha256',
    'builderVerifiedDistTreeSha256','builderStressDistTreeSha256','builderAxeAdjudicationFileSha256',
@@ -176,7 +176,7 @@ checks.update({
  'locked-node-set':lock.get('builderAxeNodeFingerprintSetSha256')==metrics.get('nodeFingerprintSetSha256'),
  'locked-binding-set':lock.get('builderAxeBindingFingerprintSetSha256')==metrics.get('bindingFingerprintSetSha256'),
  'locked-incomplete-node-count':lock.get('builderAxeIncompleteNodeCount')==metrics.get('nodeCount'),
- 'external-r7e-audit-pass':audit.get('passed') is True and audit.get('blockers')==[],
+ 'external-r7e-audit-pass':audit.get('passed') is True and audit.get('failedChecks')==[] and audit.get('errors')==[],
  'v6-lock-infrastructure':(root/'R7F_EVIDENCE/verifier-v6-lock-infrastructure.sha256').is_file(),
 })
 data.update({
