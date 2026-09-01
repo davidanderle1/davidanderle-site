@@ -1,0 +1,186 @@
+name: R7 full-history zero-orphan traceability v4
+
+on:
+  push:
+    branches:
+      - r7-full-history-traceability-v4-20260901
+    paths:
+      - '.github/workflows/r7-full-history-traceability-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7-full-history-traceability-v4
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  TRACE_ARTIFACT_PREFIX: r7-full-history-traceability-v4-evidence
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact traceability authority commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Generate normalized full-history traceability and carry-forward register
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf traceability-artifact traceability-work
+          mkdir -p traceability-artifact traceability-work
+          python3 -m py_compile \
+            .github/scripts/generate-r7-full-history-traceability-v4.py \
+            .github/scripts/verify-r7-full-history-traceability-v4.py \
+            .github/scripts/r7-full-history-traceability-v4-selftest.py
+          python3 .github/scripts/generate-r7-full-history-traceability-v4.py \
+            --corpus .github/r7-traceability-v4/R7_FULL_HISTORY_CORPUS_MANIFEST_V4.json \
+            --output-dir traceability-work \
+            > traceability-work/generator.stdout.txt
+          test -f traceability-work/R7_REQUIREMENTS_TRACEABILITY_V4.json
+          test -f traceability-work/R7_CARRY_FORWARD_REGISTER_V4.json
+          test -f traceability-work/R7_ZERO_ORPHAN_READINESS_V4.json
+          jq -e '.schema=="R7_FULL_HISTORY_TRACEABILITY_V4" and .summary.requirementCount>=75 and .summary.openR7BlockerCount==0 and .summary.orphanedRequirementCount==0' \
+            traceability-work/R7_REQUIREMENTS_TRACEABILITY_V4.json >/dev/null
+          jq -e '.schema=="R7_CARRY_FORWARD_REGISTER_V4" and (.entries|length)==(.summary.entryCount) and .unboundEntries==[]' \
+            traceability-work/R7_CARRY_FORWARD_REGISTER_V4.json >/dev/null
+          jq -e '.passed==true and .decision=="ZERO_ORPHAN_TRACEABILITY_READY"' \
+            traceability-work/R7_ZERO_ORPHAN_READINESS_V4.json >/dev/null
+
+      - name: Independently verify traceability and attack zero-orphan claim
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/verify-r7-full-history-traceability-v4.py \
+            --corpus traceability-work/R7_FULL_HISTORY_CORPUS_MANIFEST_V4.json \
+            --traceability traceability-work/R7_REQUIREMENTS_TRACEABILITY_V4.json \
+            --carry traceability-work/R7_CARRY_FORWARD_REGISTER_V4.json \
+            --readiness traceability-work/R7_ZERO_ORPHAN_READINESS_V4.json \
+            --output traceability-work/R7_FULL_HISTORY_TRACEABILITY_VERIFICATION_V4.json \
+            > traceability-work/verifier.stdout.txt
+          python3 .github/scripts/r7-full-history-traceability-v4-selftest.py \
+            --corpus traceability-work/R7_FULL_HISTORY_CORPUS_MANIFEST_V4.json \
+            --traceability traceability-work/R7_REQUIREMENTS_TRACEABILITY_V4.json \
+            --carry traceability-work/R7_CARRY_FORWARD_REGISTER_V4.json \
+            --readiness traceability-work/R7_ZERO_ORPHAN_READINESS_V4.json \
+            --output traceability-work/R7_FULL_HISTORY_TRACEABILITY_SELFTEST_V4.json \
+            > traceability-work/selftest.stdout.txt
+          jq -e '.passed==true and .decision=="ZERO_ORPHAN_TRACEABILITY_VERIFIED" and .metrics.requirementCount>=75' \
+            traceability-work/R7_FULL_HISTORY_TRACEABILITY_VERIFICATION_V4.json >/dev/null
+          jq -e '.passed==true and .caseCount==10 and .passedCaseCount==10' \
+            traceability-work/R7_FULL_HISTORY_TRACEABILITY_SELFTEST_V4.json >/dev/null
+
+      - name: Assemble immutable traceability evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp traceability-work/R7_FULL_HISTORY_CORPUS_MANIFEST_V4.json traceability-artifact/
+          cp traceability-work/R7_REQUIREMENTS_TRACEABILITY_V4.json traceability-artifact/
+          cp traceability-work/R7_CARRY_FORWARD_REGISTER_V4.json traceability-artifact/
+          cp traceability-work/R7_ZERO_ORPHAN_READINESS_V4.json traceability-artifact/
+          cp traceability-work/R7_FULL_HISTORY_TRACEABILITY_VERIFICATION_V4.json traceability-artifact/
+          cp traceability-work/R7_FULL_HISTORY_TRACEABILITY_SELFTEST_V4.json traceability-artifact/
+          cp traceability-work/*.stdout.txt traceability-artifact/
+          cp .github/scripts/generate-r7-full-history-traceability-v4.py traceability-artifact/
+          cp .github/scripts/verify-r7-full-history-traceability-v4.py traceability-artifact/
+          cp .github/scripts/r7-full-history-traceability-v4-selftest.py traceability-artifact/
+          cp .github/workflows/r7-full-history-traceability-v4.yml traceability-artifact/
+          sha256sum \
+            .github/scripts/generate-r7-full-history-traceability-v4.py \
+            .github/scripts/verify-r7-full-history-traceability-v4.py \
+            .github/scripts/r7-full-history-traceability-v4-selftest.py \
+            .github/workflows/r7-full-history-traceability-v4.yml \
+            > traceability-artifact/TRACEABILITY_INFRASTRUCTURE_SHA256SUMS.txt
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root=Path('traceability-artifact')
+          manifest=root/'R7_TRACEABILITY_ARTIFACT_SHA256SUMS.txt'
+          rows=[]
+          for path in sorted((p for p in root.rglob('*') if p.is_file() and p!=manifest),key=lambda p:p.relative_to(root).as_posix().encode()):
+              rows.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}")
+          manifest.write_text('\n'.join(rows)+'\n',encoding='utf-8')
+          PY
+          (
+            cd traceability-artifact
+            sha256sum --check --strict R7_TRACEABILITY_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload full-history traceability v4 evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-full-history-traceability-v4-evidence-${{ github.sha }}
+          path: traceability-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Persist exact traceability v4 tuple
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_name="${TRACE_ARTIFACT_PREFIX}-${GITHUB_SHA}"
+          artifact_row=''
+          for attempt in $(seq 1 12); do
+            artifact_row="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --paginate \
+              | jq -cs --arg name "$artifact_name" '[.[].artifacts[] | select(.name==$name)] | if length==1 then .[0] else empty end')"
+            if test -n "$artifact_row"; then break; fi
+            sleep 2
+          done
+          test -n "$artifact_row"
+          artifact_id="$(jq -r '.id' <<<"$artifact_row")"
+          artifact_digest="$(jq -r '.digest' <<<"$artifact_row")"
+          test "$artifact_digest" != 'null'
+          mkdir -p .github/r7-status
+          jq -n \
+            --arg schema 'R7_FULL_HISTORY_TRACEABILITY_TUPLE_V4' \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg branch "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg artifactName "$artifact_name" \
+            --arg artifactId "$artifact_id" \
+            --arg artifactDigest "$artifact_digest" \
+            --arg corpusSha256 "$(sha256sum traceability-artifact/R7_FULL_HISTORY_CORPUS_MANIFEST_V4.json | awk '{print $1}')" \
+            --arg traceabilitySha256 "$(sha256sum traceability-artifact/R7_REQUIREMENTS_TRACEABILITY_V4.json | awk '{print $1}')" \
+            --arg carrySha256 "$(sha256sum traceability-artifact/R7_CARRY_FORWARD_REGISTER_V4.json | awk '{print $1}')" \
+            --arg readinessSha256 "$(sha256sum traceability-artifact/R7_ZERO_ORPHAN_READINESS_V4.json | awk '{print $1}')" \
+            --arg verificationSha256 "$(sha256sum traceability-artifact/R7_FULL_HISTORY_TRACEABILITY_VERIFICATION_V4.json | awk '{print $1}')" \
+            --arg selftestSha256 "$(sha256sum traceability-artifact/R7_FULL_HISTORY_TRACEABILITY_SELFTEST_V4.json | awk '{print $1}')" \
+            --argjson requirementCount "$(jq -r '.summary.requirementCount' traceability-artifact/R7_REQUIREMENTS_TRACEABILITY_V4.json)" \
+            --argjson deferredCount "$(jq -r '.summary.deferredRequirementCount' traceability-artifact/R7_REQUIREMENTS_TRACEABILITY_V4.json)" \
+            '{schema:$schema,passed:true,repository:$repository,branch:$branch,commit:$commit,runId:($runId|tonumber),runAttempt:($runAttempt|tonumber),artifact:{id:($artifactId|tonumber),name:$artifactName,digest:$artifactDigest},hashes:{corpus:$corpusSha256,traceability:$traceabilitySha256,carryForward:$carrySha256,readiness:$readinessSha256,verification:$verificationSha256,selftest:$selftestSha256},metrics:{requirementCount:$requirementCount,deferredRequirementCount:$deferredCount,openR7BlockerCount:0,orphanedRequirementCount:0,unresolvedMaterialClauseCount:0,selftestCases:10},scope:"Full-history accounting for R7 technical architecture closure only; R8-R13 remain open"}' \
+            > .github/r7-status/full-history-traceability-v4.json
+          jq -e '.passed==true and .metrics.requirementCount>=75 and .metrics.openR7BlockerCount==0 and .metrics.orphanedRequirementCount==0 and .metrics.unresolvedMaterialClauseCount==0 and (.artifact.digest|startswith("sha256:"))' \
+            .github/r7-status/full-history-traceability-v4.json >/dev/null
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7-status/full-history-traceability-v4.json
+          git diff --cached --check
+          git commit -m 'R7 traceability v4: record exact zero-orphan tuple'
+          git push origin HEAD:r7-full-history-traceability-v4-20260901
+
+      - name: Upload traceability failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-full-history-traceability-v4-failure-${{ github.sha }}
+          path: |
+            traceability-work/
+            traceability-artifact/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
