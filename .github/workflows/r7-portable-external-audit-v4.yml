@@ -1,0 +1,169 @@
+name: R7 portable-schema external evidence audit v4
+
+on:
+  push:
+    branches:
+      - r7-portable-external-audit-v2-20260901
+    paths:
+      - '.github/workflows/r7-portable-external-audit-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7-portable-external-audit-v4
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  R7F_BRANCH: r7f-portable-authoritative-v2-20260901
+  R7F_STATUS_PATH: .github/r7-status/portable-r7f-v5.json
+  AUDIT_ARTIFACT_PREFIX: r7-portable-external-audit-v4-evidence
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact external auditor v4 commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Acquire exact successful R7F v5 and bound R7E v3 artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p audit-input audit-output audit-artifact
+          encoded=''
+          for attempt in $(seq 1 400); do
+            encoded="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${R7F_STATUS_PATH}?ref=${R7F_BRANCH}" --jq '.content' 2>/dev/null || true)"
+            if test -n "$encoded"; then break; fi
+            sleep 15
+          done
+          test -n "$encoded"
+          printf '%s' "$encoded" | tr -d '\n' | base64 --decode > audit-input/R7F_STATUS.json
+          jq -e '.schema=="R7F_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V5" and .passed==true and .branch=="r7f-portable-authoritative-v2-20260901" and .correctionModel=="EXACT_FOUR_CLASS_PATH_REPAIR" and (.artifact.digest|startswith("sha256:")) and (.builder.artifactDigest|startswith("sha256:"))' audit-input/R7F_STATUS.json >/dev/null
+          r7f_run="$(jq -r '.runId' audit-input/R7F_STATUS.json)"
+          r7f_commit="$(jq -r '.commit' audit-input/R7F_STATUS.json)"
+          r7f_artifact_id="$(jq -r '.artifact.id' audit-input/R7F_STATUS.json)"
+          r7f_artifact_name="$(jq -r '.artifact.name' audit-input/R7F_STATUS.json)"
+          r7f_artifact_digest="$(jq -r '.artifact.digest' audit-input/R7F_STATUS.json)"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${r7f_run}" > audit-input/R7F_RUN_METADATA.json
+          jq -e --arg commit "$r7f_commit" '.status=="completed" and .conclusion=="success" and .head_sha==$commit and .head_branch=="r7f-portable-authoritative-v2-20260901"' audit-input/R7F_RUN_METADATA.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${r7f_artifact_id}" > audit-input/R7F_ARTIFACT_METADATA.json
+          jq -e --arg name "$r7f_artifact_name" --arg digest "$r7f_artifact_digest" --argjson run "$r7f_run" '.name==$name and .digest==$digest and .expired==false and .workflow_run.id==$run' audit-input/R7F_ARTIFACT_METADATA.json >/dev/null
+          curl --fail --silent --show-error --location -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${r7f_artifact_id}/zip" --output audit-input/R7F_AUTHORITATIVE.zip
+          printf '%s  %s\n' "${r7f_artifact_digest#sha256:}" audit-input/R7F_AUTHORITATIVE.zip | sha256sum --check --strict
+          python3 - <<'PY'
+          import json,stat,zipfile
+          from pathlib import Path,PurePosixPath
+          source=Path('audit-input/R7F_AUTHORITATIVE.zip')
+          with zipfile.ZipFile(source) as archive:
+              names=set(); candidates=[]
+              for info in archive.infolist():
+                  pure=PurePosixPath(info.filename)
+                  if pure.is_absolute() or '..' in pure.parts or info.filename in names or stat.S_IFMT(info.external_attr>>16)==stat.S_IFLNK: raise SystemExit(f'unsafe R7F ZIP member: {info.filename}')
+                  names.add(info.filename)
+                  if pure.name=='R7E_TUPLE.json': candidates.append(info.filename)
+              if len(candidates)!=1: raise SystemExit(f'expected one R7E_TUPLE.json, found {len(candidates)}')
+              data=json.loads(archive.read(candidates[0]))
+          Path('audit-input/R7E_TUPLE.json').write_text(json.dumps(data,indent=2)+'\n')
+          PY
+          jq -e '.schema=="R7E_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V3" and .passed==true and .branch=="r7e-portable-authoritative-v3-20260901" and .sourceFileCount==146 and .sourceArchiveSha256=="764271738ad8578de7d89c522d9cedd1a22ce00d1b8e5d06b271903b52a3923d"' audit-input/R7E_TUPLE.json >/dev/null
+          r7e_run="$(jq -r '.runId' audit-input/R7E_TUPLE.json)"
+          r7e_commit="$(jq -r '.commit' audit-input/R7E_TUPLE.json)"
+          r7e_artifact_id="$(jq -r '.artifact.id' audit-input/R7E_TUPLE.json)"
+          r7e_artifact_name="$(jq -r '.artifact.name' audit-input/R7E_TUPLE.json)"
+          r7e_artifact_digest="$(jq -r '.artifact.digest' audit-input/R7E_TUPLE.json)"
+          test "$r7e_artifact_digest" = "$(jq -r '.builder.artifactDigest' audit-input/R7F_STATUS.json)"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${r7e_run}" > audit-input/R7E_RUN_METADATA.json
+          jq -e --arg commit "$r7e_commit" '.status=="completed" and .conclusion=="success" and .head_sha==$commit and .head_branch=="r7e-portable-authoritative-v3-20260901"' audit-input/R7E_RUN_METADATA.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${r7e_artifact_id}" > audit-input/R7E_ARTIFACT_METADATA.json
+          jq -e --arg name "$r7e_artifact_name" --arg digest "$r7e_artifact_digest" --argjson run "$r7e_run" '.name==$name and .digest==$digest and .expired==false and .workflow_run.id==$run' audit-input/R7E_ARTIFACT_METADATA.json >/dev/null
+          curl --fail --silent --show-error --location -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${r7e_artifact_id}/zip" --output audit-input/R7E_AUTHORITATIVE.zip
+          printf '%s  %s\n' "${r7e_artifact_digest#sha256:}" audit-input/R7E_AUTHORITATIVE.zip | sha256sum --check --strict
+
+      - name: Execute independent v4 semantic audit and seven adversarial controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/r7-portable-external-audit-v2.py .github/scripts/r7-portable-external-audit-v4.py
+          sha256sum .github/workflows/r7-portable-external-audit-v4.yml .github/scripts/r7-portable-external-audit-v2.py .github/scripts/r7-portable-external-audit-v4.py > audit-output/AUDITOR_INFRASTRUCTURE.sha256
+          python3 .github/scripts/r7-portable-external-audit-v4.py --r7f-zip audit-input/R7F_AUTHORITATIVE.zip --r7f-status audit-input/R7F_STATUS.json --r7e-zip audit-input/R7E_AUTHORITATIVE.zip --output audit-output/R7_PORTABLE_EXTERNAL_AUDIT_V4.json --selftest-output audit-output/R7_PORTABLE_EXTERNAL_AUDIT_SELFTEST_V4.json > audit-output/audit.stdout.txt
+          jq -e '.passed==true and .decision=="R7_PORTABLE_EXTERNAL_AUDIT_PASS" and .selftest.caseCount==7 and .metrics.pathCorrectionClasses==4 and .metrics.browserPageChecks==168 and .metrics.lighthouseReports==4 and .metrics.stressDistFiles>=534' audit-output/R7_PORTABLE_EXTERNAL_AUDIT_V4.json >/dev/null
+          jq -e '.passed==true and .caseCount==7 and .passedCaseCount==7' audit-output/R7_PORTABLE_EXTERNAL_AUDIT_SELFTEST_V4.json >/dev/null
+
+      - name: Assemble external audit v4 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp audit-input/R7F_STATUS.json audit-artifact/
+          cp audit-input/R7F_RUN_METADATA.json audit-artifact/
+          cp audit-input/R7F_ARTIFACT_METADATA.json audit-artifact/
+          cp audit-input/R7E_TUPLE.json audit-artifact/
+          cp audit-input/R7E_RUN_METADATA.json audit-artifact/
+          cp audit-input/R7E_ARTIFACT_METADATA.json audit-artifact/
+          cp -a audit-output/. audit-artifact/
+          cp .github/scripts/r7-portable-external-audit-v2.py audit-artifact/
+          cp .github/scripts/r7-portable-external-audit-v4.py audit-artifact/
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root=Path('audit-artifact'); manifest=root/'R7_PORTABLE_EXTERNAL_AUDIT_SHA256SUMS.txt'
+          rows=[]
+          for path in sorted((p for p in root.rglob('*') if p.is_file() and p!=manifest),key=lambda p:p.relative_to(root).as_posix().encode()): rows.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}")
+          manifest.write_text('\n'.join(rows)+'\n')
+          PY
+          (cd audit-artifact && sha256sum --check --strict R7_PORTABLE_EXTERNAL_AUDIT_SHA256SUMS.txt)
+
+      - name: Upload external portable audit v4 evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-portable-external-audit-v4-evidence-${{ github.sha }}
+          path: audit-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Persist exact external audit v4 tuple
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_name="${AUDIT_ARTIFACT_PREFIX}-${GITHUB_SHA}"
+          artifact_row=''
+          for attempt in $(seq 1 12); do
+            artifact_row="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --paginate | jq -cs --arg name "$artifact_name" '[.[].artifacts[] | select(.name==$name)] | if length==1 then .[0] else empty end')"
+            if test -n "$artifact_row"; then break; fi
+            sleep 2
+          done
+          test -n "$artifact_row"
+          artifact_id="$(jq -r '.id' <<<"$artifact_row")"; artifact_digest="$(jq -r '.digest' <<<"$artifact_row")"
+          mkdir -p .github/r7-status
+          jq -n --arg schema 'R7_PORTABLE_EXTERNAL_AUDIT_TUPLE_V4' --arg repository "$GITHUB_REPOSITORY" --arg branch "$GITHUB_REF_NAME" --arg commit "$GITHUB_SHA" --arg runId "$GITHUB_RUN_ID" --arg runAttempt "$GITHUB_RUN_ATTEMPT" --arg artifactName "$artifact_name" --arg artifactId "$artifact_id" --arg artifactDigest "$artifact_digest" --arg auditSha256 "$(sha256sum audit-artifact/R7_PORTABLE_EXTERNAL_AUDIT_V4.json | awk '{print $1}')" --arg selftestSha256 "$(sha256sum audit-artifact/R7_PORTABLE_EXTERNAL_AUDIT_SELFTEST_V4.json | awk '{print $1}')" --arg r7fCommit "$(jq -r '.commit' audit-input/R7F_STATUS.json)" --arg r7fArtifactDigest "$(jq -r '.artifact.digest' audit-input/R7F_STATUS.json)" --arg r7eCommit "$(jq -r '.commit' audit-input/R7E_TUPLE.json)" --arg r7eArtifactDigest "$(jq -r '.artifact.digest' audit-input/R7E_TUPLE.json)" '{schema:$schema,passed:true,repository:$repository,branch:$branch,commit:$commit,runId:($runId|tonumber),runAttempt:($runAttempt|tonumber),artifact:{id:($artifactId|tonumber),name:$artifactName,digest:$artifactDigest},auditSha256:$auditSha256,selftestSha256:$selftestSha256,r7f:{commit:$r7fCommit,artifactDigest:$r7fArtifactDigest},r7e:{commit:$r7eCommit,artifactDigest:$r7eArtifactDigest},correctionModel:"EXACT_FOUR_CLASS_PATH_REPAIR",scope:"External audit of R7 architecture evidence only; no whole-site or deployment certification"}' > .github/r7-status/portable-external-audit-v4.json
+          jq -e '.passed==true and .correctionModel=="EXACT_FOUR_CLASS_PATH_REPAIR" and (.artifact.digest|startswith("sha256:"))' .github/r7-status/portable-external-audit-v4.json >/dev/null
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7-status/portable-external-audit-v4.json; git diff --cached --check; git commit -m 'R7 audit v4: record exact portable external audit tuple'
+          git fetch origin r7-portable-external-audit-v2-20260901; git rebase origin/r7-portable-external-audit-v2-20260901; git push origin HEAD:r7-portable-external-audit-v2-20260901
+
+      - name: Upload external audit v4 failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-portable-external-audit-v4-failure-${{ github.sha }}
+          path: |
+            audit-input/
+            audit-output/
+            audit-artifact/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
