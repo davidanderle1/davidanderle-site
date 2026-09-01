@@ -1,0 +1,216 @@
+name: R7 persistent pipeline status snapshot v1
+
+on:
+  push:
+    branches:
+      - r7-pipeline-status-snapshot-v1-20260901
+    paths:
+      - '.github/workflows/r7-pipeline-status-snapshot-v1.yml'
+      - '.github/r7-status/snapshot-trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7-pipeline-status-snapshot-v1
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout snapshot branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Capture exact live pipeline state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf snapshot-work
+          mkdir -p snapshot-work .github/r7-status
+          cat > snapshot-work/stages.json <<'JSON'
+          [
+            {
+              "id": "portable-r7e-v3",
+              "branch": "r7e-portable-authoritative-v3-20260901",
+              "workflowPath": ".github/workflows/r7e-portable-authoritative-executor-v3.yml",
+              "statusPath": ".github/r7-status/portable-r7e-v3.json"
+            },
+            {
+              "id": "portable-r7f-v4",
+              "branch": "r7f-portable-authoritative-v2-20260901",
+              "workflowPath": ".github/workflows/r7f-portable-authoritative-v4.yml",
+              "statusPath": ".github/r7-status/portable-r7f-v4.json"
+            },
+            {
+              "id": "portable-external-audit-v3",
+              "branch": "r7-portable-external-audit-v2-20260901",
+              "workflowPath": ".github/workflows/r7-portable-external-audit-v3.yml",
+              "statusPath": ".github/r7-status/portable-external-audit-v3.json"
+            },
+            {
+              "id": "full-history-traceability-v4",
+              "branch": "r7-full-history-traceability-v4-20260901",
+              "workflowPath": ".github/workflows/r7-full-history-traceability-v4.yml",
+              "statusPath": ".github/r7-status/full-history-traceability-v4.json"
+            },
+            {
+              "id": "history-bound-controller-v3",
+              "branch": "r7-history-bound-controller-v3-20260901",
+              "workflowPath": ".github/workflows/r7-history-bound-controller-v3.yml",
+              "statusPath": null
+            },
+            {
+              "id": "controller-external-audit-v1",
+              "branch": "r7-controller-external-audit-v1-20260901",
+              "workflowPath": ".github/workflows/r7-controller-external-audit-v1.yml",
+              "statusPath": ".github/r7-status/R7_FINAL_ENGINEERING_CLOSURE_V1.json"
+            }
+          ]
+          JSON
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          stages = json.loads(Path('snapshot-work/stages.json').read_text())
+
+          def gh(endpoint):
+              result = subprocess.run(['gh', 'api', endpoint], text=True, capture_output=True)
+              if result.returncode != 0:
+                  return None, result.stderr.strip()
+              try:
+                  return json.loads(result.stdout), None
+              except Exception as exc:
+                  return None, f'JSON parse failed: {exc}'
+
+          rows = []
+          for stage in stages:
+              branch_data, branch_error = gh(f"repos/{repository}/branches/{stage['branch']}")
+              branch_head = branch_data.get('commit', {}).get('sha') if branch_data else None
+              runs_data, runs_error = gh(f"repos/{repository}/actions/runs?branch={stage['branch']}&per_page=100")
+              matches = []
+              if runs_data:
+                  matches = [
+                      run for run in runs_data.get('workflow_runs', [])
+                      if run.get('path') == stage['workflowPath']
+                  ]
+                  matches.sort(key=lambda run: run.get('id', 0), reverse=True)
+              latest = matches[0] if matches else None
+              jobs = None
+              artifacts = None
+              jobs_error = None
+              artifacts_error = None
+              if latest:
+                  jobs, jobs_error = gh(f"repos/{repository}/actions/runs/{latest['id']}/jobs?per_page=100")
+                  artifacts, artifacts_error = gh(f"repos/{repository}/actions/runs/{latest['id']}/artifacts?per_page=100")
+
+              status_present = False
+              status_document = None
+              status_error = None
+              if stage['statusPath']:
+                  status_data, status_error = gh(
+                      f"repos/{repository}/contents/{stage['statusPath']}?ref={stage['branch']}"
+                  )
+                  if status_data and status_data.get('content'):
+                      import base64
+                      status_present = True
+                      try:
+                          status_document = json.loads(base64.b64decode(status_data['content']).decode('utf-8'))
+                      except Exception as exc:
+                          status_error = f'status decode failed: {exc}'
+
+              rows.append({
+                  'id': stage['id'],
+                  'branch': stage['branch'],
+                  'branchHead': branch_head,
+                  'branchError': branch_error,
+                  'workflowPath': stage['workflowPath'],
+                  'latestRun': latest,
+                  'latestJobs': jobs.get('jobs', []) if jobs else None,
+                  'latestArtifacts': artifacts.get('artifacts', []) if artifacts else None,
+                  'runQueryError': runs_error,
+                  'jobsQueryError': jobs_error,
+                  'artifactsQueryError': artifacts_error,
+                  'statusPath': stage['statusPath'],
+                  'statusPresent': status_present,
+                  'statusDocument': status_document,
+                  'statusError': status_error,
+              })
+
+          closure = next(row for row in rows if row['id'] == 'controller-external-audit-v1')
+          if closure['statusPresent'] and closure['statusDocument'].get('decision') == 'R7_CLOSED':
+              decision = 'R7_CLOSED'
+          else:
+              failed = [
+                  row for row in rows
+                  if row['latestRun'] and row['latestRun'].get('status') == 'completed'
+                  and row['latestRun'].get('conclusion') not in ('success', 'skipped')
+                  and not row['statusPresent']
+              ]
+              in_progress = [
+                  row for row in rows
+                  if row['latestRun'] and row['latestRun'].get('status') != 'completed'
+              ]
+              if failed:
+                  decision = 'PIPELINE_BLOCKED'
+              elif in_progress:
+                  decision = 'PIPELINE_IN_PROGRESS'
+              else:
+                  decision = 'PIPELINE_PENDING_OR_INCOMPLETE'
+
+          snapshot = {
+              'schema': 'R7_PIPELINE_STATUS_SNAPSHOT_V1',
+              'generatedByRunId': int(os.environ['GITHUB_RUN_ID']),
+              'generatedFromCommit': os.environ['GITHUB_SHA'],
+              'repository': repository,
+              'decision': decision,
+              'stageCount': len(rows),
+              'statusMarkerCount': sum(row['statusPresent'] for row in rows),
+              'stages': rows,
+          }
+          Path('.github/r7-status/PIPELINE_SNAPSHOT_V1.json').write_text(
+              json.dumps(snapshot, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps({
+              'decision': decision,
+              'statusMarkerCount': snapshot['statusMarkerCount'],
+              'stages': [
+                  {
+                      'id': row['id'],
+                      'branchHead': row['branchHead'],
+                      'runId': row['latestRun'].get('id') if row['latestRun'] else None,
+                      'runStatus': row['latestRun'].get('status') if row['latestRun'] else None,
+                      'runConclusion': row['latestRun'].get('conclusion') if row['latestRun'] else None,
+                      'statusPresent': row['statusPresent'],
+                  }
+                  for row in rows
+              ],
+          }, indent=2))
+          PY
+          jq -e '.schema=="R7_PIPELINE_STATUS_SNAPSHOT_V1" and .stageCount==6' \
+            .github/r7-status/PIPELINE_SNAPSHOT_V1.json >/dev/null
+
+      - name: Persist pipeline snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7-status/PIPELINE_SNAPSHOT_V1.json
+          git diff --cached --check
+          git commit -m 'R7: persist exact live pipeline snapshot'
+          git push origin HEAD:r7-pipeline-status-snapshot-v1-20260901
