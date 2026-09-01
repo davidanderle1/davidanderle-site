@@ -1,0 +1,173 @@
+name: R7E portable JSON Schema authoritative executor v2
+
+on:
+  push:
+    branches:
+      - r7e-portable-json-schema-verification-20260831
+    paths:
+      - '.github/workflows/r7e-portable-authoritative-executor-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7e-portable-authoritative-executor-v2
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  AUTHORITATIVE_ARTIFACT_PREFIX: r7e-portable-json-schema-v2-evidence
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 115
+    steps:
+      - name: Checkout exact portable source and executor commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Validate immutable source transport and generate authoritative plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 022
+          mkdir -p executor-evidence evidence
+          test "$(node --version)" = 'v24.20.0'
+          test "$(npm --version)" = '11.19.0'
+          sha256sum --check --strict .r7e-source/SHA256SUMS
+          test "$(tr -d '\r\n' < .r7e-source/ARCHIVE_SHA256)" = '764271738ad8578de7d89c522d9cedd1a22ce00d1b8e5d06b271903b52a3923d'
+          jq -e '.fileCount==146' .r7e-source/SOURCE_TREE.json >/dev/null
+          python3 -m py_compile \
+            .github/scripts/materialize-portable-r7e-workflow.py \
+            .github/scripts/execute-generated-r7e-plan.py
+          python3 .github/scripts/materialize-portable-r7e-workflow.py
+          test -s .github/workflows/r7e-portable-json-schema-verification.yml
+          ! grep -q 'r7e-full-history-reconciled' .github/workflows/r7e-portable-json-schema-verification.yml
+          sha256sum \
+            .github/workflows/r7e-portable-authoritative-executor-v2.yml \
+            .github/workflows/r7e-portable-json-schema-verification.yml \
+            .github/workflows/r7e-full-history-reconciled-verification.yml \
+            .github/scripts/materialize-portable-r7e-workflow.py \
+            .github/scripts/execute-generated-r7e-plan.py \
+            .github/scripts/r7e-pack-source.py \
+            .github/scripts/r7e-tree-guard.py \
+            > executor-evidence/executor-infrastructure.sha256
+          cp .github/workflows/r7e-portable-json-schema-verification.yml executor-evidence/
+          printf '%s\n' "$GITHUB_SHA" > executor-evidence/executor-commit.txt
+          printf '%s\n' "$GITHUB_RUN_ID" > executor-evidence/executor-run-id.txt
+          printf '%s\n' "$GITHUB_RUN_ATTEMPT" > executor-evidence/executor-run-attempt.txt
+
+      - name: Execute generated authoritative R7E plan fail closed
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/execute-generated-r7e-plan.py \
+            .github/workflows/r7e-portable-json-schema-verification.yml \
+            executor-evidence/generated-plan-execution.json
+          jq -e '.passed==true and .executedRunStepCount>0' executor-evidence/generated-plan-execution.json >/dev/null
+          test -d artifact
+          test -f artifact/R7E_PACKAGE_VALIDATION.json
+          test -f artifact/R7E_ARTIFACT_SHA256SUMS.txt
+          jq -e '.passed==true' artifact/R7E_PACKAGE_VALIDATION.json >/dev/null
+          (
+            cd artifact
+            sha256sum --check --strict R7E_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload authoritative portable-schema R7E evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-portable-json-schema-v2-evidence-${{ github.sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Upload executor lineage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-portable-json-schema-v2-executor-${{ github.sha }}
+          path: |
+            executor-evidence/
+            .github/workflows/r7e-portable-json-schema-verification.yml
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Persist exact authoritative R7E tuple
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_name="${AUTHORITATIVE_ARTIFACT_PREFIX}-${GITHUB_SHA}"
+          artifact_row=''
+          for attempt in $(seq 1 12); do
+            artifact_row="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --paginate \
+              | jq -cs --arg name "$artifact_name" '[.[].artifacts[] | select(.name==$name)] | if length==1 then .[0] else empty end')"
+            if test -n "$artifact_row"; then break; fi
+            sleep 2
+          done
+          test -n "$artifact_row"
+          test "$(jq -r '.expired' <<<"$artifact_row")" = 'false'
+          artifact_id="$(jq -r '.id' <<<"$artifact_row")"
+          artifact_digest="$(jq -r '.digest' <<<"$artifact_row")"
+          test "$artifact_id" != 'null'
+          test "$artifact_digest" != 'null'
+          plan_sha="$(sha256sum .github/workflows/r7e-portable-json-schema-verification.yml | awk '{print $1}')"
+          package_validation_sha="$(sha256sum artifact/R7E_PACKAGE_VALIDATION.json | awk '{print $1}')"
+          mkdir -p .github/r7-status
+          jq -n \
+            --arg schema 'R7E_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V2' \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg branch "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg workflow "$GITHUB_WORKFLOW" \
+            --arg artifactName "$artifact_name" \
+            --arg artifactId "$artifact_id" \
+            --arg artifactDigest "$artifact_digest" \
+            --arg sourceArchiveSha256 '764271738ad8578de7d89c522d9cedd1a22ce00d1b8e5d06b271903b52a3923d' \
+            --arg generatedPlanSha256 "$plan_sha" \
+            --arg packageValidationSha256 "$package_validation_sha" \
+            '{schema:$schema,passed:true,repository:$repository,branch:$branch,commit:$commit,runId:($runId|tonumber),runAttempt:($runAttempt|tonumber),workflow:$workflow,artifact:{id:($artifactId|tonumber),name:$artifactName,digest:$artifactDigest},sourceArchiveSha256:$sourceArchiveSha256,sourceFileCount:146,portableSchema:{dialect:"https://json-schema.org/draft/2020-12/schema",contractVersion:"1.0.0",generatedPlanSha256:$generatedPlanSha256},packageValidationSha256:$packageValidationSha256,scope:"R7 technical architecture evidence only; no main mutation or production release authorization"}' \
+            > .github/r7-status/portable-r7e-v2.json
+          jq -e '.passed==true and .sourceFileCount==146 and .artifact.digest|startswith("sha256:")' .github/r7-status/portable-r7e-v2.json >/dev/null
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7-status/portable-r7e-v2.json
+          git diff --cached --check
+          git commit -m 'R7E: record exact portable authoritative tuple'
+          git push origin HEAD:r7e-portable-json-schema-verification-20260831
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7e-portable-json-schema-v2-failure-${{ github.sha }}
+          path: |
+            artifact/
+            evidence/
+            executor-evidence/
+            .github/workflows/r7e-portable-json-schema-verification.yml
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
