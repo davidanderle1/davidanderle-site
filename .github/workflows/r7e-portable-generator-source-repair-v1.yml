@@ -1,0 +1,115 @@
+name: Repair portable R7E generator at source
+
+on:
+  push:
+    branches:
+      - r7e-portable-json-schema-verification-20260831
+    paths:
+      - '.github/workflows/r7e-portable-generator-source-repair-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-portable-generator-source-repair-v1
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact portable branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Repair generator source and prove generated plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/scripts/materialize-portable-r7e-workflow.py')
+          text = path.read_text(encoding='utf-8')
+          replacements = (
+              (
+                  'scripts/validate-json-schema.mjs',
+                  'scripts/validate-json-schemas.mjs',
+                  'plural portable schema validator',
+              ),
+              (
+                  'scripts/verify-json-schema-drift.mjs',
+                  'scripts/run-portable-schema-contract.mjs',
+                  'portable contract runner',
+              ),
+              (
+                  '.dialect=="https://json-schema.org/draft/2020-12/schema"',
+                  '."$schema"=="https://json-schema.org/draft/2020-12/schema"',
+                  'standard JSON Schema dialect field',
+              ),
+          )
+          for old, new, label in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one stale source anchor, found {count}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          python3 -m py_compile .github/scripts/materialize-portable-r7e-workflow.py
+          python3 .github/scripts/materialize-portable-r7e-workflow.py
+
+          generated=.github/workflows/r7e-portable-json-schema-verification.yml
+          test -s "$generated"
+          grep -q 'scripts/validate-json-schemas.mjs' "$generated"
+          grep -q 'scripts/run-portable-schema-contract.mjs' "$generated"
+          grep -Fq '."$schema"=="https://json-schema.org/draft/2020-12/schema"' "$generated"
+          ! grep -q 'scripts/validate-json-schema.mjs' "$generated"
+          ! grep -q 'scripts/verify-json-schema-drift.mjs' "$generated"
+          ! grep -Fq '.dialect=="https://json-schema.org/draft/2020-12/schema"' "$generated"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          generated = Path('.github/workflows/r7e-portable-json-schema-verification.yml').read_text(encoding='utf-8')
+          required = (
+              'R7E portable JSON Schema native Astro verification',
+              'scripts/validate-json-schemas.mjs',
+              'scripts/run-portable-schema-contract.mjs',
+              '."$schema"=="https://json-schema.org/draft/2020-12/schema"',
+              'len(actual) != 146',
+              "-eq 29",
+          )
+          forbidden = (
+              'scripts/validate-json-schema.mjs',
+              'scripts/verify-json-schema-drift.mjs',
+              '.dialect=="https://json-schema.org/draft/2020-12/schema"',
+          )
+          missing = [token for token in required if token not in generated]
+          stale = [token for token in forbidden if token in generated]
+          if missing or stale:
+              raise SystemExit(f'generated plan contract failure: missing={missing}, stale={stale}')
+          PY
+
+          sha256sum \
+            .github/scripts/materialize-portable-r7e-workflow.py \
+            .github/workflows/r7e-portable-json-schema-verification.yml \
+            > /tmp/r7e-portable-generator-source-repair.sha256
+
+      - name: Commit repaired generator and its exact generated plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            .github/scripts/materialize-portable-r7e-workflow.py \
+            .github/workflows/r7e-portable-json-schema-verification.yml
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7E: eliminate stale portable generator premises'
+          git push origin HEAD:r7e-portable-json-schema-verification-20260831
