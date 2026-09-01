@@ -1,0 +1,66 @@
+{
+  "schema": "R7_HISTORY_BOUND_CONTROLLER_INPUT_LOCK_V6",
+  "repository": "davidanderle1/davidanderle-site",
+  "mainBaselineSha": "74d24bd30090991295429ad7600df6f33f668e44",
+  "r7e": {
+    "branch": "r7e-portable-self-recording-final-20260901",
+    "commit": "ea592cde4f4a09f18442308ff14e1eeb2621bf33",
+    "runId": 33509839046,
+    "runAttempt": 1,
+    "workflowPath": ".github/workflows/r7e-portable-authoritative-executor-v4.yml",
+    "evidenceArtifact": {
+      "id": 9801298633,
+      "name": "r7e-portable-self-recording-v4-evidence-ea592cde4f4a09f18442308ff14e1eeb2621bf33",
+      "digest": "sha256:8c98377f442bdc1ab5ed45f240c38ec6773ca29ca8f887375e0ec7dc6aa99d3a"
+    },
+    "lineageArtifact": {
+      "id": 9801300076,
+      "name": "r7e-portable-self-recording-v4-lineage-ea592cde4f4a09f18442308ff14e1eeb2621bf33",
+      "digest": "sha256:0c5190fa0e0c42b2a5f80ec6fe8211743e0680d3de4dece8d5df98eb10e8cc33"
+    }
+  },
+  "r7f": {
+    "branch": "r7f-portable-final-20260901",
+    "commit": "7ff2bedf0c6d3b5827aec43ce356e81911e676d1",
+    "runId": 33529955290,
+    "runAttempt": 1,
+    "workflowPath": ".github/workflows/r7f-portable-final-verification.yml",
+    "artifact": {
+      "id": 9809477818,
+      "name": "r7f-generator-bound-portable-final-evidence-7ff2bedf0c6d3b5827aec43ce356e81911e676d1",
+      "digest": "sha256:57189e46a9b9fe7d110e324d620076d046d0cc0bf2db9e8d4f126097825ca574"
+    }
+  },
+  "external": {
+    "branch": "r7-portable-final-external-audit-20260901",
+    "commit": "768efaff317a0e498abe29d8394aee781c9b6a21",
+    "runId": 33516274989,
+    "runAttempt": 2,
+    "workflowPath": ".github/workflows/r7-portable-final-external-audit.yml",
+    "artifact": {
+      "id": 9809668499,
+      "name": "r7-portable-final-external-audit-768efaff317a0e498abe29d8394aee781c9b6a21",
+      "digest": "sha256:3ff4193680c19c1db6bbe61f54ff3ef75d9a4070acfefa5dbfe86999419a6f09"
+    },
+    "duplicateNameOlderArtifactId": 9804982382
+  },
+  "traceability": {
+    "branch": "r7-full-history-traceability-final-20260901",
+    "commit": "52134cd5aa3f91e47f5b8ba3fd0f298a16bcb84a",
+    "runId": 33532340086,
+    "runAttempt": 1,
+    "workflowPath": ".github/workflows/r7-full-history-traceability-final.yml",
+    "artifact": {
+      "id": 9810218410,
+      "name": "r7-full-history-traceability-final-52134cd5aa3f91e47f5b8ba3fd0f298a16bcb84a",
+      "digest": "sha256:6074771e6441607dc354b20a405b1a076540fa401bca01ba696b0eb33f8be64c"
+    }
+  },
+  "scope": {
+    "maximumAuthorizedVerdict": "R7_TECHNICAL_ARCHITECTURE_CLOSED",
+    "wholeWebsiteCompletionAuthorized": false,
+    "r8ThroughR13Closed": false,
+    "mainMutationAuthorized": false,
+    "productionDeploymentAuthorized": false
+  }
+}
