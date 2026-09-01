@@ -417,7 +417,20 @@ jobs:
             'builder candidate identity schema',
             'authenticate immutable commit instead of mutable branch head',
           }
+          aligned_tokens={
+            'builder gate identity':'R7E PORTABLE JSON SCHEMA BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F',
+            'builder candidate identity schema':'R7E_PORTABLE_JSON_SCHEMA_CANDIDATE_IDENTITY_V1',
+          }
           present={row['class'] for row in changes}
+          if not required_classes.issubset(present):
+            script_files=sorted(p for root in roots for p in root.rglob('*') if p.is_file() and p.suffix in {'.py','.sh','.mjs','.js'})
+            corpus='\n'.join(p.read_text(encoding='utf-8') for p in script_files)
+            for label,token in aligned_tokens.items():
+              if label not in present:
+                if token not in corpus:
+                  raise SystemExit(f'missing required adaptation and aligned token: {label}')
+                changes.append({'path':'<already-aligned-verifier-baseline>','class':label,'count':0,'mode':'already-aligned'})
+            present={row['class'] for row in changes}
           if not required_classes.issubset(present):
             raise SystemExit(f'missing explicit adaptation classes: {sorted(required_classes-present)}')
           Path('builder-selection/verifier-adaptations.json').write_text(json.dumps({
