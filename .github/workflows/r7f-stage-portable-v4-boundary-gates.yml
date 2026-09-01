@@ -1,0 +1,58 @@
+name: Stage portable v4 boundary-gate repair
+
+on:
+  push:
+    branches:
+      - r7f-portable-final-20260901
+    paths:
+      - '.github/workflows/r7f-stage-portable-v4-boundary-gates.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7f-stage-portable-v4-boundary-gates
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout final R7F branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Patch and validate portable v4 boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/patch-r7f-v4-boundary-gates.py
+          python3 .github/scripts/patch-r7f-v4-boundary-gates.py
+          python3 -m py_compile .github/scripts/r7f-evidence-gates.py
+          ruby -ryaml -e 'YAML.safe_load(File.read(ARGV[0]), aliases: true)' .github/workflows/r7f-portable-final-verification.yml
+          grep -Fq 'portable Draft 2020-12 contract folded into canonical packed source' .github/scripts/r7f-evidence-gates.py
+          grep -Fq 'r7e-portable-self-recording-v4-evidence-{args.expected_commit}' .github/scripts/r7f-evidence-gates.py
+          grep -q 'builder source-correction identity' .github/workflows/r7f-portable-final-verification.yml
+          grep -q 'builder artifact metadata identity' .github/workflows/r7f-portable-final-verification.yml
+          mkdir -p .r7-staging
+          cp .github/workflows/r7f-portable-final-verification.yml .r7-staging/r7f-portable-final-verification-v3.yml
+          sha256sum .r7-staging/r7f-portable-final-verification-v3.yml > .r7-staging/r7f-portable-final-verification-v3.yml.sha256
+
+      - name: Commit repaired script and staged workflow blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            .github/scripts/r7f-evidence-gates.py \
+            .r7-staging/r7f-portable-final-verification-v3.yml \
+            .r7-staging/r7f-portable-final-verification-v3.yml.sha256
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7F: align builder authenticity with portable self-recording R7E v4'
+          git push origin HEAD:r7f-portable-final-20260901
