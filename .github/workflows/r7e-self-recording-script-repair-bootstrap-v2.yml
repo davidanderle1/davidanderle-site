@@ -1,0 +1,138 @@
+name: Bootstrap final self-recording R7E script repair v2
+
+on:
+  push:
+    branches:
+      - r7e-portable-self-recording-final-20260901
+    paths:
+      - '.github/workflows/r7e-self-recording-script-repair-bootstrap-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7e-self-recording-script-repair-bootstrap-v2
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated final R7E branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Repair generator and generated-plan executor
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          from pathlib import Path
+
+          generator = Path('.github/scripts/materialize-portable-r7e-workflow.py')
+          text = generator.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  'scripts/validate-json-schema.mjs scripts/verify-json-schema-drift.mjs',
+                  'scripts/validate-json-schemas.mjs scripts/run-portable-schema-contract.mjs',
+                  'current portable verifier paths',
+              ),
+              (
+                  '.contractVersion=="1.0.0" and .dialect=="https://json-schema.org/draft/2020-12/schema"',
+                  '.contractVersion=="1.0.0" and ."$schema"=="https://json-schema.org/draft/2020-12/schema"',
+                  'standard JSON Schema dialect field',
+              ),
+          ]
+          for old, new, label in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one stale anchor, found {count}')
+              text = text.replace(old, new, 1)
+          generator.write_text(text, encoding='utf-8')
+
+          encoded_main = 'ZGVmIG1haW4oKSAtPiBOb25lOgogICAgaWYgbGVuKHN5cy5hcmd2KSAhPSAzOgogICAgICAgIGZhaWwoInVzYWdlOiBleGVjdXRlLWdlbmVyYXRlZC1yN2UtcGxhbi5weSBXT1JLRkxPVyBSRVBPUlQiKQogICAgd29ya2Zsb3dfcGF0aCA9IFBhdGgoc3lzLmFyZ3ZbMV0pLnJlc29sdmUoKQogICAgcmVwb3J0X3BhdGggPSBQYXRoKHN5cy5hcmd2WzJdKS5yZXNvbHZlKCkKICAgIGlmIG5vdCB3b3JrZmxvd19wYXRoLmlzX2ZpbGUoKToKICAgICAgICBmYWlsKGYiR2VuZXJhdGVkIHdvcmtmbG93IG1pc3Npbmc6IHt3b3JrZmxvd19wYXRofSIpCgogICAgd29ya2Zsb3cgPSBsb2FkX3dvcmtmbG93KHdvcmtmbG93X3BhdGgpCiAgICBqb2JzID0gd29ya2Zsb3cuZ2V0KCJqb2JzIikKICAgIGlmIG5vdCBpc2luc3RhbmNlKGpvYnMsIGRpY3QpIG9yIHNldChqb2JzKSAhPSB7InZlcmlmeSJ9OgogICAgICAgIGZhaWwoZiJHZW5lcmF0ZWQgd29ya2Zsb3cgbXVzdCBjb250YWluIGV4YWN0bHkgb25lIHZlcmlmeSBqb2IsIGdvdCB7bGlzdChqb2JzIG9yIHt9KX0iKQogICAgam9iID0gam9ic1sidmVyaWZ5Il0KICAgIGlmIG5vdCBpc2luc3RhbmNlKGpvYiwgZGljdCk6CiAgICAgICAgZmFpbCgidmVyaWZ5IGpvYiBpcyBub3QgYW4gb2JqZWN0IikKICAgIGlmIGpvYi5nZXQoInJ1bnMtb24iKSAhPSAidWJ1bnR1LTI0LjA0IjoKICAgICAgICBmYWlsKGYiVW5leHBlY3RlZCBydW5uZXI6IHtqb2IuZ2V0KCdydW5zLW9uJyl9IikKICAgIHN0ZXBzID0gam9iLmdldCgic3RlcHMiKQogICAgaWYgbm90IGlzaW5zdGFuY2Uoc3RlcHMsIGxpc3QpIG9yIG5vdCBzdGVwczoKICAgICAgICBmYWlsKCJ2ZXJpZnkgc3RlcHMgYXJlIG1pc3NpbmciKQoKICAgIHdvcmtmbG93X2VudiA9IHdvcmtmbG93LmdldCgiZW52Iikgb3Ige30KICAgIGpvYl9lbnYgPSBqb2IuZ2V0KCJlbnYiKSBvciB7fQogICAgZXhlY3V0ZWQ6IGxpc3RbZGljdFtzdHIsIEFueV1dID0gW10KICAgIHNraXBwZWRfdXNlczogbGlzdFtkaWN0W3N0ciwgc3RyXV0gPSBbXQogICAgc2tpcHBlZF9jb25kaXRpb25zOiBsaXN0W2RpY3Rbc3RyLCBzdHJdXSA9IFtdCiAgICBmYWlsZWQgPSBGYWxzZQogICAgZmlyc3RfZmFpbHVyZTogZGljdFtzdHIsIEFueV0gfCBOb25lID0gTm9uZQogICAgc2NyaXB0X3BhdGggPSBST09UIC8gIi5yN2UtcGxhbi1zdGVwLnNoIgoKICAgIGRlZiBwZXJzaXN0X3JlcG9ydCgpIC0+IE5vbmU6CiAgICAgICAgcmVwb3J0X3BhdGgucGFyZW50Lm1rZGlyKHBhcmVudHM9VHJ1ZSwgZXhpc3Rfb2s9VHJ1ZSkKICAgICAgICByZXBvcnQgPSB7CiAgICAgICAgICAgICJzY2hlbWEiOiAiUjdFX0dFTkVSQVRFRF9QTEFOX0VYRUNVVElPTl9WMiIsCiAgICAgICAgICAgICJwYXNzZWQiOiBub3QgZmFpbGVkLAogICAgICAgICAgICAid29ya2Zsb3ciOiBzdHIod29ya2Zsb3dfcGF0aC5yZWxhdGl2ZV90byhST09UKSksCiAgICAgICAgICAgICJ3b3JrZmxvd1NoYTI1NiI6IHN1YnByb2Nlc3MuY2hlY2tfb3V0cHV0KFsic2hhMjU2c3VtIiwgc3RyKHdvcmtmbG93X3BhdGgpXSwgdGV4dD1UcnVlKS5zcGxpdCgpWzBdLAogICAgICAgICAgICAicnVubmVyIjogam9iLmdldCgicnVucy1vbiIpLAogICAgICAgICAgICAiZXhlY3V0ZWRSdW5TdGVwQ291bnQiOiBsZW4oZXhlY3V0ZWQpLAogICAgICAgICAgICAic2tpcHBlZEFsbG93ZWRVc2VzQ291bnQiOiBsZW4oc2tpcHBlZF91c2VzKSwKICAgICAgICAgICAgInNraXBwZWRBbGxvd2VkVXNlcyI6IHNraXBwZWRfdXNlcywKICAgICAgICAgICAgInNraXBwZWRDb25kaXRpb25Db3VudCI6IGxlbihza2lwcGVkX2NvbmRpdGlvbnMpLAogICAgICAgICAgICAic2tpcHBlZENvbmRpdGlvbnMiOiBza2lwcGVkX2NvbmRpdGlvbnMsCiAgICAgICAgICAgICJmaXJzdEZhaWx1cmUiOiBmaXJzdF9mYWlsdXJlLAogICAgICAgICAgICAic3RlcHMiOiBleGVjdXRlZCwKICAgICAgICB9CiAgICAgICAgcmVwb3J0X3BhdGgud3JpdGVfdGV4dChqc29uLmR1bXBzKHJlcG9ydCwgaW5kZW50PTIpICsgIlxuIiwgZW5jb2Rpbmc9InV0Zi04IikKCiAgICBmb3IgaW5kZXgsIHN0ZXAgaW4gZW51bWVyYXRlKHN0ZXBzLCBzdGFydD0xKToKICAgICAgICBpZiBub3QgaXNpbnN0YW5jZShzdGVwLCBkaWN0KToKICAgICAgICAgICAgZmFpbChmIlN0ZXAge2luZGV4fSBpcyBub3QgYW4gb2JqZWN0IikKICAgICAgICBuYW1lID0gc3RyKHN0ZXAuZ2V0KCJuYW1lIikgb3IgZiJzdGVwLXtpbmRleH0iKQogICAgICAgIHVzZXMgPSBzdGVwLmdldCgidXNlcyIpCiAgICAgICAgcnVuID0gc3RlcC5nZXQoInJ1biIpCiAgICAgICAgaWYgYm9vbCh1c2VzKSA9PSBib29sKHJ1bik6CiAgICAgICAgICAgIGZhaWwoZiJTdGVwIHtuYW1lIXJ9IG11c3QgY29udGFpbiBleGFjdGx5IG9uZSBvZiB1c2VzL3J1biIpCgogICAgICAgIGlmIHVzZXM6CiAgICAgICAgICAgIHVzZXNfdGV4dCA9IHN0cih1c2VzKQogICAgICAgICAgICBpZiBub3QgdXNlc190ZXh0LnN0YXJ0c3dpdGgoQUxMT1dFRF9VU0VTKToKICAgICAgICAgICAgICAgIGZhaWwoZiJEaXNhbGxvd2VkIGFjdGlvbiBpbiBnZW5lcmF0ZWQgcGxhbjoge3VzZXNfdGV4dH0iKQogICAgICAgICAgICBza2lwcGVkX3VzZXMuYXBwZW5kKHsibmFtZSI6IG5hbWUsICJ1c2VzIjogdXNlc190ZXh0fSkKICAgICAgICAgICAgY29udGludWUKCiAgICAgICAgY29uZGl0aW9uID0gc3RyKHN0ZXAuZ2V0KCJpZiIpIG9yICIiKS5zdHJpcCgpCiAgICAgICAgaWYgY29uZGl0aW9uIGluICgiIiwgInN1Y2Nlc3MoKSIsICIke3sgc3VjY2VzcygpIH19Iik6CiAgICAgICAgICAgIGNvbmRpdGlvbl9raW5kID0gInN1Y2Nlc3MiCiAgICAgICAgZWxpZiBjb25kaXRpb24gaW4gKCJhbHdheXMoKSIsICIke3sgYWx3YXlzKCkgfX0iKToKICAgICAgICAgICAgY29uZGl0aW9uX2tpbmQgPSAiYWx3YXlzIgogICAgICAgIGVsaWYgY29uZGl0aW9uIGluICgiZmFpbHVyZSgpIiwgIiR7eyBmYWlsdXJlKCkgfX0iKToKICAgICAgICAgICAgY29uZGl0aW9uX2tpbmQgPSAiZmFpbHVyZSIKICAgICAgICBlbHNlOgogICAgICAgICAgICBmYWlsKGYiVW5zdXBwb3J0ZWQgcnVuLXN0ZXAgY29uZGl0aW9uIGluIHtuYW1lIXJ9OiB7Y29uZGl0aW9ufSIpCgogICAgICAgIHNob3VsZF9ydW4gPSAoCiAgICAgICAgICAgIGNvbmRpdGlvbl9raW5kID09ICJhbHdheXMiCiAgICAgICAgICAgIG9yIChjb25kaXRpb25fa2luZCA9PSAic3VjY2VzcyIgYW5kIG5vdCBmYWlsZWQpCiAgICAgICAgICAgIG9yIChjb25kaXRpb25fa2luZCA9PSAiZmFpbHVyZSIgYW5kIGZhaWxlZCkKICAgICAgICApCiAgICAgICAgaWYgbm90IHNob3VsZF9ydW46CiAgICAgICAgICAgIHNraXBwZWRfY29uZGl0aW9ucy5hcHBlbmQoeyJuYW1lIjogbmFtZSwgImNvbmRpdGlvbiI6IGNvbmRpdGlvbl9raW5kfSkKICAgICAgICAgICAgY29udGludWUKCiAgICAgICAgc2hlbGwgPSBzdHIoc3RlcC5nZXQoInNoZWxsIikgb3IgImJhc2giKQogICAgICAgIGlmIHNoZWxsIG5vdCBpbiAoImJhc2giLCAiYmFzaCAtLW5vcHJvZmlsZSAtLW5vcmMgLWUgLW8gcGlwZWZhaWwgezB9Iik6CiAgICAgICAgICAgIGZhaWwoZiJVbnN1cHBvcnRlZCBzaGVsbCBpbiB7bmFtZSFyfToge3NoZWxsfSIpCgogICAgICAgIHNjcmlwdCA9IHN1YnN0aXR1dGUoc3RyKHJ1bikpCiAgICAgICAgY3dkID0gc2FmZV93b3JraW5nX2RpcmVjdG9yeShzdGVwLmdldCgid29ya2luZy1kaXJlY3RvcnkiKSkKICAgICAgICBlbnYgPSBub3JtYWxpemVkX2Vudih3b3JrZmxvd19lbnYsIGpvYl9lbnYsIHN0ZXAuZ2V0KCJlbnYiKSkKICAgICAgICBzY3JpcHRfcGF0aC53cml0ZV90ZXh0KCJzZXQgLWV1byBwaXBlZmFpbFxuIiArIHNjcmlwdCArICJcbiIsIGVuY29kaW5nPSJ1dGYtOCIpCiAgICAgICAgc3RhcnRlZCA9IHRpbWUudGltZSgpCiAgICAgICAgcHJpbnQoZiI6Omdyb3VwOjp7aW5kZXg6MDJkfSB7bmFtZX0iLCBmbHVzaD1UcnVlKQogICAgICAgIGNvbXBsZXRlZCA9IHN1YnByb2Nlc3MucnVuKAogICAgICAgICAgICBbImJhc2giLCAiLS1ub3Byb2ZpbGUiLCAiLS1ub3JjIiwgc3RyKHNjcmlwdF9wYXRoKV0sCiAgICAgICAgICAgIGN3ZD1jd2QsCiAgICAgICAgICAgIGVudj1lbnYsCiAgICAgICAgICAgIHRleHQ9VHJ1ZSwKICAgICAgICApCiAgICAgICAgcHJpbnQoIjo6ZW5kZ3JvdXA6OiIsIGZsdXNoPVRydWUpCiAgICAgICAgZWxhcHNlZCA9IHJvdW5kKHRpbWUudGltZSgpIC0gc3RhcnRlZCwgMykKICAgICAgICByb3cgPSB7CiAgICAgICAgICAgICJpbmRleCI6IGluZGV4LAogICAgICAgICAgICAibmFtZSI6IG5hbWUsCiAgICAgICAgICAgICJjb25kaXRpb24iOiBjb25kaXRpb25fa2luZCwKICAgICAgICAgICAgIndvcmtpbmdEaXJlY3RvcnkiOiBzdHIoY3dkLnJlbGF0aXZlX3RvKFJPT1QpKSBpZiBjd2QgIT0gUk9PVCBlbHNlICIuIiwKICAgICAgICAgICAgImV4aXRDb2RlIjogY29tcGxldGVkLnJldHVybmNvZGUsCiAgICAgICAgICAgICJlbGFwc2VkU2Vjb25kcyI6IGVsYXBzZWQsCiAgICAgICAgfQogICAgICAgIGV4ZWN1dGVkLmFwcGVuZChyb3cpCiAgICAgICAgaWYgY29tcGxldGVkLnJldHVybmNvZGUgIT0gMDoKICAgICAgICAgICAgZmFpbGVkID0gVHJ1ZQogICAgICAgICAgICBpZiBmaXJzdF9mYWlsdXJlIGlzIE5vbmU6CiAgICAgICAgICAgICAgICBmaXJzdF9mYWlsdXJlID0gZGljdChyb3cpCiAgICAgICAgcGVyc2lzdF9yZXBvcnQoKQoKICAgIHNjcmlwdF9wYXRoLnVubGluayhtaXNzaW5nX29rPVRydWUpCiAgICBpZiBub3QgZXhlY3V0ZWQ6CiAgICAgICAgZmFpbCgiR2VuZXJhdGVkIHBsYW4gZXhlY3V0ZWQgbm8gcnVuIHN0ZXBzIikKICAgIHBlcnNpc3RfcmVwb3J0KCkKICAgIHByaW50KHJlcG9ydF9wYXRoLnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKSkKICAgIGlmIGZhaWxlZDoKICAgICAgICBhc3NlcnQgZmlyc3RfZmFpbHVyZSBpcyBub3QgTm9uZQogICAgICAgIGZhaWwoCiAgICAgICAgICAgIGYiR2VuZXJhdGVkIHBsYW4gZmFpbGVkIGF0IHtmaXJzdF9mYWlsdXJlWyduYW1lJ119ICIKICAgICAgICAgICAgZiIoZXhpdCB7Zmlyc3RfZmFpbHVyZVsnZXhpdENvZGUnXX0pIgogICAgICAgICkK'
+          executor = Path('.github/scripts/execute-generated-r7e-plan.py')
+          source = executor.read_text(encoding='utf-8')
+          start = source.index('def main() -> None:\n')
+          end = source.index('\n\nif __name__ == "__main__":')
+          new_main = base64.b64decode(encoded_main).decode('utf-8')
+          executor.write_text(source[:start] + new_main + source[end:], encoding='utf-8')
+          PY
+
+          python3 -m py_compile \
+            .github/scripts/materialize-portable-r7e-workflow.py \
+            .github/scripts/execute-generated-r7e-plan.py
+          python3 .github/scripts/materialize-portable-r7e-workflow.py
+          ! grep -q 'scripts/validate-json-schema.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          ! grep -q 'scripts/verify-json-schema-drift.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          grep -q 'scripts/validate-json-schemas.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          grep -q 'scripts/run-portable-schema-contract.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          grep -Fq '.contractVersion=="1.0.0" and ."$schema"=="https://json-schema.org/draft/2020-12/schema"' .github/workflows/r7e-portable-json-schema-verification.yml
+          git checkout -- .github/workflows/r7e-portable-json-schema-verification.yml
+
+          cat > /tmp/r7e-plan-success.yml <<'YAML'
+          jobs:
+            verify:
+              runs-on: ubuntu-24.04
+              steps:
+                - name: success
+                  run: printf success > /tmp/r7e-plan-success-marker
+                - name: failure-only-skipped
+                  if: failure()
+                  run: exit 91
+                - name: always
+                  if: always()
+                  run: printf always > /tmp/r7e-plan-always-marker
+          YAML
+          sed -i 's/^          //' /tmp/r7e-plan-success.yml
+          python3 .github/scripts/execute-generated-r7e-plan.py /tmp/r7e-plan-success.yml /tmp/r7e-plan-success.json
+          jq -e '.passed==true and .executedRunStepCount==2 and .skippedConditionCount==1 and .firstFailure==null' /tmp/r7e-plan-success.json >/dev/null
+          test "$(cat /tmp/r7e-plan-success-marker)" = success
+          test "$(cat /tmp/r7e-plan-always-marker)" = always
+
+          cat > /tmp/r7e-plan-failure.yml <<'YAML'
+          jobs:
+            verify:
+              runs-on: ubuntu-24.04
+              steps:
+                - name: deliberate-failure
+                  run: exit 7
+                - name: success-only-skipped
+                  run: printf bad > /tmp/r7e-plan-should-not-exist
+                - name: failure-handler
+                  if: failure()
+                  run: printf handled > /tmp/r7e-plan-failure-marker
+                - name: always-handler
+                  if: always()
+                  run: printf always > /tmp/r7e-plan-failure-always-marker
+          YAML
+          sed -i 's/^          //' /tmp/r7e-plan-failure.yml
+          set +e
+          python3 .github/scripts/execute-generated-r7e-plan.py /tmp/r7e-plan-failure.yml /tmp/r7e-plan-failure.json
+          status=$?
+          set -e
+          test "$status" -ne 0
+          jq -e '.passed==false and .executedRunStepCount==3 and .skippedConditionCount==1 and .firstFailure.exitCode==7 and .firstFailure.name=="deliberate-failure"' /tmp/r7e-plan-failure.json >/dev/null
+          test ! -e /tmp/r7e-plan-should-not-exist
+          test "$(cat /tmp/r7e-plan-failure-marker)" = handled
+          test "$(cat /tmp/r7e-plan-failure-always-marker)" = always
+
+      - name: Commit repaired scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            .github/scripts/materialize-portable-r7e-workflow.py \
+            .github/scripts/execute-generated-r7e-plan.py
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7E: repair self-recording generator and condition semantics'
+          git push origin HEAD:r7e-portable-self-recording-final-20260901
