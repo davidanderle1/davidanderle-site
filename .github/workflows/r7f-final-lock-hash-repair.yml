@@ -1,0 +1,94 @@
+name: R7F deterministic final lock hash repair
+
+on:
+  push:
+    branches:
+      - r7f-portable-self-recording-v2-20260901
+    paths:
+      - '.github/workflows/r7f-final-lock-hash-repair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7f-final-lock-hash-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact R7F branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Bind exact attestation and full-audit hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          lock_path = Path('.github/r7f-v6-builder-input.json')
+          attestation_path = Path('.github/r7f-v6-r7e-external-audit.json')
+          full_path = Path('.github/r7e-portable-self-recording-v4-full-external-audit.json')
+
+          lock = json.loads(lock_path.read_text(encoding='utf-8'))
+          attestation = json.loads(attestation_path.read_text(encoding='utf-8'))
+          full = json.loads(full_path.read_text(encoding='utf-8'))
+          sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+          attestation_sha = sha(attestation_path)
+          full_sha = sha(full_path)
+
+          checks = {
+              'lock-schema': lock.get('schema') == 'R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT',
+              'attestation-schema': attestation.get('schema') == 'R7E_PORTABLE_SELF_RECORDING_V4_EXTERNAL_AUDIT_ATTESTATION_V1',
+              'attestation-pass': attestation.get('passed') is True and attestation.get('decision') == 'R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS' and attestation.get('blockers') == [],
+              'full-schema': full.get('schema') == 'R7E_PORTABLE_SELF_RECORDING_V4_EXTERNAL_AUDIT_V2',
+              'full-pass': full.get('passed') is True and full.get('decision') == 'R7E_PORTABLE_SELF_RECORDING_V4_EXTERNAL_AUDIT_PASS',
+              'full-63': (full.get('metrics') or {}).get('checkCount') == 63 and (full.get('metrics') or {}).get('passedCheckCount') == 63,
+              'attestation-full-link': (attestation.get('fullAudit') or {}).get('sha256') == full_sha,
+              'builder-run': lock.get('builderRunId') == 33509839046,
+              'builder-commit': lock.get('builderHeadSha') == 'ea592cde4f4a09f18442308ff14e1eeb2621bf33',
+              'main-artifact': lock.get('builderArtifactId') == 9801257055,
+              'lineage-artifact': (lock.get('portableSelfRecording') or {}).get('lineageArtifactId') == 9801258515,
+          }
+          failed = [name for name, passed in checks.items() if not passed]
+          if failed:
+              raise SystemExit(f'Lock input validation failed: {failed}')
+
+          lock['r7eExternalAuditSha256'] = attestation_sha
+          lock['portableSelfRecording']['fullExternalAuditSha256'] = full_sha
+          lock['portableSelfRecording']['externalAuditAttestationSha256'] = attestation_sha
+          lock_path.write_text(json.dumps(lock, indent=2) + '\n', encoding='utf-8')
+
+          reread = json.loads(lock_path.read_text(encoding='utf-8'))
+          assert reread['r7eExternalAuditSha256'] == attestation_sha
+          assert reread['portableSelfRecording']['fullExternalAuditSha256'] == full_sha
+          assert reread['portableSelfRecording']['externalAuditAttestationSha256'] == attestation_sha
+          print(json.dumps({
+              'passed': True,
+              'attestationSha256': attestation_sha,
+              'fullExternalAuditSha256': full_sha,
+              'lockSha256': sha(lock_path),
+          }, indent=2))
+          PY
+          git diff --check
+
+      - name: Commit immutable corrected lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7f-v6-builder-input.json
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7F: bind final R7E v4 audit hashes'
+          git push origin HEAD:r7f-portable-self-recording-v2-20260901
