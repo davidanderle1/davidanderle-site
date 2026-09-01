@@ -1,0 +1,436 @@
+name: R7 final history-bound technical closure controller
+
+on:
+  push:
+    branches:
+      - r7-final-history-controller-20260901
+    paths:
+      - '.github/workflows/r7-final-history-controller.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7-final-history-controller
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  MAIN_BASELINE_SHA: bcc55fa7125013615f076dd7cf28a8ec9c5f232b
+  EXTERNAL_BRANCH: r7-portable-final-external-audit-20260901
+  EXTERNAL_WORKFLOW_PATH: .github/workflows/r7-portable-final-external-audit.yml
+  TRACE_BRANCH: r7-full-history-traceability-final-20260901
+  TRACE_WORKFLOW_PATH: .github/workflows/r7-full-history-traceability-final.yml
+
+jobs:
+  controller:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout immutable read-only controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Select exact successful external audit and traceability artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          umask 022
+          rm -rf controller-input controller-artifact
+          mkdir -p controller-input/external controller-input/trace controller-artifact
+
+          select_stage() {
+            local branch="$1" workflow="$2" prefix="$3" out="$4" label="$5"
+            local found=0
+            for poll in $(seq 1 120); do
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$branch&per_page=100" > "/tmp/${label}-runs.json"
+              jq --arg path "$workflow" '[.workflow_runs[] | select(.path==$path and .status=="completed" and .conclusion=="success")] | sort_by(.created_at) | reverse' "/tmp/${label}-runs.json" > "/tmp/${label}-success.json"
+              while IFS=$'\t' read -r run_id head_sha; do
+                [[ -n "$run_id" && -n "$head_sha" ]] || continue
+                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" > "/tmp/${label}-run.json"
+                jq -e --arg head "$head_sha" --arg branch "$branch" --arg path "$workflow" '.head_sha==$head and .head_branch==$branch and .path==$path and .status=="completed" and .conclusion=="success"' "/tmp/${label}-run.json" >/dev/null || continue
+                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" > "/tmp/${label}-artifacts.json"
+                jq --arg name "$prefix$head_sha" '[.artifacts[] | select(.name==$name and .expired==false)]' "/tmp/${label}-artifacts.json" > "/tmp/${label}-matches.json"
+                [[ "$(jq 'length' /tmp/${label}-matches.json)" -eq 1 ]] || continue
+                jq '.[0]' "/tmp/${label}-matches.json" > "/tmp/${label}-artifact.json"
+                local artifact_id artifact_digest
+                artifact_id="$(jq -r '.id' /tmp/${label}-artifact.json)"
+                artifact_digest="$(jq -r '.digest' /tmp/${label}-artifact.json)"
+                curl --fail --silent --show-error --location -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" --output "$out/stage.zip" || continue
+                [[ "sha256:$(sha256sum "$out/stage.zip" | awk '{print $1}')" == "$artifact_digest" ]] || continue
+                cp "/tmp/${label}-run.json" "$out/run.json"
+                cp "/tmp/${label}-artifact.json" "$out/artifact.json"
+                found=1
+                break
+              done < <(jq -r '.[] | [.id,.head_sha] | @tsv' "/tmp/${label}-success.json")
+              [[ "$found" -eq 1 ]] && break
+              if [[ "$poll" -eq 120 ]]; then
+                cp "/tmp/${label}-success.json" "$out/successful-candidates.json"
+                echo "No authenticated successful $label stage available" >&2
+                return 1
+              fi
+              sleep 15
+            done
+            [[ "$found" -eq 1 ]]
+          }
+
+          select_stage "$EXTERNAL_BRANCH" "$EXTERNAL_WORKFLOW_PATH" 'r7-portable-final-external-audit-' controller-input/external external
+          select_stage "$TRACE_BRANCH" "$TRACE_WORKFLOW_PATH" 'r7-full-history-traceability-final-' controller-input/trace trace
+
+      - name: Safely extract and verify both upstream manifests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import stat, zipfile
+          from pathlib import Path, PurePosixPath
+          for label in ('external','trace'):
+              archive=Path('controller-input')/label/'stage.zip'
+              out=Path('controller-input')/label/'extracted'
+              out.mkdir(parents=True,exist_ok=True)
+              with zipfile.ZipFile(archive) as z:
+                  names=[]
+                  for info in z.infolist():
+                      p=PurePosixPath(info.filename)
+                      if p.is_absolute() or '..' in p.parts or '\\' in info.filename:
+                          raise SystemExit(f'{label}: unsafe path {info.filename}')
+                      if ((info.external_attr >> 16) & 0o170000)==stat.S_IFLNK:
+                          raise SystemExit(f'{label}: symlink {info.filename}')
+                      names.append(info.filename)
+                  if len(names)!=len(set(names)):
+                      raise SystemExit(f'{label}: duplicate member')
+                  z.extractall(out)
+          PY
+          ext_root="$(dirname "$(find controller-input/external/extracted -type f -name R7_PORTABLE_FINAL_EXTERNAL_AUDIT.json -print -quit)")"
+          trace_root="$(dirname "$(find controller-input/trace/extracted -type f -name R7_FULL_HISTORY_TRACEABILITY_TUPLE_V5.json -print -quit)")"
+          test -n "$ext_root"
+          test -n "$trace_root"
+          printf '%s\n' "$(cd "$ext_root" && pwd)" > controller-input/external/root.txt
+          printf '%s\n' "$(cd "$trace_root" && pwd)" > controller-input/trace/root.txt
+          (cd "$ext_root" && sha256sum --check --strict R7_PORTABLE_FINAL_EXTERNAL_AUDIT_SHA256SUMS.txt) > controller-input/external/internal-manifest-check.txt
+          (cd "$trace_root" && sha256sum --check --strict R7_TRACEABILITY_SHA256SUMS.txt) > controller-input/trace/internal-manifest-check.txt
+
+      - name: Execute read-only history-bound controller and 16 adversarial tests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/branches/main" > controller-input/main-branch.json
+          python3 - <<'PY'
+          import copy, hashlib, json, os
+          from pathlib import Path
+          ext_root=Path(Path('controller-input/external/root.txt').read_text().strip())
+          tr_root=Path(Path('controller-input/trace/root.txt').read_text().strip())
+          ext=json.loads((ext_root/'R7_PORTABLE_FINAL_EXTERNAL_AUDIT.json').read_text())
+          trace=json.loads((tr_root/'R7_FULL_HISTORY_TRACEABILITY_TUPLE_V5.json').read_text())
+          matrix=json.loads((tr_root/'R7_REQUIREMENTS_TRACEABILITY_V5.json').read_text())
+          carry=json.loads((tr_root/'R7_CARRY_FORWARD_REGISTER_V5.json').read_text())
+          trace_self=json.loads((tr_root/'R7_TRACEABILITY_SELFTEST_V5.json').read_text())
+          ext_run=json.loads(Path('controller-input/external/run.json').read_text())
+          ext_art=json.loads(Path('controller-input/external/artifact.json').read_text())
+          tr_run=json.loads(Path('controller-input/trace/run.json').read_text())
+          tr_art=json.loads(Path('controller-input/trace/artifact.json').read_text())
+          main=json.loads(Path('controller-input/main-branch.json').read_text())
+          workflow=Path('.github/workflows/r7-final-history-controller.yml').read_text()
+
+          model={
+            'external':ext,'trace':trace,'matrix':matrix,'carry':carry,'traceSelftest':trace_self,
+            'mainSha':(main.get('commit') or {}).get('sha'),
+            'mainBaseline':os.environ['MAIN_BASELINE_SHA'],
+            'workflowPermissions':{'contentsRead':'contents: read' in workflow,'actionsRead':'actions: read' in workflow,'writeAbsent':all(token not in workflow for token in ('contents: write','actions: write','deployments: write'))},
+            'scope':{'wholeWebsiteProgrammeComplete':False,'r8ThroughR13Closed':False,'mainMutationAuthorized':False,'productionDeploymentAuthorized':False,'maximumVerdict':'R7_TECHNICAL_ARCHITECTURE_CLOSURE_CANDIDATE_READY'},
+          }
+          authority=['CURRENT_FACTUAL_TRUTH_AND_PRIVACY','R5_PHOTOGRAPHY_AUTHORITY','R6C_R6D_BEARING_AUTHORITY','R4_CONTENT_IDENTITY_IA','CURRENT_PRIMARY_TECHNICAL_EVIDENCE','R7_ARCHITECTURE','OLDER_PROTOTYPES']
+          roadmap=[f'R{i}' for i in range(1,14)]
+          def verify(m):
+              e=m['external'];t=m['trace'];mx=m['matrix'];c=m['carry'];ts=m['traceSelftest'];s=m['scope'];p=m['workflowPermissions']
+              return (
+                e.get('passed') is True and e.get('decision')=='R7_PORTABLE_FINAL_EXTERNAL_AUDIT_PASS' and e.get('blockers')==[]
+                and e.get('finalR7ClosureAuthorized') is False
+                and t.get('passed') is True and t.get('decision')=='R7_FULL_HISTORY_TRACEABILITY_PASS' and t.get('blockers')==[]
+                and t.get('openR7BlockerCount')==0 and t.get('orphanedMaterialRequirementCount')==0
+                and t.get('requirementCount',0)>=100 and t.get('carryForwardCount',0)>=25
+                and 'not recorded' in t.get('ownershipCaveat','') and 'R10' in t.get('ownershipCaveat','') and 'R12' in t.get('ownershipCaveat','')
+                and mx.get('authorityHierarchy')==authority and mx.get('roadmap')==roadmap
+                and mx.get('requirementCount')==len(mx.get('requirements') or [])==t.get('requirementCount')
+                and c.get('count')==len(c.get('items') or [])==t.get('carryForwardCount')
+                and ts.get('passed') is True and ts.get('caseCount')==12 and ts.get('failedCases')==[]
+                and m.get('mainSha')==m.get('mainBaseline')
+                and p.get('contentsRead') and p.get('actionsRead') and p.get('writeAbsent')
+                and s=={'wholeWebsiteProgrammeComplete':False,'r8ThroughR13Closed':False,'mainMutationAuthorized':False,'productionDeploymentAuthorized':False,'maximumVerdict':'R7_TECHNICAL_ARCHITECTURE_CLOSURE_CANDIDATE_READY'}
+              )
+          authentic=verify(model)
+          cases=[]
+          def test(name,fn):
+              x=copy.deepcopy(model);fn(x);cases.append({'name':name,'rejected':not verify(x)})
+          test('external-pass-false',lambda x:x['external'].__setitem__('passed',False))
+          test('external-decision-changed',lambda x:x['external'].__setitem__('decision','PASS'))
+          test('external-blocker-added',lambda x:x['external']['blockers'].append('x'))
+          test('trace-pass-false',lambda x:x['trace'].__setitem__('passed',False))
+          test('orphan-added',lambda x:x['trace'].__setitem__('orphanedMaterialRequirementCount',1))
+          test('r7-blocker-added',lambda x:x['trace'].__setitem__('openR7BlockerCount',1))
+          test('requirement-removed',lambda x:(x['matrix']['requirements'].pop(),x['matrix'].__setitem__('requirementCount',x['matrix']['requirementCount']-1)))
+          test('carry-forward-removed',lambda x:(x['carry']['items'].pop(),x['carry'].__setitem__('count',x['carry']['count']-1)))
+          test('ownership-caveat-erased',lambda x:x['trace'].__setitem__('ownershipCaveat','completed'))
+          test('authority-reordered',lambda x:x['matrix']['authorityHierarchy'].reverse())
+          test('roadmap-r13-removed',lambda x:x['matrix']['roadmap'].remove('R13'))
+          test('trace-selftest-false',lambda x:x['traceSelftest'].__setitem__('passed',False))
+          test('main-sha-changed',lambda x:x.__setitem__('mainSha','0'*40))
+          test('write-permission-present',lambda x:x['workflowPermissions'].__setitem__('writeAbsent',False))
+          test('whole-programme-claimed',lambda x:x['scope'].__setitem__('wholeWebsiteProgrammeComplete',True))
+          test('deployment-authorized',lambda x:x['scope'].__setitem__('productionDeploymentAuthorized',True))
+          selftest={'schema':'R7_HISTORY_BOUND_CONTROLLER_SELFTEST_V1','passed':authentic and len(cases)==16 and all(c['rejected'] for c in cases),'authenticAccepted':authentic,'caseCount':len(cases),'cases':cases,'failedCases':[c['name'] for c in cases if not c['rejected']]}
+          checks={
+            'authenticModelAccepted':authentic,
+            'all16AdversarialMutationsRejected':selftest['passed'],
+            'externalRunTuple':ext_run.get('status')=='completed' and ext_run.get('conclusion')=='success' and ext_run.get('head_sha')==(ext_art.get('workflow_run') or {}).get('head_sha'),
+            'externalOuterDigest':'sha256:'+hashlib.sha256(Path('controller-input/external/stage.zip').read_bytes()).hexdigest()==ext_art.get('digest'),
+            'traceRunTuple':tr_run.get('status')=='completed' and tr_run.get('conclusion')=='success' and tr_run.get('head_sha')==(tr_art.get('workflow_run') or {}).get('head_sha'),
+            'traceOuterDigest':'sha256:'+hashlib.sha256(Path('controller-input/trace/stage.zip').read_bytes()).hexdigest()==tr_art.get('digest'),
+          }
+          passed=all(checks.values())
+          decision={
+            'schema':'R7_HISTORY_BOUND_TECHNICAL_CONTROLLER_V1',
+            'decision':'R7_TECHNICAL_ARCHITECTURE_CLOSURE_CANDIDATE_READY' if passed else 'R7_TECHNICAL_ARCHITECTURE_NOT_CLOSED',
+            'passed':passed,
+            'repository':os.environ['GITHUB_REPOSITORY'],
+            'controllerCommit':os.environ['GITHUB_SHA'],
+            'controllerRunId':os.environ['GITHUB_RUN_ID'],
+            'controllerRunAttempt':os.environ['GITHUB_RUN_ATTEMPT'],
+            'inputs':{
+              'externalAudit':{'runId':ext_run.get('id'),'headSha':ext_run.get('head_sha'),'artifactId':ext_art.get('id'),'artifactName':ext_art.get('name'),'artifactDigest':ext_art.get('digest')},
+              'traceability':{'runId':tr_run.get('id'),'headSha':tr_run.get('head_sha'),'artifactId':tr_art.get('id'),'artifactName':tr_art.get('name'),'artifactDigest':tr_art.get('digest')},
+              'mainBaselineSha':os.environ['MAIN_BASELINE_SHA'],
+            },
+            'checks':checks,
+            'failedChecks':[k for k,v in checks.items() if not v],
+            'blockers':[] if passed else [k for k,v in checks.items() if not v],
+            'maximumAuthorizedVerdict':'R7_TECHNICAL_ARCHITECTURE_CLOSURE_CANDIDATE_READY',
+            'wholeWebsiteProgrammeComplete':False,
+            'r8ThroughR13Closed':False,
+            'mainMutationAuthorized':False,
+            'productionDeploymentAuthorized':False,
+            'nextPhaseAfterIndependentFinalAudit':'R8_SECURITY',
+          }
+          Path('controller-artifact/R7_HISTORY_BOUND_CONTROLLER_V1.json').write_text(json.dumps(decision,indent=2)+'\n')
+          Path('controller-artifact/R7_HISTORY_BOUND_CONTROLLER_SELFTEST_V1.json').write_text(json.dumps(selftest,indent=2)+'\n')
+          Path('controller-artifact/R7_CONTROLLER_INPUT_MODEL_V1.json').write_text(json.dumps(model,indent=2,ensure_ascii=False)+'\n')
+          Path('controller-artifact/R7_CONTROLLER_DECISION.txt').write_text(('R7 TECHNICAL ARCHITECTURE CLOSURE CANDIDATE READY — INDEPENDENT FINAL AUDIT REQUIRED\n' if passed else 'R7 TECHNICAL ARCHITECTURE NOT CLOSED\n'))
+          print(json.dumps(decision,indent=2))
+          if not passed: raise SystemExit(1)
+          PY
+
+      - name: Preserve exact upstream decisions and controller infrastructure
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ext_root="$(cat controller-input/external/root.txt)"
+          tr_root="$(cat controller-input/trace/root.txt)"
+          mkdir -p controller-artifact/UPSTREAM_EXTERNAL controller-artifact/UPSTREAM_TRACEABILITY controller-artifact/METADATA
+          cp "$ext_root"/*.json "$ext_root"/*.txt controller-artifact/UPSTREAM_EXTERNAL/ 2>/dev/null || true
+          cp "$tr_root"/*.json "$tr_root"/*.txt controller-artifact/UPSTREAM_TRACEABILITY/ 2>/dev/null || true
+          cp controller-input/external/run.json controller-input/external/artifact.json controller-artifact/METADATA/
+          cp controller-input/trace/run.json controller-input/trace/artifact.json controller-artifact/METADATA/
+          cp controller-input/main-branch.json controller-artifact/METADATA/
+          sha256sum .github/workflows/r7-final-history-controller.yml > controller-artifact/R7_CONTROLLER_WORKFLOW_SHA256.txt
+          (
+            cd controller-artifact
+            find . -type f ! -name 'R7_CONTROLLER_ARTIFACT_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7_CONTROLLER_ARTIFACT_SHA256SUMS.txt
+            sha256sum --check --strict R7_CONTROLLER_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload controller candidate artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-history-controller-candidate-${{ github.sha }}
+          path: controller-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+  independent-final-audit:
+    needs: controller
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout independent final-audit code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download exact controller artifact through GitHub API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          rm -rf final-input final-output
+          mkdir -p final-input final-output
+          for poll in $(seq 1 30); do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" > /tmp/controller-artifacts.json
+            jq --arg name "r7-history-controller-candidate-$GITHUB_SHA" '[.artifacts[] | select(.name==$name and .expired==false)]' /tmp/controller-artifacts.json > /tmp/controller-matches.json
+            if [[ "$(jq 'length' /tmp/controller-matches.json)" -eq 1 ]]; then break; fi
+            [[ "$poll" -lt 30 ]] || { cat /tmp/controller-artifacts.json; exit 1; }
+            sleep 5
+          done
+          jq '.[0]' /tmp/controller-matches.json > final-input/controller-artifact.json
+          artifact_id="$(jq -r '.id' final-input/controller-artifact.json)"
+          digest="$(jq -r '.digest' final-input/controller-artifact.json)"
+          curl --fail --silent --show-error --location -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" --output final-input/controller.zip
+          test "sha256:$(sha256sum final-input/controller.zip | awk '{print $1}')" = "$digest"
+
+      - name: Safely extract and independently verify controller artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import stat,zipfile
+          from pathlib import Path,PurePosixPath
+          out=Path('final-input/extracted');out.mkdir(parents=True,exist_ok=True)
+          with zipfile.ZipFile('final-input/controller.zip') as z:
+              names=[]
+              for i in z.infolist():
+                  p=PurePosixPath(i.filename)
+                  if p.is_absolute() or '..' in p.parts or '\\' in i.filename: raise SystemExit(1)
+                  if ((i.external_attr>>16)&0o170000)==stat.S_IFLNK: raise SystemExit(1)
+                  names.append(i.filename)
+              if len(names)!=len(set(names)): raise SystemExit(1)
+              z.extractall(out)
+          roots=list(out.rglob('R7_HISTORY_BOUND_CONTROLLER_V1.json'))
+          if len(roots)!=1: raise SystemExit(f'controller roots={len(roots)}')
+          Path('final-input/root.txt').write_text(str(roots[0].parent.resolve())+'\n')
+          PY
+          root="$(cat final-input/root.txt)"
+          (cd "$root" && sha256sum --check --strict R7_CONTROLLER_ARTIFACT_SHA256SUMS.txt) > final-output/controller-internal-manifest-check.txt
+          jq -e '.schema=="R7_HISTORY_BOUND_TECHNICAL_CONTROLLER_V1" and .passed==true and .decision=="R7_TECHNICAL_ARCHITECTURE_CLOSURE_CANDIDATE_READY" and (.failedChecks|length)==0 and (.blockers|length)==0 and .wholeWebsiteProgrammeComplete==false and .r8ThroughR13Closed==false and .mainMutationAuthorized==false and .productionDeploymentAuthorized==false' "$root/R7_HISTORY_BOUND_CONTROLLER_V1.json" >/dev/null
+          jq -e '.passed==true and .authenticAccepted==true and .caseCount==16 and (.failedCases|length)==0 and ([.cases[].rejected]|all)' "$root/R7_HISTORY_BOUND_CONTROLLER_SELFTEST_V1.json" >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/branches/main" > final-input/main-live.json
+          test "$(jq -r '.commit.sha' final-input/main-live.json)" = "$MAIN_BASELINE_SHA"
+
+      - name: Run 12 independent final-controller adversarial mutations
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import copy,hashlib,json,os
+          from pathlib import Path
+          root=Path(Path('final-input/root.txt').read_text().strip())
+          decision=json.loads((root/'R7_HISTORY_BOUND_CONTROLLER_V1.json').read_text())
+          selftest=json.loads((root/'R7_HISTORY_BOUND_CONTROLLER_SELFTEST_V1.json').read_text())
+          model=json.loads((root/'R7_CONTROLLER_INPUT_MODEL_V1.json').read_text())
+          meta=json.loads(Path('final-input/controller-artifact.json').read_text())
+          workflow=Path('.github/workflows/r7-final-history-controller.yml').read_text()
+          def verify(d,s,m):
+              return (
+                d.get('passed') is True and d.get('decision')=='R7_TECHNICAL_ARCHITECTURE_CLOSURE_CANDIDATE_READY'
+                and d.get('blockers')==[] and d.get('failedChecks')==[]
+                and d.get('maximumAuthorizedVerdict')=='R7_TECHNICAL_ARCHITECTURE_CLOSURE_CANDIDATE_READY'
+                and d.get('wholeWebsiteProgrammeComplete') is False and d.get('r8ThroughR13Closed') is False
+                and d.get('mainMutationAuthorized') is False and d.get('productionDeploymentAuthorized') is False
+                and s.get('passed') is True and s.get('caseCount')==16 and s.get('failedCases')==[]
+                and m.get('mainSha')==m.get('mainBaseline')==os.environ['MAIN_BASELINE_SHA']
+                and (m.get('external') or {}).get('passed') is True
+                and (m.get('trace') or {}).get('passed') is True
+                and (m.get('trace') or {}).get('openR7BlockerCount')==0
+                and (m.get('trace') or {}).get('orphanedMaterialRequirementCount')==0
+                and 'not recorded' in (m.get('trace') or {}).get('ownershipCaveat','')
+                and 'contents: read' in workflow and 'actions: read' in workflow
+                and all(x not in workflow for x in ('contents: write','actions: write','deployments: write'))
+              )
+          authentic=verify(decision,selftest,model)
+          cases=[]
+          def test(name,fn):
+              d=copy.deepcopy(decision);s=copy.deepcopy(selftest);m=copy.deepcopy(model);fn(d,s,m);cases.append({'name':name,'rejected':not verify(d,s,m)})
+          test('candidate-pass-false',lambda d,s,m:d.__setitem__('passed',False))
+          test('candidate-decision-broadened',lambda d,s,m:d.__setitem__('decision','R7_CLOSED'))
+          test('candidate-blocker-added',lambda d,s,m:d['blockers'].append('x'))
+          test('whole-site-complete-claimed',lambda d,s,m:d.__setitem__('wholeWebsiteProgrammeComplete',True))
+          test('r8-r13-closed-claimed',lambda d,s,m:d.__setitem__('r8ThroughR13Closed',True))
+          test('main-mutation-authorized',lambda d,s,m:d.__setitem__('mainMutationAuthorized',True))
+          test('deployment-authorized',lambda d,s,m:d.__setitem__('productionDeploymentAuthorized',True))
+          test('controller-selftest-disabled',lambda d,s,m:s.__setitem__('passed',False))
+          test('external-audit-disabled',lambda d,s,m:m['external'].__setitem__('passed',False))
+          test('orphaned-requirement-added',lambda d,s,m:m['trace'].__setitem__('orphanedMaterialRequirementCount',1))
+          test('ownership-caveat-erased',lambda d,s,m:m['trace'].__setitem__('ownershipCaveat','completed'))
+          test('main-baseline-changed',lambda d,s,m:m.__setitem__('mainSha','0'*40))
+          passed=authentic and len(cases)==12 and all(c['rejected'] for c in cases)
+          audit={'schema':'R7_INDEPENDENT_FINAL_CONTROLLER_AUDIT_V1','passed':passed,'authenticControllerAccepted':authentic,'caseCount':len(cases),'cases':cases,'failedCases':[c['name'] for c in cases if not c['rejected']],'controllerArtifact':{'id':meta.get('id'),'name':meta.get('name'),'digest':meta.get('digest')}}
+          Path('final-output/R7_INDEPENDENT_FINAL_CONTROLLER_AUDIT_V1.json').write_text(json.dumps(audit,indent=2)+'\n')
+          print(json.dumps(audit,indent=2))
+          if not passed: raise SystemExit(1)
+          PY
+
+      - name: Issue scope-limited final R7 technical closure tuple
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(Path('final-input/root.txt').read_text().strip())
+          controller=json.loads((root/'R7_HISTORY_BOUND_CONTROLLER_V1.json').read_text())
+          audit=json.loads(Path('final-output/R7_INDEPENDENT_FINAL_CONTROLLER_AUDIT_V1.json').read_text())
+          artifact=json.loads(Path('final-input/controller-artifact.json').read_text())
+          checks={
+            'controllerCandidatePassed':controller.get('passed') is True,
+            'controllerDecisionExact':controller.get('decision')=='R7_TECHNICAL_ARCHITECTURE_CLOSURE_CANDIDATE_READY',
+            'independentFinalAuditPassed':audit.get('passed') is True,
+            'all12FinalMutationsRejected':audit.get('caseCount')==12 and audit.get('failedCases')==[],
+            'controllerOuterDigest':'sha256:'+hashlib.sha256(Path('final-input/controller.zip').read_bytes()).hexdigest()==artifact.get('digest'),
+            'mainStillBaseline':json.loads(Path('final-input/main-live.json').read_text()).get('commit',{}).get('sha')==os.environ['MAIN_BASELINE_SHA'],
+            'scopeLimited':controller.get('wholeWebsiteProgrammeComplete') is False and controller.get('r8ThroughR13Closed') is False and controller.get('productionDeploymentAuthorized') is False,
+          }
+          passed=all(checks.values())
+          final={
+            'schema':'R7_FINAL_TECHNICAL_ARCHITECTURE_CLOSURE_TUPLE_V1',
+            'decision':'R7_TECHNICAL_ARCHITECTURE_CLOSED' if passed else 'R7_TECHNICAL_ARCHITECTURE_NOT_CLOSED',
+            'passed':passed,
+            'repository':os.environ['GITHUB_REPOSITORY'],
+            'finalAuditCommit':os.environ['GITHUB_SHA'],
+            'finalAuditRunId':os.environ['GITHUB_RUN_ID'],
+            'finalAuditRunAttempt':os.environ['GITHUB_RUN_ATTEMPT'],
+            'controllerArtifact':{'id':artifact.get('id'),'name':artifact.get('name'),'digest':artifact.get('digest')},
+            'checks':checks,
+            'failedChecks':[k for k,v in checks.items() if not v],
+            'blockers':[] if passed else [k for k,v in checks.items() if not v],
+            'closedScope':'R7 technical architecture, native Astro production reference and its empirical verification chain only',
+            'wholeWebsiteProgrammeComplete':False,
+            'r8ThroughR13Closed':False,
+            'mainMutationAuthorized':False,
+            'productionDeploymentAuthorized':False,
+            'nextPhase':'R8_SECURITY',
+          }
+          Path('final-output/R7_FINAL_TECHNICAL_ARCHITECTURE_CLOSURE_TUPLE_V1.json').write_text(json.dumps(final,indent=2)+'\n')
+          Path('final-output/R7_FINAL_DECISION.txt').write_text(('R7 TECHNICAL ARCHITECTURE CLOSED — PROCEED TO R8 SECURITY; WEBSITE PROGRAMME REMAINS OPEN\n' if passed else 'R7 TECHNICAL ARCHITECTURE NOT CLOSED\n'))
+          print(json.dumps(final,indent=2))
+          if not passed: raise SystemExit(1)
+          PY
+          cp final-input/controller-artifact.json final-input/main-live.json final-output/
+          sha256sum .github/workflows/r7-final-history-controller.yml > final-output/R7_FINAL_AUDIT_WORKFLOW_SHA256.txt
+          (
+            cd final-output
+            find . -type f ! -name 'R7_FINAL_CLOSURE_SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > R7_FINAL_CLOSURE_SHA256SUMS.txt
+            sha256sum --check --strict R7_FINAL_CLOSURE_SHA256SUMS.txt
+          )
+
+      - name: Upload final scope-limited R7 closure evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-final-technical-architecture-closure-${{ github.sha }}
+          path: final-output/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
