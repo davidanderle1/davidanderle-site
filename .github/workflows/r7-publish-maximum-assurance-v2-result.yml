@@ -1,0 +1,278 @@
+name: R7 independently publish maximum-assurance v2 result
+
+on:
+  push:
+    branches:
+      - r7-maximum-assurance-rebuild-20260901
+    paths:
+      - '.github/workflows/r7-publish-maximum-assurance-v2-result.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: r7-publish-maximum-assurance-v2-result
+  cancel-in-progress: false
+
+jobs:
+  authenticate-and-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated assurance branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Select exact successful v2 run and artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          umask 022
+          rm -rf /tmp/r7-v2-publish .r7-maximum-assurance-published
+          mkdir -p /tmp/r7-v2-publish/extracted .r7-maximum-assurance-published
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/r7-maximum-assurance-clean-room-v2.yml/runs?branch=r7-maximum-assurance-rebuild-20260901&per_page=100" > /tmp/r7-v2-publish/runs.json
+          jq '[.workflow_runs[] | select(
+                .path==".github/workflows/r7-maximum-assurance-clean-room-v2.yml" and
+                .event=="push" and
+                .status=="completed" and
+                .conclusion=="success"
+              )] | sort_by(.created_at) | reverse' \
+              /tmp/r7-v2-publish/runs.json > /tmp/r7-v2-publish/candidates.json
+          test "$(jq 'length' /tmp/r7-v2-publish/candidates.json)" -ge 1
+          jq '.[0]' /tmp/r7-v2-publish/candidates.json > /tmp/r7-v2-publish/run.json
+
+          RUN_ID="$(jq -r '.id' /tmp/r7-v2-publish/run.json)"
+          HEAD_SHA="$(jq -r '.head_sha' /tmp/r7-v2-publish/run.json)"
+          RUN_ATTEMPT="$(jq -r '.run_attempt' /tmp/r7-v2-publish/run.json)"
+          test "$RUN_ATTEMPT" = '1'
+          test "$(jq -r '.head_branch' /tmp/r7-v2-publish/run.json)" = 'r7-maximum-assurance-rebuild-20260901'
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" > /tmp/r7-v2-publish/run-live.json
+          jq -e --arg sha "$HEAD_SHA" --argjson id "$RUN_ID" \
+            '.id==$id and .head_sha==$sha and .run_attempt==1 and
+             .path==".github/workflows/r7-maximum-assurance-clean-room-v2.yml" and
+             .event=="push" and .status=="completed" and .conclusion=="success"' \
+            /tmp/r7-v2-publish/run-live.json >/dev/null
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?filter=latest&per_page=100" > /tmp/r7-v2-publish/jobs.json
+          jq -e '
+            .total_count==1 and
+            .jobs[0].name=="clean-room-v2" and
+            .jobs[0].status=="completed" and .jobs[0].conclusion=="success" and
+            ([.jobs[0].steps[] | select(.name=="Upload fail-closed v2 diagnostics") | .conclusion] == ["skipped"]) and
+            ([.jobs[0].steps[] | select(.name!="Upload fail-closed v2 diagnostics" and .name!="Post Checkout isolated read-only audit authority") | .conclusion] | all(.=="success"))
+          ' /tmp/r7-v2-publish/jobs.json >/dev/null
+
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          git show "$HEAD_SHA:.github/workflows/r7-maximum-assurance-clean-room-v2.yml" > /tmp/r7-v2-publish/executed-workflow.yml
+          grep -q '^permissions:$' /tmp/r7-v2-publish/executed-workflow.yml
+          grep -q '^  contents: read$' /tmp/r7-v2-publish/executed-workflow.yml
+          grep -q '^  actions: read$' /tmp/r7-v2-publish/executed-workflow.yml
+          ! grep -q 'contents: write' /tmp/r7-v2-publish/executed-workflow.yml
+          grep -q 'R7_MAXIMUM_ASSURANCE_CLEAN_ROOM_V2' /tmp/r7-v2-publish/executed-workflow.yml
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" > /tmp/r7-v2-publish/artifacts.json
+          jq --arg expected "r7-maximum-assurance-clean-room-v2-${HEAD_SHA}" \
+            '[.artifacts[] | select(.name==$expected and .expired==false)]' \
+            /tmp/r7-v2-publish/artifacts.json > /tmp/r7-v2-publish/matches.json
+          test "$(jq 'length' /tmp/r7-v2-publish/matches.json)" -eq 1
+          jq '.[0]' /tmp/r7-v2-publish/matches.json > /tmp/r7-v2-publish/artifact.json
+          ARTIFACT_ID="$(jq -r '.id' /tmp/r7-v2-publish/artifact.json)"
+          ARTIFACT_DIGEST="$(jq -r '.digest' /tmp/r7-v2-publish/artifact.json)"
+          test "$(jq -r '.workflow_run.id' /tmp/r7-v2-publish/artifact.json)" = "$RUN_ID"
+          test "$(jq -r '.workflow_run.head_sha' /tmp/r7-v2-publish/artifact.json)" = "$HEAD_SHA"
+          test "${ARTIFACT_DIGEST#sha256:}" != "$ARTIFACT_DIGEST"
+          test "${#ARTIFACT_DIGEST}" -eq 71
+
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" \
+            --output /tmp/r7-v2-publish/evidence.zip
+          test "sha256:$(sha256sum /tmp/r7-v2-publish/evidence.zip | awk '{print $1}')" = "$ARTIFACT_DIGEST"
+
+          {
+            echo "RUN_ID=${RUN_ID}"
+            echo "HEAD_SHA=${HEAD_SHA}"
+            echo "RUN_ATTEMPT=${RUN_ATTEMPT}"
+            echo "ARTIFACT_ID=${ARTIFACT_ID}"
+            echo "ARTIFACT_DIGEST=${ARTIFACT_DIGEST}"
+          } >> "$GITHUB_ENV"
+
+      - name: Independently verify v2 evidence payload
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, os, re, stat, unicodedata, zipfile
+          from pathlib import Path, PurePosixPath
+
+          source=Path('/tmp/r7-v2-publish/evidence.zip')
+          root=Path('/tmp/r7-v2-publish/extracted')
+          seen=set(); folded=set(); normalized=set()
+          with zipfile.ZipFile(source) as archive:
+              for info in archive.infolist():
+                  name=info.filename
+                  path=PurePosixPath(name)
+                  if info.flag_bits & 1:
+                      raise SystemExit(f'encrypted member: {name}')
+                  if path.is_absolute() or '..' in path.parts or '\\' in name or '\x00' in name:
+                      raise SystemExit(f'unsafe member: {name}')
+                  if name in seen or name.casefold() in folded or unicodedata.normalize('NFC',name) in normalized:
+                      raise SystemExit(f'colliding member: {name}')
+                  seen.add(name); folded.add(name.casefold()); normalized.add(unicodedata.normalize('NFC',name))
+                  kind=stat.S_IFMT(info.external_attr >> 16)
+                  if kind not in (0,stat.S_IFREG,stat.S_IFDIR):
+                      raise SystemExit(f'special member: {name}')
+              archive.extractall(root)
+
+          manifest=root/'SHA256SUMS.txt'
+          if not manifest.is_file():
+              raise SystemExit('missing SHA256SUMS.txt')
+          expected={}
+          for line in manifest.read_text(encoding='utf-8').splitlines():
+              if not line:
+                  continue
+              digest,name=line.split('  ',1)
+              name=name.lstrip('*').removeprefix('./')
+              if not re.fullmatch(r'[0-9a-f]{64}',digest) or name in expected:
+                  raise SystemExit(f'invalid manifest row: {line}')
+              expected[name]=digest
+          actual={
+              path.relative_to(root).as_posix():hashlib.sha256(path.read_bytes()).hexdigest()
+              for path in root.rglob('*') if path.is_file() and path!=manifest
+          }
+          if expected!=actual:
+              raise SystemExit(f'manifest mismatch expected={len(expected)} actual={len(actual)}')
+
+          decision_file=root/'R7_MAXIMUM_ASSURANCE_CLEAN_ROOM_V2.json'
+          decision_text=root/'R7_MAXIMUM_ASSURANCE_DECISION.txt'
+          decision=json.loads(decision_file.read_text(encoding='utf-8'))
+          required_checks={
+              'post-run-source-a-immutable',
+              'post-run-source-b-immutable',
+              'authoritative-dist-manifest-bound',
+              'authoritative-stress-manifest-bound',
+              'fresh-dist-a-content-authoritative',
+              'fresh-dist-b-content-authoritative',
+              'fresh-dist-a-b-byte-and-mode-identical',
+              'artifact-dist-content-authoritative',
+              'fresh-stress-a-content-authoritative',
+              'fresh-stress-b-content-authoritative',
+              'fresh-stress-a-b-byte-and-mode-identical',
+              'artifact-stress-content-authoritative',
+              'production-count-34',
+              'stress-count-534',
+              'production-route-set-exact',
+              'no-broken-internal-links-resources-or-fragments',
+              'no-third-party-runtime-assets',
+              'ordinary-routes-zero-executable-js',
+              'vce-one-bounded-executable-script',
+              'production-only-one-js-file',
+              'fresh-invalid-fixtures-29-rejected',
+              'fresh-lineage-500-complete',
+              'fresh-browser-playwright-clean',
+              'fresh-axe-playwright-clean',
+              'fresh-axe-zero-violations',
+              'fresh-lighthouse-clean',
+              'fresh-network-zero-third-party',
+              'fresh-portable-schema-contract',
+          }
+          checks=decision.get('checks') or {}
+          if (
+              decision.get('schema')!='R7_MAXIMUM_ASSURANCE_CLEAN_ROOM_V2'
+              or decision.get('decision')!='R7_TECHNICAL_ARCHITECTURE_CLOSED'
+              or decision.get('passed') is not True
+              or decision.get('freshFullVerificationRuns')!=2
+              or decision.get('failedChecks')!=[]
+              or set(checks)!=required_checks
+              or not all(value is True for value in checks.values())
+              or decision.get('broken')!=[]
+              or decision.get('thirdPartyRuntime')!=[]
+          ):
+              raise SystemExit('maximum-assurance v2 decision invariant failed')
+          for name,diff in (decision.get('semanticDiffs') or {}).items():
+              if diff!={'onlyLeft':[],'onlyRight':[],'changed':[]}:
+                  raise SystemExit(f'nonempty semantic diff {name}: {diff}')
+          scope=decision.get('scope') or {}
+          if scope!={
+              'wholeWebsiteProgrammeComplete':False,
+              'r8ThroughR13Closed':False,
+              'mainMutationAuthorized':False,
+              'productionDeploymentAuthorized':False,
+          }:
+              raise SystemExit(f'scope boundary mismatch: {scope}')
+          expected_text=(
+              'R7 TECHNICAL ARCHITECTURE CLOSED — MAXIMUM-ASSURANCE CLEAN-ROOM V2 PASS; '
+              'R8-R13 REMAIN OPEN; NO MAIN MUTATION OR DEPLOYMENT AUTHORIZED\n'
+          )
+          if decision_text.read_text(encoding='utf-8')!=expected_text:
+              raise SystemExit('decision text mismatch')
+
+          logs={name:(root/name) for name in (
+              'run-a-npm-ci.log','run-b-npm-ci.log',
+              'run-a-verify-all.log','run-b-verify-all.log','playwright-install.log'
+          )}
+          if not all(path.is_file() and path.stat().st_size>100 for path in logs.values()):
+              raise SystemExit('missing or vacuous fresh-run logs')
+
+          publication={
+              'schema':'R7_MAXIMUM_ASSURANCE_V2_AUTHENTICATED_PUBLICATION',
+              'passed':True,
+              'decision':'R7_TECHNICAL_ARCHITECTURE_CLOSED',
+              'repository':os.environ['GITHUB_REPOSITORY'],
+              'branch':'r7-maximum-assurance-rebuild-20260901',
+              'runId':int(os.environ['RUN_ID']),
+              'runAttempt':int(os.environ['RUN_ATTEMPT']),
+              'headSha':os.environ['HEAD_SHA'],
+              'workflowPath':'.github/workflows/r7-maximum-assurance-clean-room-v2.yml',
+              'workflowPermissions':{'actions':'read','contents':'read'},
+              'artifactId':int(os.environ['ARTIFACT_ID']),
+              'artifactDigest':os.environ['ARTIFACT_DIGEST'],
+              'artifactOuterSha256':hashlib.sha256(source.read_bytes()).hexdigest(),
+              'artifactMemberCount':len(seen),
+              'artifactManifestEntryCount':len(expected),
+              'decisionFileSha256':hashlib.sha256(decision_file.read_bytes()).hexdigest(),
+              'evidenceManifestSha256':hashlib.sha256(manifest.read_bytes()).hexdigest(),
+              'checkCount':len(checks),
+              'passedCheckCount':sum(value is True for value in checks.values()),
+              'freshFullVerificationRuns':2,
+              'allSemanticDiffsEmpty':True,
+              'allRequiredChecksTrue':True,
+              'failedChecks':[],
+              'scope':scope,
+          }
+          out=Path('.r7-maximum-assurance-published/MAXIMUM_ASSURANCE_V2.json')
+          out.write_text(json.dumps(publication,indent=2)+'\n',encoding='utf-8')
+          Path('.r7-maximum-assurance-published/R7_MAXIMUM_ASSURANCE_CLEAN_ROOM_V2.json').write_bytes(decision_file.read_bytes())
+          Path('.r7-maximum-assurance-published/R7_MAXIMUM_ASSURANCE_DECISION.txt').write_bytes(decision_text.read_bytes())
+          Path('.r7-maximum-assurance-published/EXECUTED_WORKFLOW.yml').write_bytes(
+              Path('/tmp/r7-v2-publish/executed-workflow.yml').read_bytes()
+          )
+          PY
+
+          sha256sum .r7-maximum-assurance-published/* > .r7-maximum-assurance-published/SHA256SUMS.txt
+          (
+            cd .r7-maximum-assurance-published
+            sha256sum --check --strict SHA256SUMS.txt
+          )
+
+      - name: Commit authenticated publication to isolated branch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .r7-maximum-assurance-published/
+          git diff --cached --check
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'R7: publish authenticated maximum-assurance v2 PASS record'
+          git push origin HEAD:r7-maximum-assurance-rebuild-20260901
