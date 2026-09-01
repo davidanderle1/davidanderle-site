@@ -1,0 +1,48 @@
+name: Stage exact-pinned final R7F workflow blob
+
+on:
+  push:
+    branches:
+      - r7f-portable-final-20260901
+    paths:
+      - '.github/workflows/r7f-stage-pinned-workflow.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7f-stage-pinned-workflow
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout final R7F branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Render exact-pinned target and stage outside workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/patch-r7f-final-to-r7e-v4.py
+          ruby -ryaml -e 'YAML.safe_load(File.read(ARGV[0]), aliases: true)' .github/workflows/r7f-portable-final-verification.yml
+          mkdir -p .r7-staging
+          cp .github/workflows/r7f-portable-final-verification.yml .r7-staging/r7f-portable-final-verification.yml
+          sha256sum .r7-staging/r7f-portable-final-verification.yml > .r7-staging/r7f-portable-final-verification.yml.sha256
+
+      - name: Commit staged workflow blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .r7-staging/r7f-portable-final-verification.yml .r7-staging/r7f-portable-final-verification.yml.sha256
+          git diff --cached --check
+          git commit -m 'R7F: stage exact-pinned final workflow blob'
+          git push origin HEAD:r7f-portable-final-20260901
