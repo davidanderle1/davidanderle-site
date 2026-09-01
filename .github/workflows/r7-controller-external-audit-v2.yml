@@ -1,0 +1,140 @@
+name: R7 final-controller external audit v2
+
+on:
+  push:
+    branches:
+      - r7-controller-external-audit-v1-20260901
+    paths:
+      - '.github/workflows/r7-controller-external-audit-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7-controller-external-audit-v2
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  CONTROLLER_BRANCH: r7-history-bound-controller-v3-20260901
+  CONTROLLER_WORKFLOW_PATH: .github/workflows/r7-history-bound-controller-v4.yml
+  CONTROLLER_ARTIFACT_PREFIX: r7-history-bound-controller-v4-evidence
+  FINAL_AUDIT_ARTIFACT_PREFIX: r7-controller-external-audit-v2-evidence
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact independent controller v2 auditor
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Acquire exact successful read-only controller v4 run and artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p audit-input audit-output audit-artifact
+          controller_head="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${CONTROLLER_BRANCH}" --jq '.commit.sha')"
+          test -n "$controller_head"
+          printf '%s\n' "$controller_head" > audit-input/CONTROLLER_HEAD.txt
+          selected=''
+          for attempt in $(seq 1 400); do
+            selected="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=${CONTROLLER_BRANCH}&per_page=100" --paginate | jq -cs --arg head "$controller_head" --arg path "$CONTROLLER_WORKFLOW_PATH" '[.[].workflow_runs[] | select(.head_sha==$head and .path==$path and .status=="completed" and .conclusion=="success")] | sort_by(.id) | if length>0 then .[-1] else empty end')"
+            if test -n "$selected"; then break; fi
+            sleep 15
+          done
+          test -n "$selected"
+          printf '%s\n' "$selected" > audit-input/CONTROLLER_RUN_METADATA.json
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/branches/${CONTROLLER_BRANCH}" --jq '.commit.sha')" = "$controller_head"
+          controller_run="$(jq -r '.id' audit-input/CONTROLLER_RUN_METADATA.json)"
+          artifact_name="${CONTROLLER_ARTIFACT_PREFIX}-${controller_head}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${controller_run}/artifacts" --paginate | jq -cs --arg name "$artifact_name" '[.[].artifacts[] | select(.name==$name and .expired==false)] | if length==1 then .[0] else error("expected exactly one controller v4 artifact") end' > audit-input/CONTROLLER_ARTIFACT_METADATA.json
+          artifact_id="$(jq -r '.id' audit-input/CONTROLLER_ARTIFACT_METADATA.json)"; artifact_digest="$(jq -r '.digest' audit-input/CONTROLLER_ARTIFACT_METADATA.json)"
+          curl --fail --silent --show-error --location -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" --output audit-input/CONTROLLER_AUTHORITATIVE.zip
+          printf '%s  %s\n' "${artifact_digest#sha256:}" audit-input/CONTROLLER_AUTHORITATIVE.zip | sha256sum --check --strict
+
+      - name: Independently audit controller v4 and ten mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/r7-controller-external-audit-v2.py
+          sha256sum .github/scripts/r7-controller-external-audit-v2.py .github/workflows/r7-controller-external-audit-v2.yml > audit-output/FINAL_AUDITOR_INFRASTRUCTURE.sha256
+          python3 .github/scripts/r7-controller-external-audit-v2.py --zip audit-input/CONTROLLER_AUTHORITATIVE.zip --run audit-input/CONTROLLER_RUN_METADATA.json --artifact audit-input/CONTROLLER_ARTIFACT_METADATA.json --expected-commit "$(cat audit-input/CONTROLLER_HEAD.txt)" --expected-branch "$CONTROLLER_BRANCH" --output audit-output/R7_CONTROLLER_EXTERNAL_AUDIT_V2.json --selftest-output audit-output/R7_CONTROLLER_EXTERNAL_AUDIT_SELFTEST_V2.json > audit-output/audit.stdout.txt
+          jq -e '.passed==true and .decision=="R7_FINAL_ENGINEERING_CLOSURE_VERIFIED" and .maximumAuthorizedVerdict=="R7_TECHNICAL_ARCHITECTURE_CLOSED" and .selftest.caseCount==10 and .metrics.pathCorrectionClasses==4' audit-output/R7_CONTROLLER_EXTERNAL_AUDIT_V2.json >/dev/null
+          jq -e '.passed==true and .caseCount==10 and .passedCaseCount==10' audit-output/R7_CONTROLLER_EXTERNAL_AUDIT_SELFTEST_V2.json >/dev/null
+
+      - name: Assemble final v2 engineering-closure evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp audit-input/CONTROLLER_HEAD.txt audit-artifact/; cp audit-input/CONTROLLER_RUN_METADATA.json audit-artifact/; cp audit-input/CONTROLLER_ARTIFACT_METADATA.json audit-artifact/
+          cp audit-output/R7_CONTROLLER_EXTERNAL_AUDIT_V2.json audit-artifact/; cp audit-output/R7_CONTROLLER_EXTERNAL_AUDIT_SELFTEST_V2.json audit-artifact/; cp audit-output/FINAL_AUDITOR_INFRASTRUCTURE.sha256 audit-artifact/; cp audit-output/audit.stdout.txt audit-artifact/
+          cp .github/scripts/r7-controller-external-audit-v2.py audit-artifact/; cp .github/workflows/r7-controller-external-audit-v2.yml audit-artifact/
+          cat > audit-artifact/R7_FINAL_ENGINEERING_CLOSURE.txt <<'EOF'
+          R7_CLOSED
+          MAXIMUM AUTHORIZED VERDICT: R7 TECHNICAL ARCHITECTURE AND EMPIRICAL VERIFICATION CLOSED
+          R8–R13 REMAIN OPEN
+          WHOLE WEBSITE PROGRAMME NOT COMPLETE
+          MAIN MUTATION NOT AUTHORIZED
+          PRODUCTION DEPLOYMENT NOT AUTHORIZED
+          EOF
+          sed -i 's/^          //' audit-artifact/R7_FINAL_ENGINEERING_CLOSURE.txt
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root=Path('audit-artifact'); manifest=root/'R7_FINAL_CLOSURE_AUDIT_SHA256SUMS.txt'; rows=[]
+          for path in sorted((p for p in root.rglob('*') if p.is_file() and p!=manifest),key=lambda p:p.relative_to(root).as_posix().encode()): rows.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}")
+          manifest.write_text('\n'.join(rows)+'\n')
+          PY
+          (cd audit-artifact && sha256sum --check --strict R7_FINAL_CLOSURE_AUDIT_SHA256SUMS.txt)
+
+      - name: Upload final controller v2 external-audit evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-controller-external-audit-v2-evidence-${{ github.sha }}
+          path: audit-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Persist final narrow R7 closure tuple v2
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_name="${FINAL_AUDIT_ARTIFACT_PREFIX}-${GITHUB_SHA}"; artifact_row=''
+          for attempt in $(seq 1 12); do
+            artifact_row="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --paginate | jq -cs --arg name "$artifact_name" '[.[].artifacts[] | select(.name==$name)] | if length==1 then .[0] else empty end')"
+            if test -n "$artifact_row"; then break; fi; sleep 2
+          done
+          test -n "$artifact_row"
+          audit_artifact_id="$(jq -r '.id' <<<"$artifact_row")"; audit_artifact_digest="$(jq -r '.digest' <<<"$artifact_row")"
+          mkdir -p .github/r7-status
+          jq -n --arg schema 'R7_FINAL_ENGINEERING_CLOSURE_TUPLE_V2' --arg repository "$GITHUB_REPOSITORY" --arg decision 'R7_CLOSED' --arg maximumAuthorizedVerdict 'R7_TECHNICAL_ARCHITECTURE_CLOSED' --arg auditorBranch "$GITHUB_REF_NAME" --arg auditorCommit "$GITHUB_SHA" --arg auditorRunId "$GITHUB_RUN_ID" --arg auditorRunAttempt "$GITHUB_RUN_ATTEMPT" --arg auditArtifactName "$artifact_name" --arg auditArtifactId "$audit_artifact_id" --arg auditArtifactDigest "$audit_artifact_digest" --arg auditReportSha256 "$(sha256sum audit-artifact/R7_CONTROLLER_EXTERNAL_AUDIT_V2.json | awk '{print $1}')" --arg auditSelftestSha256 "$(sha256sum audit-artifact/R7_CONTROLLER_EXTERNAL_AUDIT_SELFTEST_V2.json | awk '{print $1}')" --arg controllerBranch "$CONTROLLER_BRANCH" --arg controllerCommit "$(cat audit-input/CONTROLLER_HEAD.txt)" --arg controllerRunId "$(jq -r '.id' audit-input/CONTROLLER_RUN_METADATA.json)" --arg controllerArtifactId "$(jq -r '.id' audit-input/CONTROLLER_ARTIFACT_METADATA.json)" --arg controllerArtifactName "$(jq -r '.name' audit-input/CONTROLLER_ARTIFACT_METADATA.json)" --arg controllerArtifactDigest "$(jq -r '.digest' audit-input/CONTROLLER_ARTIFACT_METADATA.json)" '{schema:$schema,passed:true,decision:$decision,maximumAuthorizedVerdict:$maximumAuthorizedVerdict,repository:$repository,auditor:{branch:$auditorBranch,commit:$auditorCommit,runId:($auditorRunId|tonumber),runAttempt:($auditorRunAttempt|tonumber),artifact:{id:($auditArtifactId|tonumber),name:$auditArtifactName,digest:$auditArtifactDigest},reportSha256:$auditReportSha256,selftestSha256:$auditSelftestSha256},controller:{branch:$controllerBranch,commit:$controllerCommit,runId:($controllerRunId|tonumber),artifact:{id:($controllerArtifactId|tonumber),name:$controllerArtifactName,digest:$controllerArtifactDigest}},mainBaselineSha:"bcc55fa7125013615f076dd7cf28a8ec9c5f232b",r7eSchema:"R7E_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V3",r7fSchema:"R7F_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V5",externalAuditSchema:"R7_PORTABLE_EXTERNAL_AUDIT_TUPLE_V4",traceabilitySchema:"R7_FULL_HISTORY_TRACEABILITY_TUPLE_V4",r8ThroughR13Open:true,wholeWebsiteProgrammeComplete:false,mainMutationAuthorized:false,productionDeploymentAuthorized:false,scope:"R7 technical architecture and empirical verification only"}' > .github/r7-status/R7_FINAL_ENGINEERING_CLOSURE_V2.json
+          jq -e '.passed==true and .decision=="R7_CLOSED" and .maximumAuthorizedVerdict=="R7_TECHNICAL_ARCHITECTURE_CLOSED" and .r7fSchema=="R7F_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V5" and .externalAuditSchema=="R7_PORTABLE_EXTERNAL_AUDIT_TUPLE_V4" and .r8ThroughR13Open==true and .wholeWebsiteProgrammeComplete==false and .mainMutationAuthorized==false and .productionDeploymentAuthorized==false and (.auditor.artifact.digest|startswith("sha256:")) and (.controller.artifact.digest|startswith("sha256:"))' .github/r7-status/R7_FINAL_ENGINEERING_CLOSURE_V2.json >/dev/null
+          git config user.name 'github-actions[bot]'; git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7-status/R7_FINAL_ENGINEERING_CLOSURE_V2.json; git diff --cached --check; git commit -m 'R7 v2: persist externally verified narrow engineering closure'
+          git fetch origin r7-controller-external-audit-v1-20260901; git rebase origin/r7-controller-external-audit-v1-20260901; git push origin HEAD:r7-controller-external-audit-v1-20260901
+
+      - name: Upload final v2 audit failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-controller-external-audit-v2-failure-${{ github.sha }}
+          path: |
+            audit-input/
+            audit-output/
+            audit-artifact/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
