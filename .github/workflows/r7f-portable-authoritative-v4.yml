@@ -1,0 +1,193 @@
+name: R7F portable JSON Schema independent verifier v4
+
+on:
+  push:
+    branches:
+      - r7f-portable-authoritative-v2-20260901
+    paths:
+      - '.github/workflows/r7f-portable-authoritative-v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7f-portable-authoritative-v4
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  SOURCE_DATE_EPOCH: '1787961600'
+  NODE_OPTIONS: --max-old-space-size=4096
+  R7F_ARTIFACT_PREFIX: r7f-portable-authoritative-v4-evidence
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact independent verifier plan and executor
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Install exact Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.20.0
+
+      - name: Bind source verifier plan to isolated R7E v3 tuple
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p r7f-evidence
+          test -s .github/workflows/r7f-portable-authoritative-v2.yml
+          cp .github/workflows/r7f-portable-authoritative-v2.yml r7f-evidence/R7F_ORIGINAL_SOURCE_PLAN.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          import difflib,json
+          source=Path('r7f-evidence/R7F_ORIGINAL_SOURCE_PLAN.yml')
+          target=Path('r7f-evidence/R7F_BUILDER_V3_SOURCE_PLAN.yml')
+          text=source.read_text(encoding='utf-8')
+          replacements=[
+              ('r7e-portable-json-schema-verification-20260831','r7e-portable-authoritative-v3-20260901'),
+              ('.github/r7-status/portable-r7e-v2.json','.github/r7-status/portable-r7e-v3.json'),
+              ('R7E_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V2','R7E_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V3'),
+          ]
+          counts={}
+          for old,new in replacements:
+              count=text.count(old)
+              if count<1: raise SystemExit(f'missing builder-v3 plan anchor: {old}')
+              counts[old]=count
+              text=text.replace(old,new)
+          target.write_text(text,encoding='utf-8')
+          diff=''.join(difflib.unified_diff(source.read_text().splitlines(keepends=True),text.splitlines(keepends=True),fromfile=source.as_posix(),tofile=target.as_posix()))
+          Path('r7f-evidence/R7F_BUILDER_V3_BINDING.diff').write_text(diff,encoding='utf-8')
+          Path('r7f-evidence/R7F_BUILDER_V3_BINDING.json').write_text(json.dumps({'schema':'R7F_BUILDER_V3_PLAN_BINDING_V1','passed':True,'replacements':counts},indent=2)+'\n')
+          PY
+          test -s r7f-evidence/R7F_BUILDER_V3_BINDING.diff
+          grep -q 'r7e-portable-authoritative-v3-20260901' r7f-evidence/R7F_BUILDER_V3_SOURCE_PLAN.yml
+          grep -q 'portable-r7e-v3.json' r7f-evidence/R7F_BUILDER_V3_SOURCE_PLAN.yml
+          ! grep -q 'portable-r7e-v2.json' r7f-evidence/R7F_BUILDER_V3_SOURCE_PLAN.yml
+
+      - name: Execute transparent corrected independent verifier plan
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = 'v24.20.0'
+          test "$(npm --version)" = '11.19.0'
+          python3 -m py_compile \
+            .github/scripts/r7f-portable-v2-preaudit.py \
+            .github/scripts/r7f-portable-v2-tree.py \
+            .github/scripts/execute-r7f-portable-v2-plan.py
+          node --check .github/scripts/r7f-portable-v2-browser.mjs
+          sha256sum \
+            .github/workflows/r7f-portable-authoritative-v4.yml \
+            .github/workflows/r7f-portable-authoritative-v2.yml \
+            .github/scripts/execute-r7f-portable-v2-plan.py \
+            .github/scripts/r7f-portable-v2-preaudit.py \
+            .github/scripts/r7f-portable-v2-tree.py \
+            .github/scripts/r7f-portable-v2-browser.mjs \
+            > r7f-evidence/R7F_EXECUTOR_INFRASTRUCTURE.sha256
+          python3 .github/scripts/execute-r7f-portable-v2-plan.py \
+            r7f-evidence/R7F_BUILDER_V3_SOURCE_PLAN.yml \
+            r7f-evidence/R7F_FINAL_CORRECTED_PLAN.yml \
+            r7f-evidence/R7F_LOG_PATH_CORRECTION.diff \
+            r7f-evidence/R7F_PLAN_EXECUTION.json
+          jq -e '.passed==true and .correctionCount>0 and (.executed|length)>=7' r7f-evidence/R7F_PLAN_EXECUTION.json >/dev/null
+          test -d r7f-artifact
+          jq -e '.passed==true and .decision=="R7F_PORTABLE_INDEPENDENT_PASS"' r7f-artifact/R7F_PORTABLE_V2_DECISION.json >/dev/null
+          cp r7f-evidence/R7F_ORIGINAL_SOURCE_PLAN.yml r7f-artifact/
+          cp r7f-evidence/R7F_BUILDER_V3_SOURCE_PLAN.yml r7f-artifact/
+          cp r7f-evidence/R7F_BUILDER_V3_BINDING.diff r7f-artifact/
+          cp r7f-evidence/R7F_BUILDER_V3_BINDING.json r7f-artifact/
+          cp r7f-evidence/R7F_FINAL_CORRECTED_PLAN.yml r7f-artifact/
+          cp r7f-evidence/R7F_LOG_PATH_CORRECTION.diff r7f-artifact/
+          cp r7f-evidence/R7F_PLAN_EXECUTION.json r7f-artifact/
+          cp r7f-evidence/R7F_EXECUTOR_INFRASTRUCTURE.sha256 r7f-artifact/
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root=Path('r7f-artifact'); manifest=root/'R7F_ARTIFACT_SHA256SUMS.txt'
+          rows=[]
+          for path in sorted((p for p in root.rglob('*') if p.is_file() and p!=manifest),key=lambda p:p.relative_to(root).as_posix().encode()):
+              rows.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}")
+          manifest.write_text('\n'.join(rows)+'\n')
+          PY
+          (
+            cd r7f-artifact
+            sha256sum --check --strict R7F_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload authoritative independent R7F v4 evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-portable-authoritative-v4-evidence-${{ github.sha }}
+          path: r7f-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Persist exact authoritative R7F v4 tuple
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_name="${R7F_ARTIFACT_PREFIX}-${GITHUB_SHA}"
+          artifact_row=''
+          for attempt in $(seq 1 12); do
+            artifact_row="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --paginate \
+              | jq -cs --arg name "$artifact_name" '[.[].artifacts[] | select(.name==$name)] | if length==1 then .[0] else empty end')"
+            if test -n "$artifact_row"; then break; fi
+            sleep 2
+          done
+          test -n "$artifact_row"
+          artifact_id="$(jq -r '.id' <<<"$artifact_row")"
+          artifact_digest="$(jq -r '.digest' <<<"$artifact_row")"
+          mkdir -p .github/r7-status
+          jq -n \
+            --arg schema 'R7F_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V4' \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg branch "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg artifactName "$artifact_name" \
+            --arg artifactId "$artifact_id" \
+            --arg artifactDigest "$artifact_digest" \
+            --arg decisionSha256 "$(sha256sum r7f-artifact/R7F_PORTABLE_V2_DECISION.json | awk '{print $1}')" \
+            --arg planExecutionSha256 "$(sha256sum r7f-artifact/R7F_PLAN_EXECUTION.json | awk '{print $1}')" \
+            --arg builderBindingSha256 "$(sha256sum r7f-artifact/R7F_BUILDER_V3_BINDING.json | awk '{print $1}')" \
+            --arg builderCommit "$(jq -r '.commit' r7f-input/R7E_TUPLE.json)" \
+            --arg builderArtifactDigest "$(jq -r '.artifact.digest' r7f-input/R7E_TUPLE.json)" \
+            '{schema:$schema,passed:true,repository:$repository,branch:$branch,commit:$commit,runId:($runId|tonumber),runAttempt:($runAttempt|tonumber),artifact:{id:($artifactId|tonumber),name:$artifactName,digest:$artifactDigest},decisionSha256:$decisionSha256,planExecutionSha256:$planExecutionSha256,builderBindingSha256:$builderBindingSha256,builder:{commit:$builderCommit,artifactDigest:$builderArtifactDigest},scope:"Independent R7 technical architecture verification only; no main or deployment authorization"}' \
+            > .github/r7-status/portable-r7f-v4.json
+          jq -e '.passed==true and (.artifact.digest|startswith("sha256:"))' .github/r7-status/portable-r7f-v4.json >/dev/null
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7-status/portable-r7f-v4.json
+          git diff --cached --check
+          git commit -m 'R7F v4: record exact portable independent tuple'
+          git fetch origin r7f-portable-authoritative-v2-20260901
+          git rebase origin/r7f-portable-authoritative-v2-20260901
+          git push origin HEAD:r7f-portable-authoritative-v2-20260901
+
+      - name: Upload v4 failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-portable-authoritative-v4-failure-${{ github.sha }}
+          path: |
+            r7f-input/
+            r7f-evidence/
+            r7f-artifact/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
