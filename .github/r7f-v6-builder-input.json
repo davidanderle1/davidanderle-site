@@ -1,52 +1,39 @@
 {
   "schema": "R7F_BUILDER_INPUT_V5_FULL_HISTORY_DYNAMIC_FINGERPRINT",
   "repository": "davidanderle1/davidanderle-site",
-  "builderBranch": "r7e-full-history-reconciled-verification-20260831",
-  "builderWorkflowPath": ".github/workflows/r7e-full-history-reconciled-verification.yml",
-  "builderHeadSha": "8f37838e9cdd587942daed8b4f0d3acb10015a8d",
-  "builderRunId": 33395532114,
-  "builderArtifactId": 9759287627,
-  "builderArtifactName": "r7e-full-history-reconciled-evidence-8f37838e9cdd587942daed8b4f0d3acb10015a8d",
-  "builderArtifactDigest": "sha256:8024f529b0bfd2d09c06cef81fee1de931205f35e12206b81842e55f19c6b08a",
-  "builderSourceArchiveSha256": "867ad3adaa0f99e657cc714439bfac57d92efae406436cda96bdb056274121da",
-  "builderFrozenSourceTreeSha256": "0ffd982ed7e79c601cf403b64aa184b3c29e36ab77d59ed0ce287f7c72a39185",
-  "builderFrozenSourceTarSha256": "59fca4ae763fd78e87b8ab71a16038a252cc1cb1cb81814fd1c2f568b3b2bd66",
-  "builderVerifiedDistTreeSha256": "ca90aabd104cfcec574abab38fe2bd04b38fe7bd031e6ce168b447140ecca7e8",
-  "builderStressDistTreeSha256": "913f208ecc0c4069c2e4d66adeb767a7a959ee85b483042258cfa06eea4bed77",
-  "builderAxeAdjudicationFileSha256": "58af713cf079b1ad75dacea7adfeea445a83ae6c27d332afcf1e24095d84d510",
+  "builderBranch": "r7e-portable-self-recording-final-20260901",
+  "builderWorkflowPath": ".github/workflows/r7e-portable-self-recording-final-v3.yml",
+  "builderHeadSha": "991e4e44c290c101dd4a17bdb56ce105a1a2f663",
+  "builderRunId": 33503881317,
+  "builderArtifactId": 9798928662,
+  "builderArtifactName": "r7e-portable-self-recording-final-v3-evidence-991e4e44c290c101dd4a17bdb56ce105a1a2f663",
+  "builderArtifactDigest": "sha256:08ca71840ad029f5a0fda533e12661a79e7ca0cc0728d7f546d1cb56435c9321",
+  "builderSourceArchiveSha256": "764271738ad8578de7d89c522d9cedd1a22ce00d1b8e5d06b271903b52a3923d",
+  "builderFrozenSourceTreeSha256": "203f572ffa72ffb0790732c02c8f2b88cdeac8ec0df7f3450b1f4958ff3cd26e",
+  "builderFrozenSourceTarSha256": "b639fdf11a0a6d4674b59d26327b996e71ec87190848c00685d25e2e4b1ec2f8",
+  "builderVerifiedDistTreeSha256": "3d76b6a74da4562426b222ac298f8837c02d61d5ce95cf76b181bef0d28d7cc4",
+  "builderStressDistTreeSha256": "005bfb51b3af3eca95153d5a5f912ef635e75b9b1f566350a53914faf4d29b41",
+  "builderAxeAdjudicationFileSha256": "a99471dec79173f2b9c8b2de744ed019b26805c771d778a7d2269222485b7e4d",
   "builderAxeSemanticInventorySha256": "48cb39c9ba19a42bbfa5547b00629466c0207521afffc79f1c96d7be102256ef",
   "builderAxeNodeFingerprintSetSha256": "8b255e4a380b6740a84afb77aa4eada22db93683a685bb00754cf271ae856e9c",
   "builderAxeBindingFingerprintSetSha256": "6edbe91b0a595ec821f855434a0493dd8c438255e6435819e1702c4b6a6e53c8",
   "builderAxeIncompleteNodeCount": 498,
-  "r7eExternalAuditSha256": "a92fcbaa3a83a92d2c3bddf8bbc610f14c48b2c1f23a1c33c949020ab45fde61",
-  "builderFingerprintGate": {
-    "passed": true,
-    "nodeCount": 498,
-    "violations": 0,
-    "dynamicCountBound": true,
-    "blockers": []
+  "r7eExternalAuditSha256": "91b25337579b038fcf8c50ea31513824957c1ce1abb486321e68b1b9e1502bac",
+  "selfRecording": {
+    "tupleArtifactId": 9798929179,
+    "tupleArtifactName": "r7e-portable-self-recording-final-v3-tuple-991e4e44c290c101dd4a17bdb56ce105a1a2f663",
+    "tupleArtifactDigest": "sha256:2687e1d4620037026ac7f76cdb0e00ad6d05dd196f992c87eee70f38f897967e",
+    "generatedPlanSha256": "0e17b0fed9efd2466de3dd7088a23161e4d91c0519a5ec1e68226386a1feddbd",
+    "packageValidationSha256": "85441ad1903ae104f5800a0f71ccce0efab4aac94c20a44a68e7bf828a8162fa",
+    "executorValidationSha256": "ee77e63205b864fc10eed8ef32b401fe9fa7b62caafaebceb0f1851120273582"
   },
-  "historyReconciliationGate": {
-    "passed": true,
-    "sourceFileCount": 131,
-    "invalidFixtureCount": 28,
-    "mixedHomepageSelection": true,
-    "genericMilestoneRelationships": true,
-    "publicIndexabilitySeparated": true,
-    "structuredDataCreditBound": true,
-    "blockers": []
+  "portableJsonSchema": {
+    "dialect": "https://json-schema.org/draft/2020-12/schema",
+    "contractVersion": "1.0.0",
+    "indexSha256": "19ec76fddec1791a47ccd555da6c67a65d7b8c00f7f0d0753c70cacbb9a322f1",
+    "schemaSetSha256": "ea8139bac431eb45daface72723edbaf71f4a58c9e0c7f69d58d22d9bb1b50fb",
+    "schemaJsonFileCount": 9,
+    "canonicalRecordCount": 12
   },
-  "truthPrivacyGate": {
-    "passed": true,
-    "completionPrecision": "year",
-    "dateOfBirthPresent": false,
-    "realValuesInRegressionFixtures": false,
-    "astroDiagnostics": {
-      "errors": 0,
-      "warnings": 0,
-      "hints": 0
-    },
-    "blockers": []
-  },
-  "selectionRule": "Exact successful full-history-reconciled R7E workflow head and sole authenticated artifact, externally audited and locked by source, output, artifact, dynamic semantic inventory, node-set, proof-binding, truth, privacy and history-reconciliation hashes."
+  "selectionRule": "Exact successful self-recording portable-schema R7E branch head, exact evidence and tuple artifacts, independently audited and locked by GitHub metadata, source/output fingerprints, portable schema hashes and executor lineage."
 }
