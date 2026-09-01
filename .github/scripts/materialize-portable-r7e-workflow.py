@@ -49,7 +49,7 @@ def main() -> None:
     text = text.replace(quoted_old, quoted_new, 1)
 
     old_required = "for required in package.json package-lock.json .node-version .nvmrc astro.config.mjs src/content.config.ts docs/R7_HISTORY_RECONCILIATION.md src/components/HomepageRecordPreview.astro src/components/WritingRecordPreview.astro src/lib/profile-copy.ts scripts/build-axe-fingerprint-adjudication.mjs; do"
-    new_required = "for required in package.json package-lock.json .node-version .nvmrc astro.config.mjs src/content.config.ts src/content-schemas.ts docs/R7_HISTORY_RECONCILIATION.md docs/PORTABLE_JSON_SCHEMA.md schemas/index.json schemas/canonical-content.schema.json src/components/HomepageRecordPreview.astro src/components/WritingRecordPreview.astro src/lib/profile-copy.ts scripts/build-axe-fingerprint-adjudication.mjs scripts/generate-json-schemas.mjs scripts/validate-json-schema.mjs scripts/verify-json-schema-drift.mjs; do"
+    new_required = "for required in package.json package-lock.json .node-version .nvmrc astro.config.mjs src/content.config.ts src/content-schemas.ts docs/R7_HISTORY_RECONCILIATION.md docs/PORTABLE_JSON_SCHEMA.md schemas/index.json schemas/canonical-content.schema.json src/components/HomepageRecordPreview.astro src/components/WritingRecordPreview.astro src/lib/profile-copy.ts scripts/build-axe-fingerprint-adjudication.mjs scripts/generate-json-schemas.mjs scripts/validate-json-schemas.mjs scripts/run-portable-schema-contract.mjs; do"
     text = replace_exact(text, old_required, new_required, 'required paths')
 
     old_lock = "const ok=p.packageManager==='npm@11.19.0' && p.engines?.node==='24.20.0' && p.engines?.npm==='11.19.0' && l.lockfileVersion===3 && count>=500 && !l.r7eBootstrapStatus && axeScript.includes('build-axe-fingerprint-adjudication.mjs');"
@@ -66,7 +66,7 @@ def main() -> None:
           npm run schema:check > ../evidence/portable-schema-check.stdout.txt 2> ../evidence/portable-schema-check.stderr.txt
           npm run schema:contract > ../evidence/portable-schema-contract.stdout.txt 2> ../evidence/portable-schema-contract.stderr.txt
           test "$(find schemas -maxdepth 1 -type f -name '*.json' | wc -l)" -eq 9
-          jq -e '.contractVersion=="1.0.0" and .dialect=="https://json-schema.org/draft/2020-12/schema" and (.schemas|length)==8' schemas/index.json >/dev/null
+          jq -e '.contractVersion=="1.0.0" and ."$schema"=="https://json-schema.org/draft/2020-12/schema" and (.schemas|length)==8' schemas/index.json >/dev/null
           for file in schemas/*.schema.json; do
             jq -e '."$schema"=="https://json-schema.org/draft/2020-12/schema" and ."x-contract-version"=="1.0.0"' "$file" >/dev/null
           done
