@@ -1,0 +1,44 @@
+name: Render repaired final traceability workflow
+
+on:
+  push:
+    branches:
+      - r7-full-history-traceability-final-20260901
+    paths:
+      - '.github/workflows/r7-traceability-render-repaired-workflow.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout final traceability branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Render and validate repaired traceability workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/patch-r7-traceability-final.py
+          python3 .github/scripts/patch-r7-traceability-final.py
+          ruby -ryaml -e 'YAML.safe_load(File.read(ARGV[0]), aliases: true)' .github/workflows/r7-full-history-traceability-final.yml
+          sha256sum .github/workflows/r7-full-history-traceability-final.yml > r7-full-history-traceability-final.yml.sha256
+
+      - name: Upload rendered workflow
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-traceability-repaired-render-${{ github.sha }}
+          path: |
+            .github/workflows/r7-full-history-traceability-final.yml
+            r7-full-history-traceability-final.yml.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
