@@ -1,0 +1,33 @@
+{
+  "schema": "R7_AUTHORITY_HIERARCHY_V3",
+  "designIdentity": "BEARING",
+  "designFrozen": true,
+  "r7Scope": "TECHNICAL_ARCHITECTURE_AND_EMPIRICAL_VERIFICATION_ONLY",
+  "orderedAuthorities": [
+    "CURRENT_FACTUAL_TRUTH_AND_PRIVACY",
+    "R5_PHOTOGRAPHY_AUTHORITY",
+    "R6C_R6D_BEARING_AUTHORITY",
+    "R4_IDENTITY_CONTENT_AND_IA_AUTHORITY",
+    "CURRENT_OFFICIAL_TECHNICAL_DOCUMENTATION_AND_EMPIRICAL_EVIDENCE",
+    "R7_TECHNICAL_ARCHITECTURE_AUTHORITY",
+    "OLDER_PROTOTYPES_AND_AUXILIARY_MATERIAL"
+  ],
+  "rules": [
+    "No technical convenience may override current factual truth or privacy.",
+    "R7 may implement but must not redesign BEARING.",
+    "R4 remains authoritative for identity, canonical content and information architecture unless superseded by truth or privacy.",
+    "Current primary technical documentation and empirical evidence govern unstable implementation facts.",
+    "Older prototypes are evidence and context, not authority over later approved decisions."
+  ],
+  "forbiddenConclusions": [
+    "WHOLE_SITE_COMPLETE",
+    "PRODUCTION_READY",
+    "DEPLOYMENT_APPROVED",
+    "R8_COMPLETE",
+    "R9_COMPLETE",
+    "R10_COMPLETE",
+    "R11_COMPLETE",
+    "R12_COMPLETE",
+    "R13_COMPLETE"
+  ]
+}
