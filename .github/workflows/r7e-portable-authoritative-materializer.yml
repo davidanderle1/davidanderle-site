@@ -38,17 +38,32 @@ jobs:
           from pathlib import Path
           path = Path('.github/workflows/r7e-portable-json-schema-verification.yml')
           text = path.read_text(encoding='utf-8')
-          old = 'scripts/validate-json-schema.mjs scripts/verify-json-schema-drift.mjs'
-          new = 'scripts/validate-json-schemas.mjs scripts/run-portable-schema-contract.mjs'
-          if text.count(old) != 1:
-              raise SystemExit(f'portable verifier required-path correction count={text.count(old)}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          replacements = (
+              (
+                  'scripts/validate-json-schema.mjs scripts/verify-json-schema-drift.mjs',
+                  'scripts/validate-json-schemas.mjs scripts/run-portable-schema-contract.mjs',
+                  'portable verifier required paths',
+              ),
+              (
+                  '.contractVersion=="1.0.0" and .dialect=="https://json-schema.org/draft/2020-12/schema" and (.schemas|length)==8',
+                  '.contractVersion=="1.0.0" and ."$schema"=="https://json-schema.org/draft/2020-12/schema" and (.schemas|length)==8',
+                  'portable schema index dialect assertion',
+              ),
+          )
+          for old, new, label in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label} correction count={count}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
           PY
           test -s .github/workflows/r7e-portable-json-schema-verification.yml
           ! grep -q 'scripts/validate-json-schema.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
           ! grep -q 'scripts/verify-json-schema-drift.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          ! grep -q '\.dialect=="https://json-schema.org/draft/2020-12/schema"' .github/workflows/r7e-portable-json-schema-verification.yml
           grep -q 'scripts/validate-json-schemas.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
           grep -q 'scripts/run-portable-schema-contract.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          grep -q '\."\$schema"=="https://json-schema.org/draft/2020-12/schema"' .github/workflows/r7e-portable-json-schema-verification.yml
           sha256sum .github/scripts/materialize-portable-r7e-workflow.py .github/workflows/r7e-portable-json-schema-verification.yml > authoritative-workflow.sha256
           git hash-object .github/workflows/r7e-portable-json-schema-verification.yml > authoritative-workflow.git-blob-sha1
 
