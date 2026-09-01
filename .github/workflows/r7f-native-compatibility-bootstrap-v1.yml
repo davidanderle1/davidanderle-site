@@ -1,0 +1,98 @@
+name: Bootstrap native self-recording R7F compatibility v1
+
+on:
+  push:
+    branches:
+      - r7f-portable-self-recording-final-20260901
+    paths:
+      - '.github/workflows/r7f-native-compatibility-bootstrap-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7f-native-compatibility-bootstrap-v1
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated R7F branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Apply exact compatibility-only changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_one(path_value, old, new, label):
+              path=Path(path_value)
+              text=path.read_text(encoding='utf-8')
+              count=text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one anchor, found {count}')
+              path.write_text(text.replace(old,new,1),encoding='utf-8')
+
+          replace_one(
+              '.github/scripts/r7f-v3.sh',
+              "test \"$(<\"$BUILDER/R7E_GATE_DECISION.txt\")\" = 'R7E FULL-HISTORY RECONCILED BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F'",
+              "test \"$(<\"$BUILDER/R7E_GATE_DECISION.txt\")\" = 'R7E PORTABLE JSON SCHEMA BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F'",
+              'portable builder gate',
+          )
+
+          locked=Path('.github/scripts/r7f-v6-final-locked.sh')
+          text=locked.read_text(encoding='utf-8')
+          old_pass=" 'externalAuditPassed':audit.get('passed') is True and audit.get('decision')=='R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS' and audit.get('blockers')==[],"
+          new_pass=" 'externalAuditPassed':audit.get('passed') is True and audit.get('decision')=='R7E_FULL_HISTORY_EXTERNAL_AUDIT_PASS' and audit.get('failedChecks')==[] and audit.get('errors')==[],"
+          old_tuple=" 'externalAuditTuple':str((audit.get('builder') or {}).get('runId'))==os.environ['BUILDER_RUN_ID'] and str((audit.get('builder') or {}).get('artifactId'))==os.environ['BUILDER_ARTIFACT_ID'] and (audit.get('builder') or {}).get('headSha')==os.environ['BUILDER_COMMIT'] and (audit.get('builder') or {}).get('artifactDigest')==os.environ['BUILDER_ARTIFACT_DIGEST'],"
+          new_tuple=" 'externalAuditTuple':str((audit.get('builder') or {}).get('runId'))==os.environ['BUILDER_RUN_ID'] and str(((audit.get('builder') or {}).get('artifact') or {}).get('id'))==os.environ['BUILDER_ARTIFACT_ID'] and (audit.get('builder') or {}).get('commit')==os.environ['BUILDER_COMMIT'] and ((audit.get('builder') or {}).get('artifact') or {}).get('digest')==os.environ['BUILDER_ARTIFACT_DIGEST'],"
+          old_final=" 'external-r7e-audit-pass':audit.get('passed') is True and audit.get('blockers')==[],"
+          new_final=" 'external-r7e-audit-pass':audit.get('passed') is True and audit.get('failedChecks')==[] and audit.get('errors')==[],"
+          for old,new,label in (
+              (old_pass,new_pass,'external audit pass contract'),
+              (old_tuple,new_tuple,'external audit tuple contract'),
+              (old_final,new_final,'final external audit pass contract'),
+          ):
+              count=text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one anchor, found {count}')
+              text=text.replace(old,new,1)
+          locked.write_text(text,encoding='utf-8')
+          PY
+
+          bash -n .github/scripts/r7f-v3.sh
+          bash -n .github/scripts/r7f-v6-final.sh
+          bash -n .github/scripts/r7f-v6-final-locked.sh
+          python3 -m py_compile \
+            .github/scripts/r7f-v3-tree-guard.py \
+            .github/scripts/r7f-independent-source-audit.py \
+            .github/scripts/r7f-independent-axe-fingerprint-dynamic.py
+          grep -Fq "R7E PORTABLE JSON SCHEMA BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F" .github/scripts/r7f-v3.sh
+          ! grep -Fq "R7E FULL-HISTORY RECONCILED BUILD EVIDENCE COMPLETE — READY FOR INDEPENDENT R7F" .github/scripts/r7f-v3.sh
+          grep -Fq "((audit.get('builder') or {}).get('artifact') or {}).get('id')" .github/scripts/r7f-v6-final-locked.sh
+          grep -Fq "audit.get('failedChecks')==[] and audit.get('errors')==[]" .github/scripts/r7f-v6-final-locked.sh
+          sha256sum \
+            .github/scripts/r7f-v3.sh \
+            .github/scripts/r7f-v6-final-locked.sh \
+            > /tmp/r7f-native-compatibility.sha256
+
+      - name: Commit frozen compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/scripts/r7f-v3.sh .github/scripts/r7f-v6-final-locked.sh
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7F: natively consume self-recording portable R7E'
+          git push origin HEAD:r7f-portable-self-recording-final-20260901
