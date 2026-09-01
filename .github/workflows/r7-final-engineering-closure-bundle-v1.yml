@@ -1,0 +1,126 @@
+name: R7 final engineering closure bundle v1
+
+on:
+  push:
+    branches:
+      - r7-controller-external-audit-v1-20260901
+    paths:
+      - '.github/r7-status/R7_FINAL_ENGINEERING_CLOSURE_V3.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7-final-engineering-closure-bundle-v1
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact closure status commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Acquire and validate the entire exact closure evidence chain
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status=.github/r7-status/R7_FINAL_ENGINEERING_CLOSURE_V3.json
+          jq -e '.schema=="R7_FINAL_ENGINEERING_CLOSURE_TUPLE_V3" and .passed==true and .decision=="R7_CLOSED" and .maximumAuthorizedVerdict=="R7_TECHNICAL_ARCHITECTURE_CLOSED" and .r8ThroughR13Open==true and .wholeWebsiteProgrammeComplete==false and .mainMutationAuthorized==false and .productionDeploymentAuthorized==false' "$status" >/dev/null
+          rm -rf bundle-work R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1
+          mkdir -p bundle-work R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/OUTER_ARTIFACTS R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS
+          cp "$status" R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/
+          download_artifact() {
+            local id="$1" digest="$2" output="$3"
+            curl --fail --silent --show-error --location \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" \
+              --output "$output"
+            printf '%s  %s\n' "${digest#sha256:}" "$output" | sha256sum --check --strict
+          }
+          final_id="$(jq -r '.auditor.artifact.id' "$status")"
+          final_digest="$(jq -r '.auditor.artifact.digest' "$status")"
+          controller_id="$(jq -r '.controller.artifact.id' "$status")"
+          controller_digest="$(jq -r '.controller.artifact.digest' "$status")"
+          download_artifact "$final_id" "$final_digest" R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/OUTER_ARTIFACTS/06_FINAL_CONTROLLER_AUDIT.zip
+          download_artifact "$controller_id" "$controller_digest" R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/OUTER_ARTIFACTS/05_HISTORY_BOUND_CONTROLLER.zip
+          mkdir -p bundle-work/controller
+          python3 - <<'PY'
+          import stat,zipfile
+          from pathlib import Path,PurePosixPath
+          source=Path('R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/OUTER_ARTIFACTS/05_HISTORY_BOUND_CONTROLLER.zip')
+          target=Path('bundle-work/controller'); seen=set()
+          with zipfile.ZipFile(source) as archive:
+              for info in archive.infolist():
+                  pure=PurePosixPath(info.filename)
+                  if pure.is_absolute() or '..' in pure.parts or info.filename in seen or stat.S_IFMT(info.external_attr>>16)==stat.S_IFLNK:
+                      raise SystemExit(f'unsafe controller ZIP member: {info.filename}')
+                  seen.add(info.filename)
+              archive.extractall(target)
+          PY
+          for name in R7E_STATUS.json R7F_STATUS.json EXTERNAL_STATUS.json TRACEABILITY_STATUS.json R7_HISTORY_BOUND_FINAL_CONTROLLER_V5.json R7_HISTORY_BOUND_CONTROLLER_SELFTEST_V5.json; do
+            found="$(find bundle-work/controller -type f -name "$name" -print)"
+            test "$(wc -l <<<"$found")" -eq 1
+            cp "$found" R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/
+          done
+          download_artifact "$(jq -r '.artifact.id' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/R7E_STATUS.json)" "$(jq -r '.artifact.digest' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/R7E_STATUS.json)" R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/OUTER_ARTIFACTS/01_PORTABLE_R7E.zip
+          download_artifact "$(jq -r '.artifact.id' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/R7F_STATUS.json)" "$(jq -r '.artifact.digest' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/R7F_STATUS.json)" R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/OUTER_ARTIFACTS/02_PORTABLE_R7F.zip
+          download_artifact "$(jq -r '.artifact.id' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/EXTERNAL_STATUS.json)" "$(jq -r '.artifact.digest' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/EXTERNAL_STATUS.json)" R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/OUTER_ARTIFACTS/03_PORTABLE_EXTERNAL_AUDIT.zip
+          download_artifact "$(jq -r '.artifact.id' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/TRACEABILITY_STATUS.json)" "$(jq -r '.artifact.digest' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/TRACEABILITY_STATUS.json)" R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/OUTER_ARTIFACTS/04_FULL_HISTORY_TRACEABILITY.zip
+          gh api "repos/${GITHUB_REPOSITORY}/branches/main" > R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/MAIN_BRANCH_LIVE.json
+          test "$(jq -r '.commit.sha' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/MAIN_BRANCH_LIVE.json)" = 'bcc55fa7125013615f076dd7cf28a8ec9c5f232b'
+          cat > R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/README.md <<'EOF'
+          # R7 final engineering closure bundle
+
+          This bundle binds the exact portable R7E builder, independent R7F verifier, external portable audit, full-history traceability audit, read-only history-bound controller and final controller external audit.
+
+          Maximum authorized verdict: `R7_TECHNICAL_ARCHITECTURE_CLOSED`.
+
+          It does **not** authorize or claim:
+
+          - completion of the whole website programme;
+          - closure of R8 through R13;
+          - mutation of `main`;
+          - production deployment.
+          EOF
+          sed -i 's/^          //' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/README.md
+          jq -n \
+            --arg schema 'R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_MANIFEST_V1' \
+            --arg closureStatusCommit "$GITHUB_SHA" \
+            --arg mainSha "$(jq -r '.commit.sha' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/MAIN_BRANCH_LIVE.json)" \
+            --arg r7eCommit "$(jq -r '.commit' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/R7E_STATUS.json)" \
+            --arg r7fCommit "$(jq -r '.commit' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/R7F_STATUS.json)" \
+            --arg externalCommit "$(jq -r '.commit' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/EXTERNAL_STATUS.json)" \
+            --arg traceCommit "$(jq -r '.commit' R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/STATUS/TRACEABILITY_STATUS.json)" \
+            --arg controllerCommit "$(jq -r '.controller.commit' "$status")" \
+            --arg finalAuditCommit "$(jq -r '.auditor.commit' "$status")" \
+            '{schema:$schema,passed:true,decision:"R7_CLOSED",maximumAuthorizedVerdict:"R7_TECHNICAL_ARCHITECTURE_CLOSED",closureStatusCommit:$closureStatusCommit,mainSha:$mainSha,evidenceCommits:{r7e:$r7eCommit,r7f:$r7fCommit,externalAudit:$externalCommit,traceability:$traceCommit,controller:$controllerCommit,finalAudit:$finalAuditCommit},r8ThroughR13Open:true,wholeWebsiteProgrammeComplete:false,mainMutationAuthorized:false,productionDeploymentAuthorized:false}' \
+            > R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/BUNDLE_MANIFEST.json
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root=Path('R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1'); manifest=root/'BUNDLE_SHA256SUMS.txt'; rows=[]
+          for path in sorted((p for p in root.rglob('*') if p.is_file() and p!=manifest),key=lambda p:p.relative_to(root).as_posix().encode()):
+              rows.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}")
+          manifest.write_text('\n'.join(rows)+'\n',encoding='utf-8')
+          PY
+          (cd R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1 && sha256sum --check --strict BUNDLE_SHA256SUMS.txt)
+
+      - name: Upload consolidated final R7 engineering closure bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1-${{ github.sha }}
+          path: R7_FINAL_ENGINEERING_CLOSURE_BUNDLE_V1/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          include-hidden-files: true
