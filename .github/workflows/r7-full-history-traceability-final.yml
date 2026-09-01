@@ -111,6 +111,7 @@ jobs:
           add('R6-007','R6','Navigation, long titles and typography must survive torture content.','R6D production refinements',SAT,'Narrow-navigation and overflow hardening')
           add('R6-008','R6','Formal quantitative blind ownership protocol was not recorded and must not be falsely claimed.','R6D historical record',WAIVER,'User-delegated substantive approval recorded','R10','Run explicit final ownership review before build approval','Formal blind protocol remains unperformed; this is not rewritten as a pass.')
           carry.append({'id':'CF-R6-008-R12','sourceRequirementId':'R6-008','targetPhase':'R12','mandatoryGate':'Independent release reviewer must confirm BEARING still feels owned rather than templated','status':'BOUND_NOT_YET_EXECUTED'})
+          next(r for r in rows if r['id']=='R6-008')['additionalCarryForwardIds']=['CF-R6-008-R12']
 
           # R7 — technical architecture and empirical verification.
           add('R7-001','R7','Use native Astro static output as the production-reference architecture.','R7 architecture selection',SAT,'Native Astro source and dynamic routes')
@@ -192,6 +193,10 @@ jobs:
           ids=[r['id'] for r in rows]
           cids=[c['id'] for c in carry]
           row_by_id={r['id']:r for r in rows}
+          expected_carry_ids=set()
+          for row in rows:
+              if 'carryForwardId' in row: expected_carry_ids.add(row['carryForwardId'])
+              expected_carry_ids.update(row.get('additionalCarryForwardIds') or [])
           checks={
             'uniqueRequirementIds':len(ids)==len(set(ids)),
             'uniqueCarryForwardIds':len(cids)==len(set(cids)),
@@ -201,7 +206,7 @@ jobs:
             'allRequirementsHaveEvidence':all(bool(r.get('evidence')) for r in rows),
             'allDeferredHaveCarryForward':all('carryForwardId' in r for r in rows if r['status'].startswith('DEFERRED_BOUND_')),
             'allCarryForwardsResolve':all(c['sourceRequirementId'] in row_by_id for c in carry),
-            'carryForwardBijection':set(r['carryForwardId'] for r in rows if 'carryForwardId' in r).issubset(set(cids)),
+            'carryForwardBijection':expected_carry_ids==set(cids),
             'noOpenR7Blocker':not any(r['phase']=='R7' and r['status'] not in {SAT,SUPER,WAIVER} for r in rows),
             'ownershipCaveatHonest':row_by_id['R6-008']['status']==WAIVER and 'unperformed' in row_by_id['R6-008']['notes'],
             'portableSchemaRequirementPresent':row_by_id['R7-004']['status']==SAT and '2020-12' in row_by_id['R7-004']['requirement'],
@@ -228,13 +233,17 @@ jobs:
           # Adversarial self-test: every mutation must make the verifier reject.
           def verify(m,c):
               rs=m['requirements']; rb={r['id']:r for r in rs}; cs=c['items'];
+              expected=set()
+              for row in rs:
+                  if 'carryForwardId' in row: expected.add(row['carryForwardId'])
+                  expected.update(row.get('additionalCarryForwardIds') or [])
               return (
                 len({r['id'] for r in rs})==len(rs)
                 and set(m['roadmap'])=={f'R{i}' for i in range(1,14)}
                 and m['authorityHierarchy']==['CURRENT_FACTUAL_TRUTH_AND_PRIVACY','R5_PHOTOGRAPHY_AUTHORITY','R6C_R6D_BEARING_AUTHORITY','R4_CONTENT_IDENTITY_IA','CURRENT_PRIMARY_TECHNICAL_EVIDENCE','R7_ARCHITECTURE','OLDER_PROTOTYPES']
                 and not any(r['phase']=='R7' and r['status'] not in {SAT,SUPER,WAIVER} for r in rs)
                 and all('carryForwardId' in r for r in rs if r['status'].startswith('DEFERRED_BOUND_'))
-                and set(r['carryForwardId'] for r in rs if 'carryForwardId' in r).issubset({x['id'] for x in cs})
+                and expected=={x['id'] for x in cs}
                 and rb.get('R6-008',{}).get('status')==WAIVER
                 and 'unperformed' in rb.get('R6-008',{}).get('notes','')
                 and rb.get('R7-004',{}).get('status')==SAT
