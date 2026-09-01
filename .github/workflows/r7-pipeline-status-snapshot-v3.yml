@@ -1,0 +1,100 @@
+name: R7 authoritative pipeline status snapshot v3
+
+on:
+  push:
+    branches:
+      - r7-pipeline-status-snapshot-v1-20260901
+    paths:
+      - '.github/workflows/r7-pipeline-status-snapshot-v3.yml'
+      - '.github/r7-status/snapshot-v3-trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7-pipeline-status-snapshot-v3
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout snapshot branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Capture exact authoritative v3 chain state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .github/r7-status snapshot-v3-work
+          cat > snapshot-v3-work/stages.json <<'JSON'
+          [
+            {"id":"portable-r7e-v3","branch":"r7e-portable-authoritative-v3-20260901","workflowPath":".github/workflows/r7e-portable-authoritative-executor-v3.yml","statusPath":".github/r7-status/portable-r7e-v3.json"},
+            {"id":"portable-r7f-v7","branch":"r7f-portable-authoritative-v2-20260901","workflowPath":".github/workflows/r7f-portable-authoritative-v7.yml","statusPath":".github/r7-status/portable-r7f-v7.json"},
+            {"id":"portable-external-audit-v5","branch":"r7-portable-external-audit-v2-20260901","workflowPath":".github/workflows/r7-portable-external-audit-v5.yml","statusPath":".github/r7-status/portable-external-audit-v5.json"},
+            {"id":"full-history-traceability-v4","branch":"r7-full-history-traceability-v4-20260901","workflowPath":".github/workflows/r7-full-history-traceability-v4.yml","statusPath":".github/r7-status/full-history-traceability-v4.json"},
+            {"id":"history-bound-controller-v5","branch":"r7-history-bound-controller-v3-20260901","workflowPath":".github/workflows/r7-history-bound-controller-v5.yml","statusPath":null},
+            {"id":"controller-external-audit-v3","branch":"r7-controller-external-audit-v1-20260901","workflowPath":".github/workflows/r7-controller-external-audit-v3.yml","statusPath":".github/r7-status/R7_FINAL_ENGINEERING_CLOSURE_V3.json"}
+          ]
+          JSON
+          python3 - <<'PY'
+          import base64,json,os,subprocess
+          from pathlib import Path
+          repo=os.environ['GITHUB_REPOSITORY']; stages=json.loads(Path('snapshot-v3-work/stages.json').read_text())
+          def gh(endpoint):
+              result=subprocess.run(['gh','api',endpoint],text=True,capture_output=True)
+              if result.returncode!=0: return None,result.stderr.strip()
+              try: return json.loads(result.stdout),None
+              except Exception as exc: return None,f'JSON parse failed: {exc}'
+          rows=[]
+          for stage in stages:
+              branch,branch_error=gh(f"repos/{repo}/branches/{stage['branch']}"); head=branch.get('commit',{}).get('sha') if branch else None
+              runs,runs_error=gh(f"repos/{repo}/actions/runs?branch={stage['branch']}&per_page=100"); matches=[]
+              if runs:
+                  matches=[run for run in runs.get('workflow_runs',[]) if run.get('path')==stage['workflowPath']]
+                  matches.sort(key=lambda run:run.get('id',0),reverse=True)
+              latest=matches[0] if matches else None; jobs=artifacts=None; jobs_error=artifacts_error=None
+              if latest:
+                  jobs,jobs_error=gh(f"repos/{repo}/actions/runs/{latest['id']}/jobs?per_page=100")
+                  artifacts,artifacts_error=gh(f"repos/{repo}/actions/runs/{latest['id']}/artifacts?per_page=100")
+              status_present=False; status_document=None; status_error=None
+              if stage['statusPath']:
+                  status,status_error=gh(f"repos/{repo}/contents/{stage['statusPath']}?ref={stage['branch']}")
+                  if status and status.get('content'):
+                      status_present=True
+                      try: status_document=json.loads(base64.b64decode(status['content']).decode())
+                      except Exception as exc: status_error=f'status decode failed: {exc}'
+              rows.append({'id':stage['id'],'branch':stage['branch'],'branchHead':head,'branchError':branch_error,'workflowPath':stage['workflowPath'],'latestRun':latest,'latestJobs':jobs.get('jobs',[]) if jobs else None,'latestArtifacts':artifacts.get('artifacts',[]) if artifacts else None,'runQueryError':runs_error,'jobsQueryError':jobs_error,'artifactsQueryError':artifacts_error,'statusPath':stage['statusPath'],'statusPresent':status_present,'statusDocument':status_document,'statusError':status_error})
+          closure=rows[-1]
+          if closure['statusPresent'] and closure['statusDocument'].get('schema')=='R7_FINAL_ENGINEERING_CLOSURE_TUPLE_V3' and closure['statusDocument'].get('decision')=='R7_CLOSED': decision='R7_CLOSED'
+          else:
+              failed=[row for row in rows if row['latestRun'] and row['latestRun'].get('status')=='completed' and row['latestRun'].get('conclusion') not in ('success','skipped') and not row['statusPresent']]
+              running=[row for row in rows if row['latestRun'] and row['latestRun'].get('status')!='completed']
+              missing=[row for row in rows if row['statusPath'] and not row['statusPresent']]
+              decision='PIPELINE_BLOCKED' if failed else ('PIPELINE_IN_PROGRESS' if running else ('PIPELINE_PENDING_OR_INCOMPLETE' if missing else 'CONTROLLER_PENDING'))
+          snapshot={'schema':'R7_PIPELINE_STATUS_SNAPSHOT_V3','generatedByRunId':int(os.environ['GITHUB_RUN_ID']),'generatedFromCommit':os.environ['GITHUB_SHA'],'repository':repo,'decision':decision,'authoritativeChain':['portable-r7e-v3','portable-r7f-v7','portable-external-audit-v5','full-history-traceability-v4','history-bound-controller-v5','controller-external-audit-v3'],'stageCount':len(rows),'statusMarkerCount':sum(row['statusPresent'] for row in rows),'stages':rows}
+          Path('.github/r7-status/PIPELINE_SNAPSHOT_V3.json').write_text(json.dumps(snapshot,indent=2)+'\n')
+          print(json.dumps({'decision':decision,'statusMarkerCount':snapshot['statusMarkerCount'],'stages':[{'id':row['id'],'head':row['branchHead'],'runId':row['latestRun'].get('id') if row['latestRun'] else None,'runStatus':row['latestRun'].get('status') if row['latestRun'] else None,'runConclusion':row['latestRun'].get('conclusion') if row['latestRun'] else None,'statusPresent':row['statusPresent']} for row in rows]},indent=2))
+          PY
+          jq -e '.schema=="R7_PIPELINE_STATUS_SNAPSHOT_V3" and .stageCount==6 and (.authoritativeChain|length)==6' .github/r7-status/PIPELINE_SNAPSHOT_V3.json >/dev/null
+
+      - name: Persist authoritative v3 snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7-status/PIPELINE_SNAPSHOT_V3.json
+          git diff --cached --check
+          git commit -m 'R7: persist authoritative v3 pipeline snapshot'
+          git fetch origin r7-pipeline-status-snapshot-v1-20260901
+          git rebase origin/r7-pipeline-status-snapshot-v1-20260901
+          git push origin HEAD:r7-pipeline-status-snapshot-v1-20260901
