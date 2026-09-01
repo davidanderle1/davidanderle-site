@@ -1,0 +1,314 @@
+name: R7 history-bound final controller v3
+
+on:
+  push:
+    branches:
+      - r7-history-bound-controller-v3-20260901
+    paths:
+      - '.github/workflows/r7-history-bound-controller-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: r7-history-bound-final-controller-v3
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  R7E_BRANCH: r7e-portable-authoritative-v3-20260901
+  R7E_STATUS_PATH: .github/r7-status/portable-r7e-v3.json
+  R7F_BRANCH: r7f-portable-authoritative-v2-20260901
+  R7F_STATUS_PATH: .github/r7-status/portable-r7f-v4.json
+  EXTERNAL_BRANCH: r7-portable-external-audit-v2-20260901
+  EXTERNAL_STATUS_PATH: .github/r7-status/portable-external-audit-v3.json
+  TRACE_BRANCH: r7-full-history-traceability-v4-20260901
+  TRACE_STATUS_PATH: .github/r7-status/full-history-traceability-v4.json
+
+jobs:
+  decide:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact read-only controller authority
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Acquire all four exact persistent status tuples
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p controller-input controller-work controller-artifact
+          for attempt in $(seq 1 400); do
+            r7e="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${R7E_STATUS_PATH}?ref=${R7E_BRANCH}" --jq '.content' 2>/dev/null || true)"
+            r7f="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${R7F_STATUS_PATH}?ref=${R7F_BRANCH}" --jq '.content' 2>/dev/null || true)"
+            external="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${EXTERNAL_STATUS_PATH}?ref=${EXTERNAL_BRANCH}" --jq '.content' 2>/dev/null || true)"
+            trace="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${TRACE_STATUS_PATH}?ref=${TRACE_BRANCH}" --jq '.content' 2>/dev/null || true)"
+            if test -n "$r7e" && test -n "$r7f" && test -n "$external" && test -n "$trace"; then
+              printf '%s' "$r7e" | tr -d '\n' | base64 --decode > controller-input/R7E_STATUS.json
+              printf '%s' "$r7f" | tr -d '\n' | base64 --decode > controller-input/R7F_STATUS.json
+              printf '%s' "$external" | tr -d '\n' | base64 --decode > controller-input/EXTERNAL_STATUS.json
+              printf '%s' "$trace" | tr -d '\n' | base64 --decode > controller-input/TRACEABILITY_STATUS.json
+              break
+            fi
+            sleep 15
+          done
+          test -s controller-input/R7E_STATUS.json
+          test -s controller-input/R7F_STATUS.json
+          test -s controller-input/EXTERNAL_STATUS.json
+          test -s controller-input/TRACEABILITY_STATUS.json
+          jq -e '.schema=="R7E_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V3" and .passed==true' controller-input/R7E_STATUS.json >/dev/null
+          jq -e '.schema=="R7F_PORTABLE_JSON_SCHEMA_AUTHORITATIVE_TUPLE_V4" and .passed==true' controller-input/R7F_STATUS.json >/dev/null
+          jq -e '.schema=="R7_PORTABLE_EXTERNAL_AUDIT_TUPLE_V3" and .passed==true' controller-input/EXTERNAL_STATUS.json >/dev/null
+          jq -e '.schema=="R7_FULL_HISTORY_TRACEABILITY_TUPLE_V4" and .passed==true and .metrics.openR7BlockerCount==0 and .metrics.orphanedRequirementCount==0 and .metrics.unresolvedMaterialClauseCount==0' controller-input/TRACEABILITY_STATUS.json >/dev/null
+          jq -e --slurpfile r7e controller-input/R7E_STATUS.json '.builder.commit==$r7e[0].commit and .builder.artifactDigest==$r7e[0].artifact.digest' controller-input/R7F_STATUS.json >/dev/null
+          jq -e --slurpfile r7e controller-input/R7E_STATUS.json --slurpfile r7f controller-input/R7F_STATUS.json '.r7e.commit==$r7e[0].commit and .r7e.artifactDigest==$r7e[0].artifact.digest and .r7f.commit==$r7f[0].commit and .r7f.artifactDigest==$r7f[0].artifact.digest' controller-input/EXTERNAL_STATUS.json >/dev/null
+
+      - name: Prove live GitHub run artifact and main-branch bindings
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/branches/main" > controller-input/MAIN_BRANCH.json
+          test "$(jq -r '.commit.sha' controller-input/MAIN_BRANCH.json)" = 'bcc55fa7125013615f076dd7cf28a8ec9c5f232b'
+          for label in R7E R7F EXTERNAL TRACEABILITY; do
+            lower="$(tr '[:upper:]' '[:lower:]' <<<"$label")"
+            status="controller-input/${label}_STATUS.json"
+            run_id="$(jq -r '.runId' "$status")"
+            artifact_id="$(jq -r '.artifact.id' "$status")"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" > "controller-input/${label}_RUN_METADATA.json"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}" > "controller-input/${label}_ARTIFACT_METADATA.json"
+            jq -e --slurpfile status "$status" '.status=="completed" and .conclusion=="success" and .id==$status[0].runId and .head_sha==$status[0].commit and .head_branch==$status[0].branch' "controller-input/${label}_RUN_METADATA.json" >/dev/null
+            jq -e --slurpfile status "$status" '.id==$status[0].artifact.id and .name==$status[0].artifact.name and .digest==$status[0].artifact.digest and .expired==false and .workflow_run.id==$status[0].runId' "controller-input/${label}_ARTIFACT_METADATA.json" >/dev/null
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('controller-input')
+          data={
+              'schema':'R7_LIVE_GITHUB_BINDING_V3',
+              'passed':True,
+              'repository':'davidanderle1/davidanderle-site',
+              'main':{
+                  'baselineSha':'bcc55fa7125013615f076dd7cf28a8ec9c5f232b',
+                  'currentSha':json.loads((root/'MAIN_BRANCH.json').read_text())['commit']['sha'],
+              },
+              'productionDeploymentAuthorized':False,
+              'wholeSiteComplete':False,
+          }
+          for label in ('r7e','r7f','external','traceability'):
+              upper=label.upper()
+              data[label]={
+                  'run':json.loads((root/f'{upper}_RUN_METADATA.json').read_text()),
+                  'artifact':json.loads((root/f'{upper}_ARTIFACT_METADATA.json').read_text()),
+              }
+          (root/'R7_LIVE_GITHUB_BINDING_V3.json').write_text(json.dumps(data,indent=2)+'\n')
+          PY
+
+      - name: Download and independently verify external-audit and traceability artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          external_id="$(jq -r '.artifact.id' controller-input/EXTERNAL_STATUS.json)"
+          external_digest="$(jq -r '.artifact.digest' controller-input/EXTERNAL_STATUS.json)"
+          trace_id="$(jq -r '.artifact.id' controller-input/TRACEABILITY_STATUS.json)"
+          trace_digest="$(jq -r '.artifact.digest' controller-input/TRACEABILITY_STATUS.json)"
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${external_id}/zip" \
+            --output controller-input/EXTERNAL_AUTHORITATIVE.zip
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${trace_id}/zip" \
+            --output controller-input/TRACEABILITY_AUTHORITATIVE.zip
+          printf '%s  %s\n' "${external_digest#sha256:}" controller-input/EXTERNAL_AUTHORITATIVE.zip | sha256sum --check --strict
+          printf '%s  %s\n' "${trace_digest#sha256:}" controller-input/TRACEABILITY_AUTHORITATIVE.zip | sha256sum --check --strict
+          python3 - <<'PY'
+          import hashlib,json,shutil,stat,zipfile
+          from pathlib import Path,PurePosixPath
+
+          root=Path('controller-input')
+          def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+          def extract(name,target):
+              target=Path(target)
+              if target.exists(): shutil.rmtree(target)
+              target.mkdir(parents=True)
+              seen=set()
+              with zipfile.ZipFile(root/name) as archive:
+                  for info in archive.infolist():
+                      pure=PurePosixPath(info.filename)
+                      if pure.is_absolute() or '..' in pure.parts or info.filename in seen or stat.S_IFMT(info.external_attr>>16)==stat.S_IFLNK:
+                          raise SystemExit(f'unsafe artifact member: {name}:{info.filename}')
+                      seen.add(info.filename)
+                  archive.extractall(target)
+          def unique(base,filename):
+              found=list(Path(base).rglob(filename))
+              if len(found)!=1: raise SystemExit(f'expected one {filename}, found {len(found)}')
+              return found[0]
+          def verify_manifest(base,filename):
+              manifest=unique(base,filename); artifact_root=manifest.parent; rows={}
+              for line in manifest.read_text().splitlines():
+                  if not line.strip(): continue
+                  digest,relative=line.split('  ',1); relative=relative.lstrip('*')
+                  pure=PurePosixPath(relative)
+                  if pure.is_absolute() or '..' in pure.parts or relative in rows: raise SystemExit(f'unsafe manifest path: {relative}')
+                  rows[relative]=digest
+              actual={p.relative_to(artifact_root).as_posix() for p in artifact_root.rglob('*') if p.is_file() and p!=manifest}
+              if set(rows)!=actual: raise SystemExit(f'manifest coverage mismatch: {filename}')
+              for relative,digest in rows.items():
+                  if sha(artifact_root/relative)!=digest: raise SystemExit(f'manifest hash mismatch: {relative}')
+              return artifact_root
+          extract('EXTERNAL_AUTHORITATIVE.zip',root/'external-extracted')
+          extract('TRACEABILITY_AUTHORITATIVE.zip',root/'trace-extracted')
+          external_root=verify_manifest(root/'external-extracted','R7_PORTABLE_EXTERNAL_AUDIT_SHA256SUMS.txt')
+          trace_root=verify_manifest(root/'trace-extracted','R7_TRACEABILITY_ARTIFACT_SHA256SUMS.txt')
+          external_status=json.loads((root/'EXTERNAL_STATUS.json').read_text())
+          trace_status=json.loads((root/'TRACEABILITY_STATUS.json').read_text())
+          external_report=unique(external_root,'R7_PORTABLE_EXTERNAL_AUDIT_V3.json')
+          external_selftest=unique(external_root,'R7_PORTABLE_EXTERNAL_AUDIT_SELFTEST_V3.json')
+          if sha(external_report)!=external_status['auditSha256'] or sha(external_selftest)!=external_status['selftestSha256']:
+              raise SystemExit('external audit status hash mismatch')
+          if not json.loads(external_report.read_text()).get('passed'): raise SystemExit('external report not passing')
+          if json.loads(external_selftest.read_text()).get('passedCaseCount')!=6: raise SystemExit('external self-test not 6/6')
+          mapping={
+              'corpus':'R7_FULL_HISTORY_CORPUS_MANIFEST_V4.json',
+              'traceability':'R7_REQUIREMENTS_TRACEABILITY_V4.json',
+              'carryForward':'R7_CARRY_FORWARD_REGISTER_V4.json',
+              'readiness':'R7_ZERO_ORPHAN_READINESS_V4.json',
+              'verification':'R7_FULL_HISTORY_TRACEABILITY_VERIFICATION_V4.json',
+              'selftest':'R7_FULL_HISTORY_TRACEABILITY_SELFTEST_V4.json',
+          }
+          copied={}
+          for key,filename in mapping.items():
+              path=unique(trace_root,filename)
+              if sha(path)!=trace_status['hashes'][key]: raise SystemExit(f'traceability status hash mismatch: {key}')
+              target=root/filename; target.write_bytes(path.read_bytes()); copied[key]=target
+          if not json.loads(copied['readiness'].read_text()).get('passed'): raise SystemExit('zero-orphan readiness not passing')
+          if not json.loads(copied['verification'].read_text()).get('passed'): raise SystemExit('traceability verification not passing')
+          if json.loads(copied['selftest'].read_text()).get('passedCaseCount')!=10: raise SystemExit('traceability self-test not 10/10')
+          shutil.copy2(external_report,root/'R7_PORTABLE_EXTERNAL_AUDIT_V3.json')
+          shutil.copy2(external_selftest,root/'R7_PORTABLE_EXTERNAL_AUDIT_SELFTEST_V3.json')
+          PY
+
+      - name: Execute history-bound final controller and twelve adversarial mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            .github/scripts/r7-history-bound-controller-v3.py \
+            .github/scripts/r7-history-bound-controller-v3-selftest.py
+          python3 .github/scripts/r7-history-bound-controller-v3.py \
+            --r7e controller-input/R7E_STATUS.json \
+            --r7f controller-input/R7F_STATUS.json \
+            --external controller-input/EXTERNAL_STATUS.json \
+            --traceability controller-input/R7_REQUIREMENTS_TRACEABILITY_V4.json \
+            --carry controller-input/R7_CARRY_FORWARD_REGISTER_V4.json \
+            --authority .github/r7-controller-v3/R7_AUTHORITY_HIERARCHY_V3.json \
+            --roadmap .github/r7-controller-v3/DAVID_ANDERLE_WEBSITE_PROGRAMME_ROADMAP_V3.json \
+            --ownership .github/r7-controller-v3/BEARING_OWNERSHIP_DECISION_V3.json \
+            --live controller-input/R7_LIVE_GITHUB_BINDING_V3.json \
+            --output controller-work/R7_HISTORY_BOUND_FINAL_CONTROLLER_V3.json \
+            > controller-work/controller.stdout.txt
+          jq -e '.passed==true and .decision=="R7_CLOSED" and .maximumAuthorizedVerdict=="R7_TECHNICAL_ARCHITECTURE_CLOSED" and .scope.mainMutationAuthorized==false and .scope.productionDeploymentAuthorized==false' \
+            controller-work/R7_HISTORY_BOUND_FINAL_CONTROLLER_V3.json >/dev/null
+          python3 .github/scripts/r7-history-bound-controller-v3-selftest.py \
+            --r7e controller-input/R7E_STATUS.json \
+            --r7f controller-input/R7F_STATUS.json \
+            --external controller-input/EXTERNAL_STATUS.json \
+            --traceability controller-input/R7_REQUIREMENTS_TRACEABILITY_V4.json \
+            --carry controller-input/R7_CARRY_FORWARD_REGISTER_V4.json \
+            --authority .github/r7-controller-v3/R7_AUTHORITY_HIERARCHY_V3.json \
+            --roadmap .github/r7-controller-v3/DAVID_ANDERLE_WEBSITE_PROGRAMME_ROADMAP_V3.json \
+            --ownership .github/r7-controller-v3/BEARING_OWNERSHIP_DECISION_V3.json \
+            --live controller-input/R7_LIVE_GITHUB_BINDING_V3.json \
+            --output controller-work/R7_HISTORY_BOUND_CONTROLLER_SELFTEST_V3.json \
+            > controller-work/selftest.stdout.txt
+          jq -e '.passed==true and .caseCount==12 and .passedCaseCount==12 and .authenticDecision=="R7_CLOSED"' \
+            controller-work/R7_HISTORY_BOUND_CONTROLLER_SELFTEST_V3.json >/dev/null
+
+      - name: Assemble immutable read-only controller evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp controller-work/R7_HISTORY_BOUND_FINAL_CONTROLLER_V3.json controller-artifact/
+          cp controller-work/R7_HISTORY_BOUND_CONTROLLER_SELFTEST_V3.json controller-artifact/
+          cp controller-work/*.stdout.txt controller-artifact/
+          cp controller-input/R7E_STATUS.json controller-artifact/
+          cp controller-input/R7F_STATUS.json controller-artifact/
+          cp controller-input/EXTERNAL_STATUS.json controller-artifact/
+          cp controller-input/TRACEABILITY_STATUS.json controller-artifact/
+          cp controller-input/R7_LIVE_GITHUB_BINDING_V3.json controller-artifact/
+          cp controller-input/R7_FULL_HISTORY_CORPUS_MANIFEST_V4.json controller-artifact/
+          cp controller-input/R7_REQUIREMENTS_TRACEABILITY_V4.json controller-artifact/
+          cp controller-input/R7_CARRY_FORWARD_REGISTER_V4.json controller-artifact/
+          cp controller-input/R7_ZERO_ORPHAN_READINESS_V4.json controller-artifact/
+          cp controller-input/R7_FULL_HISTORY_TRACEABILITY_VERIFICATION_V4.json controller-artifact/
+          cp controller-input/R7_FULL_HISTORY_TRACEABILITY_SELFTEST_V4.json controller-artifact/
+          cp controller-input/R7_PORTABLE_EXTERNAL_AUDIT_V3.json controller-artifact/
+          cp controller-input/R7_PORTABLE_EXTERNAL_AUDIT_SELFTEST_V3.json controller-artifact/
+          cp .github/r7-controller-v3/*.json controller-artifact/
+          cp .github/scripts/r7-history-bound-controller-v3.py controller-artifact/
+          cp .github/scripts/r7-history-bound-controller-v3-selftest.py controller-artifact/
+          cp .github/workflows/r7-history-bound-controller-v3.yml controller-artifact/
+          sha256sum \
+            .github/scripts/r7-history-bound-controller-v3.py \
+            .github/scripts/r7-history-bound-controller-v3-selftest.py \
+            .github/workflows/r7-history-bound-controller-v3.yml \
+            .github/r7-controller-v3/*.json \
+            > controller-artifact/R7_CONTROLLER_INFRASTRUCTURE_SHA256SUMS.txt
+          cat > controller-artifact/R7_ENGINEERING_GATE_DECISION.txt <<'EOF'
+          R7_CLOSED — TECHNICAL ARCHITECTURE AND EMPIRICAL VERIFICATION ONLY
+          R8–R13 REMAIN OPEN
+          MAIN MUTATION NOT AUTHORIZED
+          PRODUCTION DEPLOYMENT NOT AUTHORIZED
+          WHOLE WEBSITE PROGRAMME NOT COMPLETE
+          EOF
+          sed -i 's/^          //' controller-artifact/R7_ENGINEERING_GATE_DECISION.txt
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root=Path('controller-artifact'); manifest=root/'R7_CONTROLLER_ARTIFACT_SHA256SUMS.txt'
+          rows=[]
+          for path in sorted((p for p in root.rglob('*') if p.is_file() and p!=manifest),key=lambda p:p.relative_to(root).as_posix().encode()):
+              rows.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}")
+          manifest.write_text('\n'.join(rows)+'\n',encoding='utf-8')
+          PY
+          (
+            cd controller-artifact
+            sha256sum --check --strict R7_CONTROLLER_ARTIFACT_SHA256SUMS.txt
+          )
+
+      - name: Upload final read-only R7 controller evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-history-bound-controller-v3-evidence-${{ github.sha }}
+          path: controller-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Upload controller failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7-history-bound-controller-v3-failure-${{ github.sha }}
+          path: |
+            controller-input/
+            controller-work/
+            controller-artifact/
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
