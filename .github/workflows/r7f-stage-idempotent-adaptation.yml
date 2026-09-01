@@ -1,0 +1,50 @@
+name: Stage idempotent final R7F adaptation workflow
+
+on:
+  push:
+    branches:
+      - r7f-portable-final-20260901
+    paths:
+      - '.github/workflows/r7f-stage-idempotent-adaptation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7f-stage-idempotent-adaptation
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout final R7F branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Patch, parse and stage final workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/patch-r7f-adaptation-idempotence.py
+          python3 .github/scripts/patch-r7f-adaptation-idempotence.py
+          ruby -ryaml -e 'YAML.safe_load(File.read(ARGV[0]), aliases: true)' .github/workflows/r7f-portable-final-verification.yml
+          grep -q "<already-aligned-verifier-baseline>" .github/workflows/r7f-portable-final-verification.yml
+          mkdir -p .r7-staging
+          cp .github/workflows/r7f-portable-final-verification.yml .r7-staging/r7f-portable-final-verification-v2.yml
+          sha256sum .r7-staging/r7f-portable-final-verification-v2.yml > .r7-staging/r7f-portable-final-verification-v2.yml.sha256
+
+      - name: Commit staged final workflow blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .r7-staging/r7f-portable-final-verification-v2.yml .r7-staging/r7f-portable-final-verification-v2.yml.sha256
+          git diff --cached --check
+          git commit -m 'R7F: stage idempotent final adaptation workflow'
+          git push origin HEAD:r7f-portable-final-20260901
