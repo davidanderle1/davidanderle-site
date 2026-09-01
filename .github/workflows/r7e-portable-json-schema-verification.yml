@@ -69,7 +69,7 @@ jobs:
           test "$actual_archive_sha" = "$expected_archive_sha"
           test "$actual_archive_sha" = "$ready_archive_sha"
           unzip -q r7e-native-source.zip -d candidate
-          for required in package.json package-lock.json .node-version .nvmrc astro.config.mjs src/content.config.ts src/content-schemas.ts docs/R7_HISTORY_RECONCILIATION.md docs/PORTABLE_JSON_SCHEMA.md schemas/index.json schemas/canonical-content.schema.json src/components/HomepageRecordPreview.astro src/components/WritingRecordPreview.astro src/lib/profile-copy.ts scripts/build-axe-fingerprint-adjudication.mjs scripts/generate-json-schemas.mjs scripts/validate-json-schema.mjs scripts/verify-json-schema-drift.mjs; do
+          for required in package.json package-lock.json .node-version .nvmrc astro.config.mjs src/content.config.ts src/content-schemas.ts docs/R7_HISTORY_RECONCILIATION.md docs/PORTABLE_JSON_SCHEMA.md schemas/index.json schemas/canonical-content.schema.json src/components/HomepageRecordPreview.astro src/components/WritingRecordPreview.astro src/lib/profile-copy.ts scripts/build-axe-fingerprint-adjudication.mjs scripts/generate-json-schemas.mjs scripts/validate-json-schemas.mjs scripts/run-portable-schema-contract.mjs; do
             test -f "candidate/$required"
           done
           rm -rf candidate/node_modules candidate/dist candidate/.astro candidate/.r7e-tmp candidate/public/assets/portrait candidate/public/assets/js candidate/public/artifacts candidate/src/data/generated
