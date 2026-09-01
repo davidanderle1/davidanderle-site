@@ -241,6 +241,7 @@ jobs:
                 and rb.get('R7-028',{}).get('status')==SAT
                 and rb.get('R7-031',{}).get('status')==SAT
                 and rb.get('R7-032',{}).get('status')==SAT
+                and all(r['status'].startswith('DEFERRED_BOUND_') for r in rs if r['phase'] in {f'R{i}' for i in range(8,14)})
               )
           authentic=verify(matrix,{'items':carry})
           cases=[]
