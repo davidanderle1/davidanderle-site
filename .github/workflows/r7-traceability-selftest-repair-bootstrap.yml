@@ -1,0 +1,115 @@
+name: Bootstrap final traceability self-test repair
+
+on:
+  push:
+    branches:
+      - r7-full-history-traceability-final-20260901
+    paths:
+      - '.github/workflows/r7-traceability-selftest-repair-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: r7-traceability-selftest-repair-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated traceability branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Repair future-phase and carry-forward adversarial invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/r7-full-history-traceability-final.yml')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one anchor, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              "          carry.append({'id':'CF-R6-008-R12','sourceRequirementId':'R6-008','targetPhase':'R12','mandatoryGate':'Independent release reviewer must confirm BEARING still feels owned rather than templated','status':'BOUND_NOT_YET_EXECUTED'})\n",
+              "          carry.append({'id':'CF-R6-008-R12','sourceRequirementId':'R6-008','targetPhase':'R12','mandatoryGate':'Independent release reviewer must confirm BEARING still feels owned rather than templated','status':'BOUND_NOT_YET_EXECUTED'})\n"
+              "          next(r for r in rows if r['id']=='R6-008')['additionalCarryForwardIds']=['CF-R6-008-R12']\n",
+              'explicit second ownership carry-forward binding',
+          )
+
+          replace_once(
+              "          row_by_id={r['id']:r for r in rows}\n          checks={\n",
+              "          row_by_id={r['id']:r for r in rows}\n"
+              "          expected_carry_ids=set()\n"
+              "          for row in rows:\n"
+              "              if 'carryForwardId' in row: expected_carry_ids.add(row['carryForwardId'])\n"
+              "              expected_carry_ids.update(row.get('additionalCarryForwardIds') or [])\n"
+              "          checks={\n",
+              'canonical expected carry-forward set',
+          )
+
+          replace_once(
+              "  'carryForwardBijection':set(r['carryForwardId'] for r in rows if 'carryForwardId' in r).issubset(set(cids)),\n",
+              "  'carryForwardBijection':expected_carry_ids==set(cids),\n",
+              'exact carry-forward bijection',
+          )
+
+          replace_once(
+              "          def verify(m,c):\n              rs=m['requirements']; rb={r['id']:r for r in rs}; cs=c['items'];\n              return (\n",
+              "          def verify(m,c):\n"
+              "              rs=m['requirements']; rb={r['id']:r for r in rs}; cs=c['items'];\n"
+              "              expected=set()\n"
+              "              for row in rs:\n"
+              "                  if 'carryForwardId' in row: expected.add(row['carryForwardId'])\n"
+              "                  expected.update(row.get('additionalCarryForwardIds') or [])\n"
+              "              return (\n",
+              'self-test expected carry-forward set',
+          )
+
+          replace_once(
+              "      and set(r['carryForwardId'] for r in rs if 'carryForwardId' in r).issubset({x['id'] for x in cs})\n",
+              "      and expected=={x['id'] for x in cs}\n",
+              'self-test exact carry-forward bijection',
+          )
+
+          replace_once(
+              "      and rb.get('R7-032',{}).get('status')==SAT\n    )\n",
+              "      and rb.get('R7-032',{}).get('status')==SAT\n"
+              "      and all(r['status'].startswith('DEFERRED_BOUND_') for r in rs if r['phase'] in {f'R{i}' for i in range(8,14)})\n"
+              "    )\n",
+              'future programme must remain deferred in self-test verifier',
+          )
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          ruby -ryaml -e 'YAML.safe_load(File.read(ARGV[0]), aliases: true)' .github/workflows/r7-full-history-traceability-final.yml
+          grep -q "additionalCarryForwardIds" .github/workflows/r7-full-history-traceability-final.yml
+          grep -q "expected_carry_ids==set(cids)" .github/workflows/r7-full-history-traceability-final.yml
+          grep -q "all(r\['status'\].startswith('DEFERRED_BOUND_')" .github/workflows/r7-full-history-traceability-final.yml
+
+      - name: Commit repaired traceability authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/r7-full-history-traceability-final.yml
+          test -n "$(git diff --cached --name-only)"
+          git diff --cached --check
+          git commit -m 'R7: enforce future-phase and exact carry-forward traceability invariants'
+          git push origin HEAD:r7-full-history-traceability-final-20260901
