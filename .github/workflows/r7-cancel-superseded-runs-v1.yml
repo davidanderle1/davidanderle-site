@@ -1,0 +1,107 @@
+name: R7 cancel superseded active runs v1
+
+on:
+  push:
+    branches:
+      - r7-pipeline-status-snapshot-v1-20260901
+    paths:
+      - '.github/workflows/r7-cancel-superseded-runs-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: r7-cancel-superseded-runs-v1
+  cancel-in-progress: false
+
+jobs:
+  cancel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout cleanup authority
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Cancel only explicitly superseded queued or active runs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .github/r7-status cancellation-work
+          cat > cancellation-work/superseded.json <<'JSON'
+          [
+            ".github/workflows/r7f-portable-authoritative-v2.yml",
+            ".github/workflows/r7f-portable-authoritative-v3.yml",
+            ".github/workflows/r7f-portable-authoritative-v4.yml",
+            ".github/workflows/r7f-portable-authoritative-v5.yml",
+            ".github/workflows/r7f-portable-authoritative-v6.yml",
+            ".github/workflows/r7-portable-external-audit-v3.yml",
+            ".github/workflows/r7-portable-external-audit-v4.yml",
+            ".github/workflows/r7-history-bound-controller-v3.yml",
+            ".github/workflows/r7-history-bound-controller-v4.yml",
+            ".github/workflows/r7-controller-external-audit-v1.yml",
+            ".github/workflows/r7-controller-external-audit-v2.yml"
+          ]
+          JSON
+          cat > cancellation-work/authoritative.json <<'JSON'
+          [
+            ".github/workflows/r7e-portable-authoritative-executor-v3.yml",
+            ".github/workflows/r7f-portable-authoritative-v7.yml",
+            ".github/workflows/r7-portable-external-audit-v5.yml",
+            ".github/workflows/r7-full-history-traceability-v4.yml",
+            ".github/workflows/r7-history-bound-controller-v5.yml",
+            ".github/workflows/r7-controller-external-audit-v3.yml",
+            ".github/workflows/r7-pipeline-terminal-monitor-v1.yml"
+          ]
+          JSON
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" --paginate > cancellation-work/all-runs-pages.jsonl
+          jq -s '[.[].workflow_runs[]]' cancellation-work/all-runs-pages.jsonl > cancellation-work/all-runs.json
+          jq --slurpfile superseded cancellation-work/superseded.json --slurpfile authoritative cancellation-work/authoritative.json '
+            [ .[] |
+              select((.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="requested" or .status=="pending")) |
+              select(.path as $path | ($superseded[0] | index($path)) != null) |
+              select(.path as $path | ($authoritative[0] | index($path)) == null)
+            ]
+          ' cancellation-work/all-runs.json > cancellation-work/to-cancel.json
+          jq -e --slurpfile authoritative cancellation-work/authoritative.json 'all(.[]; .path as $path | ($authoritative[0] | index($path)) == null)' cancellation-work/to-cancel.json >/dev/null
+          : > cancellation-work/results.jsonl
+          while IFS= read -r run; do
+            test -n "$run" || continue
+            id="$(jq -r '.id' <<<"$run")"
+            path="$(jq -r '.path' <<<"$run")"
+            status="$(jq -r '.status' <<<"$run")"
+            code="$(curl --silent --show-error --output /tmp/cancel-response --write-out '%{http_code}' --request POST -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${id}/cancel")"
+            jq -n --argjson id "$id" --arg path "$path" --arg priorStatus "$status" --arg httpCode "$code" '{runId:$id,path:$path,priorStatus:$priorStatus,httpCode:$httpCode,accepted:($httpCode=="202" or $httpCode=="409")}' >> cancellation-work/results.jsonl
+          done < <(jq -c '.[]' cancellation-work/to-cancel.json)
+          if test -s cancellation-work/results.jsonl; then jq -s '.' cancellation-work/results.jsonl > cancellation-work/results.json; else printf '[]\n' > cancellation-work/results.json; fi
+          jq -e 'all(.[]; .accepted==true)' cancellation-work/results.json >/dev/null
+          jq -n \
+            --arg schema 'R7_SUPERSEDED_RUN_CANCELLATION_V1' \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg commit "$GITHUB_SHA" \
+            --slurpfile superseded cancellation-work/superseded.json \
+            --slurpfile authoritative cancellation-work/authoritative.json \
+            --slurpfile selected cancellation-work/to-cancel.json \
+            --slurpfile results cancellation-work/results.json \
+            '{schema:$schema,passed:true,repository:$repository,cleanupCommit:$commit,supersededWorkflowPaths:$superseded[0],protectedAuthoritativeWorkflowPaths:$authoritative[0],selectedRunCount:($selected[0]|length),selectedRuns:$selected[0],results:$results[0],authoritativeRunsCancelled:false}' \
+            > .github/r7-status/SUPERSEDED_RUN_CANCELLATION_V1.json
+          jq -e '.passed==true and .authoritativeRunsCancelled==false and (.results|all(.accepted==true))' .github/r7-status/SUPERSEDED_RUN_CANCELLATION_V1.json >/dev/null
+
+      - name: Persist cleanup evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7-status/SUPERSEDED_RUN_CANCELLATION_V1.json
+          git diff --cached --check
+          git commit -m 'R7: record superseded run cancellation'
+          git fetch origin r7-pipeline-status-snapshot-v1-20260901
+          git rebase origin/r7-pipeline-status-snapshot-v1-20260901
+          git push origin HEAD:r7-pipeline-status-snapshot-v1-20260901
