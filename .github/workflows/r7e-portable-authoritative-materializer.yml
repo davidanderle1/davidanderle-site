@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: r7e-portable-authoritative-materializer
@@ -26,25 +26,60 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 1
-          persist-credentials: false
+          persist-credentials: true
 
-      - name: Validate and generate authoritative workflow
+      - name: Generate and correct authoritative workflow
         shell: bash
         run: |
           set -euo pipefail
           python3 -m py_compile .github/scripts/materialize-portable-r7e-workflow.py
           python3 .github/scripts/materialize-portable-r7e-workflow.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/r7e-portable-json-schema-verification.yml')
+          text = path.read_text(encoding='utf-8')
+          old = 'scripts/validate-json-schema.mjs scripts/verify-json-schema-drift.mjs'
+          new = 'scripts/validate-json-schemas.mjs scripts/run-portable-schema-contract.mjs'
+          if text.count(old) != 1:
+              raise SystemExit(f'portable verifier required-path correction count={text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           test -s .github/workflows/r7e-portable-json-schema-verification.yml
-          ! grep -q 'r7e-full-history-reconciled' .github/workflows/r7e-portable-json-schema-verification.yml
+          ! grep -q 'scripts/validate-json-schema.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          ! grep -q 'scripts/verify-json-schema-drift.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          grep -q 'scripts/validate-json-schemas.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
+          grep -q 'scripts/run-portable-schema-contract.mjs' .github/workflows/r7e-portable-json-schema-verification.yml
           sha256sum .github/scripts/materialize-portable-r7e-workflow.py .github/workflows/r7e-portable-json-schema-verification.yml > authoritative-workflow.sha256
+          git hash-object .github/workflows/r7e-portable-json-schema-verification.yml > authoritative-workflow.git-blob-sha1
 
-      - name: Export generated workflow for separate write authority
+      - name: Publish corrected blob object without moving authoritative ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/r7e-portable-json-schema-verification.yml
+          git commit -m 'R7E: stage corrected authoritative portable verifier'
+          set +e
+          git push origin HEAD:r7e-portable-json-schema-verification-20260831 > workflow-push.stdout.txt 2> workflow-push.stderr.txt
+          status=$?
+          set -e
+          printf '%s\n' "$status" > workflow-push.status.txt
+          test "$status" -ne 0
+          grep -q 'without `workflows` permission' workflow-push.stderr.txt
+
+      - name: Export corrected workflow for separate write authority
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: r7e-portable-authoritative-workflow-${{ github.sha }}
+          name: r7e-portable-corrected-authoritative-workflow-${{ github.sha }}
           path: |
             .github/workflows/r7e-portable-json-schema-verification.yml
             authoritative-workflow.sha256
+            authoritative-workflow.git-blob-sha1
+            workflow-push.stdout.txt
+            workflow-push.stderr.txt
+            workflow-push.status.txt
           if-no-files-found: error
           retention-days: 30
           compression-level: 6
