@@ -1,0 +1,22 @@
+{
+  "schema": "DAVID_ANDERLE_WEBSITE_PROGRAMME_ROADMAP_V3",
+  "programmeGoal": "A long-term world-class digital identity system for David Anderle that can mature from student and research work into quantitative finance, trading, engineering and professional authority without becoming a student portfolio, a quant-bro dashboard or personal mythology.",
+  "phases": [
+    {"id":"R1","name":"Identity, truth, evidence and privacy","status":"COMPLETED_AUTHORITY"},
+    {"id":"R2","name":"Global personal-website benchmark atlas","status":"COMPLETED_AUTHORITY"},
+    {"id":"R3","name":"Audience and decision-journey research","status":"COMPLETED_AUTHORITY"},
+    {"id":"R4","name":"Identity, narrative, information architecture and canonical content","status":"COMPLETED_AUTHORITY"},
+    {"id":"R5","name":"Photography authority","status":"COMPLETED_AUTHORITY"},
+    {"id":"R6","name":"Design tournament and BEARING selection","status":"COMPLETED_AUTHORITY"},
+    {"id":"R7","name":"Technical architecture and empirical verification","status":"CLOSURE_CANDIDATE"},
+    {"id":"R8","name":"Security engineering and historical public-PII governance","status":"NOT_STARTED"},
+    {"id":"R9","name":"Discoverability, entity identity and search/AI readiness","status":"NOT_STARTED"},
+    {"id":"R10","name":"Integrated final production authority and BEARING ownership convergence","status":"NOT_STARTED"},
+    {"id":"R11","name":"Clean-room final production build","status":"NOT_STARTED"},
+    {"id":"R12","name":"Independent adversarial release review","status":"NOT_STARTED"},
+    {"id":"R13","name":"Live post-deployment audit and freeze","status":"NOT_STARTED"}
+  ],
+  "r7ClosureMeaning": "The selected technical architecture and its empirical evidence chain are closed. The public site, security, discoverability, final content, clean-room build, release approval and live production state are not closed.",
+  "mainMutationAuthorized": false,
+  "productionDeploymentAuthorized": false
+}
