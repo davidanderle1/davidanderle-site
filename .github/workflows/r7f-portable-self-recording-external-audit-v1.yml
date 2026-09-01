@@ -1,0 +1,311 @@
+name: R7F portable self-recording external audit v1
+
+on:
+  push:
+    branches:
+      - r7f-portable-self-recording-external-audit-20260901
+    paths:
+      - '.github/workflows/r7f-portable-self-recording-external-audit-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: r7f-portable-self-recording-external-audit-v1
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  TARGET_BRANCH: r7f-portable-self-recording-v2-20260901
+  TARGET_WORKFLOW: .github/workflows/r7f-portable-self-recording-verification-v2.yml
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - name: Checkout isolated audit branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+          persist-credentials: true
+
+      - name: Select exact parent verifier commit and wait for terminal run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p audit-evidence
+          target_commit="$(git rev-parse HEAD^)"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/branches/${TARGET_BRANCH}" --jq '.commit.sha')" = "$target_commit"
+          printf 'TARGET_COMMIT=%s\n' "$target_commit" >> "$GITHUB_ENV"
+
+          run_json=''
+          for attempt in $(seq 1 120); do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${target_commit}&per_page=100" > /tmp/runs.json
+            run_json="$(jq -c --arg commit "$target_commit" --arg branch "$TARGET_BRANCH" --arg path "$TARGET_WORKFLOW" '
+              [.workflow_runs[] | select(.head_sha==$commit and .head_branch==$branch and .path==$path)]
+              | sort_by(.created_at) | reverse | .[0] // empty
+            ' /tmp/runs.json)"
+            if test -n "$run_json"; then
+              status="$(jq -r '.status' <<<"$run_json")"
+              if test "$status" = completed; then break; fi
+            fi
+            if test "$attempt" -eq 120; then
+              printf '%s\n' "${run_json:-{}}" > audit-evidence/target-run-timeout.json
+              echo 'Timed out waiting for exact R7F target run' >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+          printf '%s\n' "$run_json" | jq . > audit-evidence/r7f-run-metadata.json
+          run_id="$(jq -r '.id' <<<"$run_json")"
+          conclusion="$(jq -r '.conclusion' <<<"$run_json")"
+          printf 'TARGET_RUN_ID=%s\nTARGET_CONCLUSION=%s\n' "$run_id" "$conclusion" >> "$GITHUB_ENV"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > audit-evidence/r7f-jobs.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" > audit-evidence/r7f-artifacts.json
+          if test "$conclusion" != success; then
+            gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --log-failed > audit-evidence/r7f-failed.log 2>&1 || true
+            jq -n \
+              --arg schema 'R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_BLOCKER_V1' \
+              --arg decision 'R7F_PIPELINE_BLOCKED' \
+              --arg commit "$target_commit" \
+              --arg runId "$run_id" \
+              --arg conclusion "$conclusion" \
+              '{schema:$schema,passed:false,decision:$decision,targetCommit:$commit,targetRunId:($runId|tonumber),targetConclusion:$conclusion,blockers:["Exact R7F workflow did not complete successfully"],scope:"R7 remains open"}' \
+              > audit-evidence/portable-r7f-v2-status.json
+            exit 0
+          fi
+
+          artifact_name="r7f-portable-self-recording-v2-evidence-${target_commit}"
+          artifact_row="$(jq -c --arg name "$artifact_name" '[.artifacts[] | select(.name==$name and .expired==false)] | if length==1 then .[0] else empty end' audit-evidence/r7f-artifacts.json)"
+          test -n "$artifact_row"
+          printf '%s\n' "$artifact_row" | jq . > audit-evidence/r7f-artifact-metadata.json
+          artifact_id="$(jq -r '.id' <<<"$artifact_row")"
+          artifact_digest="$(jq -r '.digest' <<<"$artifact_row")"
+          printf 'TARGET_ARTIFACT_ID=%s\nTARGET_ARTIFACT_NAME=%s\nTARGET_ARTIFACT_DIGEST=%s\n' "$artifact_id" "$artifact_name" "$artifact_digest" >> "$GITHUB_ENV"
+
+      - name: Download and independently audit exact R7F artifact
+        if: env.TARGET_CONCLUSION == 'success'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${TARGET_ARTIFACT_ID}/zip" \
+            --output audit-evidence/r7f-authoritative.zip
+          test "sha256:$(sha256sum audit-evidence/r7f-authoritative.zip | awk '{print $1}')" = "$TARGET_ARTIFACT_DIGEST"
+
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, os, re, shutil, stat, zipfile
+          from pathlib import Path, PurePosixPath
+
+          archive=Path('audit-evidence/r7f-authoritative.zip')
+          root=Path('audit-evidence/extracted')
+          shutil.rmtree(root,ignore_errors=True); root.mkdir(parents=True)
+          errors=[]; checks={}
+          def check(name,value): checks[name]=bool(value)
+          def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+          def load(path): return json.loads(Path(path).read_text(encoding='utf-8'))
+          def tree_rows(directory):
+              directory=Path(directory); rows=[]
+              for p in sorted(directory.rglob('*'),key=lambda x:x.relative_to(directory).as_posix()):
+                  if p.is_file() and not p.is_symlink():
+                      rows.append({'path':p.relative_to(directory).as_posix(),'sha256':sha(p),'size':p.stat().st_size})
+              return rows
+          def tree_sha(rows): return hashlib.sha256((json.dumps(rows,sort_keys=True,separators=(',',':'))+'\n').encode()).hexdigest()
+
+          with zipfile.ZipFile(archive) as zf:
+              infos=zf.infolist(); names=[i.filename for i in infos]
+              check('zip-no-duplicates',len(names)==len(set(names)))
+              safe=True; symlinks=[]
+              for info in infos:
+                  posix=PurePosixPath(info.filename)
+                  if posix.is_absolute() or '..' in posix.parts: safe=False; continue
+                  mode=(info.external_attr>>16)&0xFFFF
+                  if stat.S_ISLNK(mode): symlinks.append(info.filename); continue
+                  target=root.joinpath(*posix.parts)
+                  if info.is_dir(): target.mkdir(parents=True,exist_ok=True); continue
+                  target.parent.mkdir(parents=True,exist_ok=True)
+                  target.write_bytes(zf.read(info))
+                  permission=mode&0o777
+                  if permission: target.chmod(permission)
+              check('zip-safe-paths',safe)
+              check('zip-no-symlinks',not symlinks)
+
+          manifest=root/'R7F_ARTIFACT_SHA256SUMS.txt'
+          check('manifest-present',manifest.is_file())
+          listed={}; manifest_hashes=True
+          if manifest.is_file():
+              for line in manifest.read_text().splitlines():
+                  if not line.strip(): continue
+                  match=re.match(r'^([0-9a-f]{64})  (.+)$',line)
+                  if not match: manifest_hashes=False; continue
+                  digest,rel=match.groups(); rel=rel[2:] if rel.startswith('./') else rel
+                  listed[rel]=digest
+                  target=root/rel
+                  if not target.is_file() or sha(target)!=digest: manifest_hashes=False
+          actual={p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file() and p!=manifest}
+          check('manifest-hashes',manifest_hashes)
+          check('manifest-exact-inventory',set(listed)==actual)
+
+          gate=(root/'R7F_GATE_DECISION.txt').read_text().strip() if (root/'R7F_GATE_DECISION.txt').is_file() else ''
+          check('gate-exact',gate=='R7F PORTABLE SELF-RECORDING INDEPENDENT VERIFICATION COMPLETE — READY FOR HISTORY-BOUND CONTROLLER')
+          package=load(root/'R7F_PACKAGE_VALIDATION.json')
+          index=load(root/'R7F_EVIDENCE_INDEX.json')
+          evidence=root/'R7F_EVIDENCE'
+          audit=load(evidence/'independent-portable-self-recording-v2.json')
+          replay=load(evidence/'independent-builder-infrastructure-replay.json')
+          lock=load(evidence/'final-builder-input-lock.json')
+          tuple_data=load(evidence/'r7e-portable-self-recording-v4-tuple.json')
+          attestation=load(evidence/'r7e-v4-external-audit-attestation.json')
+          full=load(evidence/'r7e-v4-full-external-audit.json')
+
+          check('package-schema',package.get('schema')=='R7F_PORTABLE_SELF_RECORDING_PACKAGE_VALIDATION_V2')
+          check('package-pass',package.get('passed') is True and package.get('failedChecks')==[])
+          check('package-all-checks',all((package.get('checks') or {}).values()))
+          check('evidence-index',all((root/path).exists() for path in index.values() if isinstance(path,str)))
+          check('portable-audit-schema',audit.get('schema')=='R7F_INDEPENDENT_PORTABLE_SELF_RECORDING_AUDIT_V2')
+          check('portable-audit-pass',audit.get('passed') is True and audit.get('failedChecks')==[])
+          check('portable-audit-all-checks',all((audit.get('checks') or {}).values()))
+          metrics=audit.get('metrics') or {}
+          check('portable-audit-counts',metrics.get('schemaFileCount')==9 and metrics.get('compiledSchemaCount')==8 and metrics.get('recordCount')==12 and metrics.get('executionStepCount')==18 and metrics.get('checkCount')==metrics.get('passedCheckCount'))
+          check('builder-replay-pass',replay.get('passed') is True and replay.get('failedChecks')==[] and all((replay.get('checks') or {}).values()))
+          check('r7e-tuple-v4',tuple_data.get('schema')=='R7E_PORTABLE_SELF_RECORDING_AUTHORITATIVE_TUPLE_V4' and tuple_data.get('passed') is True and tuple_data.get('branchHeadUnchanged') is True)
+          check('r7e-tuple-exact',tuple_data.get('commit')=='ea592cde4f4a09f18442308ff14e1eeb2621bf33' and tuple_data.get('runId')==33509839046 and tuple_data.get('artifact',{}).get('id')==9801257055 and tuple_data.get('artifact',{}).get('digest')=='sha256:5188e916ef44d8827794f10b8265cd9441cd7eeacdb670a2e8faee093175d8d8')
+          check('r7e-lock-exact',lock.get('builderHeadSha')==tuple_data.get('commit') and lock.get('builderRunId')==tuple_data.get('runId') and lock.get('builderArtifactId')==tuple_data.get('artifact',{}).get('id') and lock.get('builderArtifactDigest')==tuple_data.get('artifact',{}).get('digest'))
+          check('r7e-attestation-pass',attestation.get('passed') is True and attestation.get('specificDecision')=='R7E_PORTABLE_SELF_RECORDING_V4_EXTERNAL_AUDIT_PASS' and attestation.get('blockers')==[])
+          check('r7e-full-audit-pass',full.get('passed') is True and full.get('decision')=='R7E_PORTABLE_SELF_RECORDING_V4_EXTERNAL_AUDIT_PASS' and full.get('metrics',{}).get('passedCheckCount')==63)
+
+          negative_expectations={
+              'negative-tuple-digest.json':'tuple-main-artifact',
+              'negative-generated-plan.json':None,
+              'negative-verifier-schema.json':None,
+              'negative-tuple-scope.json':'tuple-scope-bounded',
+              'negative-control-desktop-target-v2.json':None,
+              'negative-control-mobile-related-owner-v2.json':None,
+              'negative-control-proof-binding-v2.json':None,
+              'negative-control-self-consistent-inventory-v2.json':None,
+          }
+          for name,expected in negative_expectations.items():
+              data=load(evidence/name)
+              check(f'negative-rejected:{name}',data.get('passed') is False)
+              if expected: check(f'negative-specific:{name}',expected in (data.get('failedChecks') or []))
+
+          builder_axe=load(evidence/'independent-builder-axe-fingerprint-v2.json')
+          verifier_axe=load(evidence/'independent-verifier-axe-fingerprint-v2.json')
+          bm=builder_axe.get('metrics') or {}; vm=verifier_axe.get('metrics') or {}
+          check('axe-builder-pass',builder_axe.get('passed') is True)
+          check('axe-verifier-pass',verifier_axe.get('passed') is True)
+          check('axe-498',bm.get('nodeCount')==vm.get('nodeCount')==498)
+          check('axe-semantic-parity',bm.get('inventorySha256')==vm.get('inventorySha256'))
+          check('axe-node-set-parity',bm.get('nodeFingerprintSetSha256')==vm.get('nodeFingerprintSetSha256'))
+          check('axe-binding-set-parity',bm.get('bindingFingerprintSetSha256')==vm.get('bindingFingerprintSetSha256'))
+
+          passed_evidence=[]
+          for p in evidence.rglob('*.json'):
+              try: data=load(p)
+              except Exception: continue
+              if isinstance(data,dict) and 'passed' in data and any(token in p.name for token in ('parity','reproducibility','source-after','source-final','dist-final','browser-audit')):
+                  passed_evidence.append((p.name,data.get('passed') is True))
+          check('all-parity-and-repro-evidence-pass',bool(passed_evidence) and all(value for _,value in passed_evidence))
+
+          source_dirs=[p for p in root.iterdir() if p.is_dir() and 'PRODUCTION_SOURCE' in p.name]
+          dist_dirs=[p for p in root.iterdir() if p.is_dir() and 'VERIFIED_DIST' in p.name]
+          stress_dirs=[p for p in root.iterdir() if p.is_dir() and 'SCALE_SITE_500' in p.name]
+          check('source-directory-present',len(source_dirs)>=1)
+          check('dist-directory-present',len(dist_dirs)>=1)
+          check('stress-directory-present',len(stress_dirs)>=1)
+          source_count=max((len(tree_rows(p)) for p in source_dirs),default=0)
+          dist_count=max((len(tree_rows(p)) for p in dist_dirs),default=0)
+          stress_count=max((len(tree_rows(p)) for p in stress_dirs),default=0)
+          check('source-file-count',source_count>=146)
+          check('dist-file-count',dist_count>=34)
+          check('stress-file-count',stress_count>=534)
+          check('no-node-modules',not any(p.name=='node_modules' for p in root.rglob('node_modules')))
+          check('truth-private-values-absent',not any(token in '\n'.join(p.read_text(errors='ignore') for d in source_dirs for p in d.rglob('*') if p.is_file() and p.stat().st_size<1_000_000) for token in ('2004-10-03','June 2027')))
+
+          failed=[name for name,value in checks.items() if not value]
+          result={
+            'schema':'R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_V1',
+            'decision':'R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_PASS' if not failed else 'R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_FAIL',
+            'passed':not failed,
+            'repository':os.environ['GITHUB_REPOSITORY'],
+            'r7f':{
+              'branch':os.environ['TARGET_BRANCH'],'workflowPath':os.environ['TARGET_WORKFLOW'],'commit':os.environ['TARGET_COMMIT'],'runId':int(os.environ['TARGET_RUN_ID']),
+              'artifact':{'id':int(os.environ['TARGET_ARTIFACT_ID']),'name':os.environ['TARGET_ARTIFACT_NAME'],'digest':os.environ['TARGET_ARTIFACT_DIGEST']},
+            },
+            'r7e':{'commit':'ea592cde4f4a09f18442308ff14e1eeb2621bf33','runId':33509839046,'artifactId':9801257055,'lineageArtifactId':9801258515},
+            'checks':checks,'failedChecks':failed,'errors':errors,
+            'metrics':{'checkCount':len(checks),'passedCheckCount':sum(checks.values()),'artifactManifestEntries':len(listed),'sourceFileCount':source_count,'distFileCount':dist_count,'stressFileCount':stress_count,'axeNodeCount':vm.get('nodeCount'),'portableSchemaFileCount':metrics.get('schemaFileCount'),'canonicalRecordCount':metrics.get('recordCount'),'r7eExternalAuditChecks':63},
+            'artifactHashes':{'outerZipSha256':sha(archive),'internalManifestSha256':sha(manifest),'packageValidationSha256':sha(root/'R7F_PACKAGE_VALIDATION.json')},
+            'scope':'Independent audit of the R7 technical-architecture verifier only; does not authorize main mutation, R8-R13 closure, or production deployment.',
+          }
+          Path('audit-evidence/R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_V1.json').write_text(json.dumps(result,indent=2)+'\n')
+          print(json.dumps({'passed':result['passed'],'failedChecks':failed,'metrics':result['metrics']},indent=2))
+          if failed: raise SystemExit(1)
+
+          tuple_out={
+            'schema':'R7F_PORTABLE_SELF_RECORDING_AUTHORITATIVE_TUPLE_V2',
+            'passed':True,'decision':'R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_PASS',
+            'repository':os.environ['GITHUB_REPOSITORY'],'branch':os.environ['TARGET_BRANCH'],'workflowPath':os.environ['TARGET_WORKFLOW'],
+            'commit':os.environ['TARGET_COMMIT'],'runId':int(os.environ['TARGET_RUN_ID']),
+            'artifact':{'id':int(os.environ['TARGET_ARTIFACT_ID']),'name':os.environ['TARGET_ARTIFACT_NAME'],'digest':os.environ['TARGET_ARTIFACT_DIGEST']},
+            'r7e':result['r7e'],'artifactInternalManifestSha256':sha(manifest),'packageValidationSha256':sha(root/'R7F_PACKAGE_VALIDATION.json'),
+            'externalAuditSha256':sha('audit-evidence/R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_V1.json'),
+            'scope':'R7 technical architecture verification complete; full R7 closure remains subject to history traceability and the history-bound controller. No production release authorization.'
+          }
+          Path('audit-evidence/portable-r7f-v2-status.json').write_text(json.dumps(tuple_out,indent=2)+'\n')
+          PY
+
+      - name: Persist external audit status on isolated branch
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f audit-evidence/portable-r7f-v2-status.json
+          mkdir -p .github/r7-status
+          cp audit-evidence/portable-r7f-v2-status.json .github/r7-status/portable-r7f-v2.json
+          if test -f audit-evidence/R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_V1.json; then
+            cp audit-evidence/R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_V1.json .github/r7-status/portable-r7f-v2-external-audit.json
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/r7-status/portable-r7f-v2.json .github/r7-status/portable-r7f-v2-external-audit.json 2>/dev/null || true
+          git diff --cached --check
+          if test -n "$(git diff --cached --name-only)"; then
+            git commit -m 'R7F: persist immutable verifier and external-audit tuple'
+            git push origin HEAD:r7f-portable-self-recording-external-audit-20260901
+          fi
+
+      - name: Upload compact external-audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r7f-portable-self-recording-external-audit-${{ github.sha }}
+          path: |
+            audit-evidence/R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_V1.json
+            audit-evidence/portable-r7f-v2-status.json
+            audit-evidence/r7f-run-metadata.json
+            audit-evidence/r7f-jobs.json
+            audit-evidence/r7f-artifact-metadata.json
+            audit-evidence/r7f-failed.log
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
+          include-hidden-files: true
+
+      - name: Enforce external-audit outcome
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '.passed==true and .decision=="R7F_PORTABLE_SELF_RECORDING_EXTERNAL_AUDIT_PASS"' audit-evidence/portable-r7f-v2-status.json >/dev/null
