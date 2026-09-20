@@ -2,16 +2,16 @@ name: BEARING R8 runner capability qualification
 'on':
   push:
     branches:
-    - codex/r8-runner-qualification-20260920-r5
+    - codex/r8-runner-qualification-20260920-r6
     paths:
     - .github/workflows/bearing-runner-qualification.yml
 permissions: {}
 concurrency:
-  group: bearing-r8-runner-qualification-20260920-r5
+  group: bearing-r8-runner-qualification-20260920-r6
   cancel-in-progress: false
 jobs:
   probe-a:
-    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r5'
+    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r6'
       && github.run_attempt == 1 && github.event.created == true && github.event.deleted == false && github.event.before ==
       '0000000000000000000000000000000000000000' }}
     runs-on: ubuntu-24.04
@@ -47,10 +47,10 @@ jobs:
       run: "set -euo pipefail\nprobe_dir=$(mktemp -d)\ncat > \"$probe_dir/probe.py\" <<'BEARING_PROBE_PY'\n\"\"\"Fixed, non-production\
         \ Linux isolation capability probe. No product checkout.\"\"\"\nimport argparse\nimport errno\nimport hashlib\nimport\
         \ json\nimport os\nimport platform\nimport re\nimport shutil\nimport socket\nimport subprocess\nimport sys\nimport\
-        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V5'\nNS = ('user',\
+        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V6'\nNS = ('user',\
         \ 'mnt', 'net', 'pid', 'ipc', 'uts')\nRUNTIME = ('/usr/bin', '/usr/lib/x86_64-linux-gnu', '/usr/lib/python3.12', '/usr/lib64')\n\
         CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nAPPARMOR_PROFILE = b'abi <abi/4.0>,\\\
-        nprofile bearing-r8-bwrap /usr/bin/bwrap flags=(unconfined) {\\n  userns,\\n}\\n'\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r5'\n\
+        nprofile bearing-r8-bwrap /usr/bin/bwrap flags=(unconfined) {\\n  userns,\\n}\\n'\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r6'\n\
         \ndef require(ok, code):\n    if not ok:\n        raise RuntimeError(code)\n\ndef sha(raw):\n    return hashlib.sha256(raw).hexdigest()\n\
         \ndef encoded(value):\n    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\\n').encode()\n\
         \ndef namespaces():\n    return {name: os.readlink('/proc/self/ns/' + name) for name in NS}\n\ndef host_policy():\n\
@@ -71,33 +71,36 @@ jobs:
         \    }\n    return known.get(stderr, 'EMPTY' if not stderr else 'UNCLASSIFIED_STDERR')\n\ndef bubblewrap_command(control,\
         \ output):\n    command = ['/usr/bin/bwrap', '--unshare-user', '--unshare-pid', '--unshare-net', '--unshare-ipc',\
         \ '--unshare-uts',\n               '--uid', '0', '--gid', '0', '--die-with-parent', '--new-session', '--cap-drop',\
-        \ 'ALL', '--clearenv',\n               '--size', '67108864', '--tmpfs', '/']\n    for name, value in CLEAN.items():\n\
-        \        command += ['--setenv', name, value]\n    for path in RUNTIME:\n        command += ['--ro-bind', path, path]\n\
-        \    for name, target in [('bin', 'usr/bin'), ('lib', 'usr/lib'), ('lib64', 'usr/lib64')]:\n        command += ['--symlink',\
-        \ target, '/' + name]\n    command += ['--ro-bind', str(control), '/control', '--bind', str(output), '/output', '--dir',\
-        \ '/work',\n                '--size', '33554432', '--tmpfs', '/tmp', '--dir', '/dev', '--dir', '/etc',\n         \
-        \       '--proc', '/proc', '--remount-ro', '/proc']\n    for name in ('null', 'zero', 'urandom', 'random'):\n    \
-        \    command += ['--dev-bind', '/dev/' + name, '/dev/' + name]\n    for name in ('resolv.conf', 'nsswitch.conf', 'ld.so.cache'):\n\
-        \        if Path('/etc', name).is_file():\n            command += ['--ro-bind', '/etc/' + name, '/etc/' + name]\n\
-        \    command += ['--ro-bind', str(control / 'hosts'), '/etc/hosts', '--chdir', '/work',\n                '/usr/bin/python3',\
-        \ '-I', '-B', '/control/probe.py', 'inside']\n    return command\n\ndef connect(family, port):\n    with socket.socket(family,\
-        \ socket.SOCK_STREAM) as s:\n        s.settimeout(2)\n        s.connect(('127.0.0.1' if family == socket.AF_INET else\
-        \ '::1', port))\n\ndef checks():\n    host = json.loads(Path('/control/host.json').read_text())\n    status = {}\n\
-        \    for line in Path('/proc/self/status').read_text().splitlines():\n        key, _, value = line.partition(':')\n\
+        \ 'ALL', '--clearenv',\n               '--disable-userns', '--assert-userns-disabled',\n               '--size', '67108864',\
+        \ '--tmpfs', '/']\n    for name, value in CLEAN.items():\n        command += ['--setenv', name, value]\n    for path\
+        \ in RUNTIME:\n        command += ['--ro-bind', path, path]\n    for name, target in [('bin', 'usr/bin'), ('lib',\
+        \ 'usr/lib'), ('lib64', 'usr/lib64')]:\n        command += ['--symlink', target, '/' + name]\n    command += ['--ro-bind',\
+        \ str(control), '/control', '--bind', str(output), '/output', '--dir', '/work',\n                '--size', '33554432',\
+        \ '--tmpfs', '/tmp', '--dir', '/dev', '--dir', '/etc',\n                '--proc', '/proc', '--remount-ro', '/proc']\n\
+        \    for name in ('null', 'zero', 'urandom', 'random'):\n        command += ['--dev-bind', '/dev/' + name, '/dev/'\
+        \ + name]\n    for name in ('resolv.conf', 'nsswitch.conf', 'ld.so.cache'):\n        if Path('/etc', name).is_file():\n\
+        \            command += ['--ro-bind', '/etc/' + name, '/etc/' + name]\n    command += ['--ro-bind', str(control /\
+        \ 'hosts'), '/etc/hosts', '--chdir', '/work',\n                '/usr/bin/env', '-i', *[name + '=' + value for name,\
+        \ value in CLEAN.items()],\n                '/usr/bin/python3', '-I', '-B', '/control/probe.py', 'inside']\n    return\
+        \ command\n\ndef connect(family, port):\n    with socket.socket(family, socket.SOCK_STREAM) as s:\n        s.settimeout(2)\n\
+        \        s.connect(('127.0.0.1' if family == socket.AF_INET else '::1', port))\n\ndef checks():\n    host = json.loads(Path('/control/host.json').read_text())\n\
+        \    status = {}\n    for line in Path('/proc/self/status').read_text().splitlines():\n        key, _, value = line.partition(':')\n\
         \        if key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs'):\n            status[key] = value.strip()\n\
         \    observed = {'namespaces': namespaces(), 'status': status, 'environment_names': sorted(os.environ),\n        \
         \        'apparmor_label': host_policy()['apparmor_label']}\n    observed['host_paths_absent'] = all(not Path(p).exists()\
         \ for p in (\n        '/home', '/root', '/mnt/c', '/var/run/docker.sock', host['sentinel']))\n    observed['control_read_only']\
         \ = False\n    try:\n        fd = os.open('/control/fixture.txt', os.O_WRONLY)\n        os.close(fd)\n    except OSError\
         \ as error:\n        observed['control_read_only'] = error.errno == errno.EROFS\n    observed['blocked'] = {}\n  \
-        \  for name, operation in (\n        ('ipv4', lambda: connect(socket.AF_INET, host['ipv4_port'])),\n        ('ipv6',\
-        \ lambda: connect(socket.AF_INET6, host['ipv6_port'])),\n        ('dns', lambda: socket.getaddrinfo('registry.npmjs.org',\
+        \  nested = subprocess.run(['/usr/bin/unshare', '--user', '--map-root-user', '/usr/bin/true'],\n                 \
+        \           env=CLEAN, capture_output=True, timeout=10)\n    observed['nested_user_namespace_blocked'] = nested.returncode\
+        \ != 0\n    for name, operation in (\n        ('ipv4', lambda: connect(socket.AF_INET, host['ipv4_port'])),\n    \
+        \    ('ipv6', lambda: connect(socket.AF_INET6, host['ipv6_port'])),\n        ('dns', lambda: socket.getaddrinfo('registry.npmjs.org',\
         \ 443, socket.AF_INET, socket.SOCK_STREAM)),\n    ):\n        try:\n            operation()\n            observed['blocked'][name]\
         \ = False\n        except OSError:\n            observed['blocked'][name] = True\n    observed['pass'] = (\n     \
         \   all(observed['namespaces'][n] != host['namespaces'][n] for n in NS)\n        and all(observed['blocked'].values())\n\
-        \        and observed['host_paths_absent'] and observed['control_read_only']\n        and set(os.environ) == set(CLEAN)\n\
-        \        and status.get('NoNewPrivs') == '1'\n        and all(status.get(k) == '0000000000000000' for k in ('CapInh',\
-        \ 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'))\n    )\n    Path('/output/inside.json').write_bytes(encoded(observed))\n\
+        \        and observed['host_paths_absent'] and observed['control_read_only']\n        and dict(os.environ) == CLEAN\
+        \ and observed['nested_user_namespace_blocked']\n        and status.get('NoNewPrivs') == '1'\n        and all(status.get(k)\
+        \ == '0000000000000000' for k in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'))\n    )\n    Path('/output/inside.json').write_bytes(encoded(observed))\n\
         \    return 0 if observed['pass'] else 1\n\ndef call(*argv):\n    result = subprocess.run(argv, env=CLEAN, capture_output=True,\
         \ timeout=30)\n    require(result.returncode == 0, 'NAMESPACE_SETUP_' + str(result.returncode))\n\ndef enter(root,\
         \ control, output):\n    call('/usr/bin/mount', '--make-rprivate', '/')\n    call('/usr/bin/mount', '-t', 'tmpfs',\
@@ -180,10 +183,23 @@ jobs:
         \                record['inside'] = json.loads(inside.read_text())\n            require(result.returncode == 0 and\
         \ record.get('inside', {}).get('pass') is True, 'ISOLATION_CAPABILITY_FAILED')\n            if record['context']['kind']\
         \ == 'GITHUB_ENVIRONMENT_OBSERVED':\n                require(record['inside']['apparmor_label'] == 'bearing-r8-bwrap\
-        \ (unconfined)', 'APPARMOR_ATTACHMENT')\n            require((control / 'fixture.txt').read_text() == 'read-only probe\
-        \ fixture\\n', 'FIXTURE_CHANGED')\n            record['pass'] = True\n    except Exception as error:\n        record['error_type']\
-        \ = type(error).__name__\n        record['error_code'] = str(error) if isinstance(error, RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n\
-        \    finally:\n        for listener in listeners:\n            listener.close()\n        record['host_policy_after']\
+        \ (unconfined)', 'APPARMOR_ATTACHMENT')\n            record['negative_controls'] = {}\n            for case in ('shared_network',\
+        \ 'writable_control'):\n                negative_output = base / case\n                negative_output.mkdir()\n \
+        \               command = bubblewrap_command(control, negative_output)\n                if case == 'shared_network':\n\
+        \                    command.remove('--unshare-net')\n                else:\n                    control_index = command.index(str(control))\n\
+        \                    require(command[control_index - 1] == '--ro-bind', 'NEGATIVE_CONTROL_TARGET')\n             \
+        \       command[control_index - 1] = '--bind'\n                negative = subprocess.run(command, env=CLEAN, capture_output=True,\
+        \ timeout=90)\n                negative_report = json.loads((negative_output / 'inside.json').read_text())\n     \
+        \           require(negative.returncode != 0 and negative_report['pass'] is False, 'NEGATIVE_CONTROL_ACCEPTED')\n\
+        \                if case == 'shared_network':\n                    require(negative_report['namespaces']['net'] ==\
+        \ host['namespaces']['net'] and\n                            not negative_report['blocked']['ipv4'] and not negative_report['blocked']['ipv6'],\n\
+        \                            'NEGATIVE_NETWORK_NOT_EXERCISED')\n                else:\n                    require(negative_report['control_read_only']\
+        \ is False, 'NEGATIVE_WRITE_NOT_EXERCISED')\n                record['negative_controls'][case] = {'rejected': True,\
+        \ 'exit': negative.returncode,\n                                                    'inside': negative_report}\n \
+        \           require((control / 'fixture.txt').read_text() == 'read-only probe fixture\\n', 'FIXTURE_CHANGED')\n  \
+        \          record['pass'] = True\n    except Exception as error:\n        record['error_type'] = type(error).__name__\n\
+        \        record['error_code'] = str(error) if isinstance(error, RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n   \
+        \ finally:\n        for listener in listeners:\n            listener.close()\n        record['host_policy_after']\
         \ = host_policy()\n        record['host_controls_unchanged_during_probe'] = record.get('host_policy_before') == record['host_policy_after']\n\
         \        if not record['host_controls_unchanged_during_probe']:\n            record['pass'] = False\n            record['error_code']\
         \ = 'HOST_POLICY_CHANGED'\n    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n    print(raw.decode(),\
@@ -196,11 +212,11 @@ jobs:
         \    args = parser.parse_args()\n    if args.mode == 'inside':\n        require(not args.paths, 'ARGUMENT_COUNT')\n\
         \        raise SystemExit(checks())\n    if args.mode == 'enter':\n        require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n\
         \        enter(*map(Path, args.paths))\n    else:\n        require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n     \
-        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' '2bdca2bb306296fc0c9f8e781e474225e4f0c6e5aae488d386fa187d776af2f8'\
+        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' 'cfc287330ab89ad7b750816c16a48d9864cc11a45c6c655f3aaa7829849e0bb6'\
         \ \"$probe_dir/probe.py\" | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\
         \n"
   probe-b:
-    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r5'
+    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r6'
       && github.run_attempt == 1 && github.event.created == true && github.event.deleted == false && github.event.before ==
       '0000000000000000000000000000000000000000' }}
     runs-on: ubuntu-24.04
@@ -236,10 +252,10 @@ jobs:
       run: "set -euo pipefail\nprobe_dir=$(mktemp -d)\ncat > \"$probe_dir/probe.py\" <<'BEARING_PROBE_PY'\n\"\"\"Fixed, non-production\
         \ Linux isolation capability probe. No product checkout.\"\"\"\nimport argparse\nimport errno\nimport hashlib\nimport\
         \ json\nimport os\nimport platform\nimport re\nimport shutil\nimport socket\nimport subprocess\nimport sys\nimport\
-        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V5'\nNS = ('user',\
+        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V6'\nNS = ('user',\
         \ 'mnt', 'net', 'pid', 'ipc', 'uts')\nRUNTIME = ('/usr/bin', '/usr/lib/x86_64-linux-gnu', '/usr/lib/python3.12', '/usr/lib64')\n\
         CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nAPPARMOR_PROFILE = b'abi <abi/4.0>,\\\
-        nprofile bearing-r8-bwrap /usr/bin/bwrap flags=(unconfined) {\\n  userns,\\n}\\n'\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r5'\n\
+        nprofile bearing-r8-bwrap /usr/bin/bwrap flags=(unconfined) {\\n  userns,\\n}\\n'\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r6'\n\
         \ndef require(ok, code):\n    if not ok:\n        raise RuntimeError(code)\n\ndef sha(raw):\n    return hashlib.sha256(raw).hexdigest()\n\
         \ndef encoded(value):\n    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\\n').encode()\n\
         \ndef namespaces():\n    return {name: os.readlink('/proc/self/ns/' + name) for name in NS}\n\ndef host_policy():\n\
@@ -260,33 +276,36 @@ jobs:
         \    }\n    return known.get(stderr, 'EMPTY' if not stderr else 'UNCLASSIFIED_STDERR')\n\ndef bubblewrap_command(control,\
         \ output):\n    command = ['/usr/bin/bwrap', '--unshare-user', '--unshare-pid', '--unshare-net', '--unshare-ipc',\
         \ '--unshare-uts',\n               '--uid', '0', '--gid', '0', '--die-with-parent', '--new-session', '--cap-drop',\
-        \ 'ALL', '--clearenv',\n               '--size', '67108864', '--tmpfs', '/']\n    for name, value in CLEAN.items():\n\
-        \        command += ['--setenv', name, value]\n    for path in RUNTIME:\n        command += ['--ro-bind', path, path]\n\
-        \    for name, target in [('bin', 'usr/bin'), ('lib', 'usr/lib'), ('lib64', 'usr/lib64')]:\n        command += ['--symlink',\
-        \ target, '/' + name]\n    command += ['--ro-bind', str(control), '/control', '--bind', str(output), '/output', '--dir',\
-        \ '/work',\n                '--size', '33554432', '--tmpfs', '/tmp', '--dir', '/dev', '--dir', '/etc',\n         \
-        \       '--proc', '/proc', '--remount-ro', '/proc']\n    for name in ('null', 'zero', 'urandom', 'random'):\n    \
-        \    command += ['--dev-bind', '/dev/' + name, '/dev/' + name]\n    for name in ('resolv.conf', 'nsswitch.conf', 'ld.so.cache'):\n\
-        \        if Path('/etc', name).is_file():\n            command += ['--ro-bind', '/etc/' + name, '/etc/' + name]\n\
-        \    command += ['--ro-bind', str(control / 'hosts'), '/etc/hosts', '--chdir', '/work',\n                '/usr/bin/python3',\
-        \ '-I', '-B', '/control/probe.py', 'inside']\n    return command\n\ndef connect(family, port):\n    with socket.socket(family,\
-        \ socket.SOCK_STREAM) as s:\n        s.settimeout(2)\n        s.connect(('127.0.0.1' if family == socket.AF_INET else\
-        \ '::1', port))\n\ndef checks():\n    host = json.loads(Path('/control/host.json').read_text())\n    status = {}\n\
-        \    for line in Path('/proc/self/status').read_text().splitlines():\n        key, _, value = line.partition(':')\n\
+        \ 'ALL', '--clearenv',\n               '--disable-userns', '--assert-userns-disabled',\n               '--size', '67108864',\
+        \ '--tmpfs', '/']\n    for name, value in CLEAN.items():\n        command += ['--setenv', name, value]\n    for path\
+        \ in RUNTIME:\n        command += ['--ro-bind', path, path]\n    for name, target in [('bin', 'usr/bin'), ('lib',\
+        \ 'usr/lib'), ('lib64', 'usr/lib64')]:\n        command += ['--symlink', target, '/' + name]\n    command += ['--ro-bind',\
+        \ str(control), '/control', '--bind', str(output), '/output', '--dir', '/work',\n                '--size', '33554432',\
+        \ '--tmpfs', '/tmp', '--dir', '/dev', '--dir', '/etc',\n                '--proc', '/proc', '--remount-ro', '/proc']\n\
+        \    for name in ('null', 'zero', 'urandom', 'random'):\n        command += ['--dev-bind', '/dev/' + name, '/dev/'\
+        \ + name]\n    for name in ('resolv.conf', 'nsswitch.conf', 'ld.so.cache'):\n        if Path('/etc', name).is_file():\n\
+        \            command += ['--ro-bind', '/etc/' + name, '/etc/' + name]\n    command += ['--ro-bind', str(control /\
+        \ 'hosts'), '/etc/hosts', '--chdir', '/work',\n                '/usr/bin/env', '-i', *[name + '=' + value for name,\
+        \ value in CLEAN.items()],\n                '/usr/bin/python3', '-I', '-B', '/control/probe.py', 'inside']\n    return\
+        \ command\n\ndef connect(family, port):\n    with socket.socket(family, socket.SOCK_STREAM) as s:\n        s.settimeout(2)\n\
+        \        s.connect(('127.0.0.1' if family == socket.AF_INET else '::1', port))\n\ndef checks():\n    host = json.loads(Path('/control/host.json').read_text())\n\
+        \    status = {}\n    for line in Path('/proc/self/status').read_text().splitlines():\n        key, _, value = line.partition(':')\n\
         \        if key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs'):\n            status[key] = value.strip()\n\
         \    observed = {'namespaces': namespaces(), 'status': status, 'environment_names': sorted(os.environ),\n        \
         \        'apparmor_label': host_policy()['apparmor_label']}\n    observed['host_paths_absent'] = all(not Path(p).exists()\
         \ for p in (\n        '/home', '/root', '/mnt/c', '/var/run/docker.sock', host['sentinel']))\n    observed['control_read_only']\
         \ = False\n    try:\n        fd = os.open('/control/fixture.txt', os.O_WRONLY)\n        os.close(fd)\n    except OSError\
         \ as error:\n        observed['control_read_only'] = error.errno == errno.EROFS\n    observed['blocked'] = {}\n  \
-        \  for name, operation in (\n        ('ipv4', lambda: connect(socket.AF_INET, host['ipv4_port'])),\n        ('ipv6',\
-        \ lambda: connect(socket.AF_INET6, host['ipv6_port'])),\n        ('dns', lambda: socket.getaddrinfo('registry.npmjs.org',\
+        \  nested = subprocess.run(['/usr/bin/unshare', '--user', '--map-root-user', '/usr/bin/true'],\n                 \
+        \           env=CLEAN, capture_output=True, timeout=10)\n    observed['nested_user_namespace_blocked'] = nested.returncode\
+        \ != 0\n    for name, operation in (\n        ('ipv4', lambda: connect(socket.AF_INET, host['ipv4_port'])),\n    \
+        \    ('ipv6', lambda: connect(socket.AF_INET6, host['ipv6_port'])),\n        ('dns', lambda: socket.getaddrinfo('registry.npmjs.org',\
         \ 443, socket.AF_INET, socket.SOCK_STREAM)),\n    ):\n        try:\n            operation()\n            observed['blocked'][name]\
         \ = False\n        except OSError:\n            observed['blocked'][name] = True\n    observed['pass'] = (\n     \
         \   all(observed['namespaces'][n] != host['namespaces'][n] for n in NS)\n        and all(observed['blocked'].values())\n\
-        \        and observed['host_paths_absent'] and observed['control_read_only']\n        and set(os.environ) == set(CLEAN)\n\
-        \        and status.get('NoNewPrivs') == '1'\n        and all(status.get(k) == '0000000000000000' for k in ('CapInh',\
-        \ 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'))\n    )\n    Path('/output/inside.json').write_bytes(encoded(observed))\n\
+        \        and observed['host_paths_absent'] and observed['control_read_only']\n        and dict(os.environ) == CLEAN\
+        \ and observed['nested_user_namespace_blocked']\n        and status.get('NoNewPrivs') == '1'\n        and all(status.get(k)\
+        \ == '0000000000000000' for k in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'))\n    )\n    Path('/output/inside.json').write_bytes(encoded(observed))\n\
         \    return 0 if observed['pass'] else 1\n\ndef call(*argv):\n    result = subprocess.run(argv, env=CLEAN, capture_output=True,\
         \ timeout=30)\n    require(result.returncode == 0, 'NAMESPACE_SETUP_' + str(result.returncode))\n\ndef enter(root,\
         \ control, output):\n    call('/usr/bin/mount', '--make-rprivate', '/')\n    call('/usr/bin/mount', '-t', 'tmpfs',\
@@ -369,10 +388,23 @@ jobs:
         \                record['inside'] = json.loads(inside.read_text())\n            require(result.returncode == 0 and\
         \ record.get('inside', {}).get('pass') is True, 'ISOLATION_CAPABILITY_FAILED')\n            if record['context']['kind']\
         \ == 'GITHUB_ENVIRONMENT_OBSERVED':\n                require(record['inside']['apparmor_label'] == 'bearing-r8-bwrap\
-        \ (unconfined)', 'APPARMOR_ATTACHMENT')\n            require((control / 'fixture.txt').read_text() == 'read-only probe\
-        \ fixture\\n', 'FIXTURE_CHANGED')\n            record['pass'] = True\n    except Exception as error:\n        record['error_type']\
-        \ = type(error).__name__\n        record['error_code'] = str(error) if isinstance(error, RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n\
-        \    finally:\n        for listener in listeners:\n            listener.close()\n        record['host_policy_after']\
+        \ (unconfined)', 'APPARMOR_ATTACHMENT')\n            record['negative_controls'] = {}\n            for case in ('shared_network',\
+        \ 'writable_control'):\n                negative_output = base / case\n                negative_output.mkdir()\n \
+        \               command = bubblewrap_command(control, negative_output)\n                if case == 'shared_network':\n\
+        \                    command.remove('--unshare-net')\n                else:\n                    control_index = command.index(str(control))\n\
+        \                    require(command[control_index - 1] == '--ro-bind', 'NEGATIVE_CONTROL_TARGET')\n             \
+        \       command[control_index - 1] = '--bind'\n                negative = subprocess.run(command, env=CLEAN, capture_output=True,\
+        \ timeout=90)\n                negative_report = json.loads((negative_output / 'inside.json').read_text())\n     \
+        \           require(negative.returncode != 0 and negative_report['pass'] is False, 'NEGATIVE_CONTROL_ACCEPTED')\n\
+        \                if case == 'shared_network':\n                    require(negative_report['namespaces']['net'] ==\
+        \ host['namespaces']['net'] and\n                            not negative_report['blocked']['ipv4'] and not negative_report['blocked']['ipv6'],\n\
+        \                            'NEGATIVE_NETWORK_NOT_EXERCISED')\n                else:\n                    require(negative_report['control_read_only']\
+        \ is False, 'NEGATIVE_WRITE_NOT_EXERCISED')\n                record['negative_controls'][case] = {'rejected': True,\
+        \ 'exit': negative.returncode,\n                                                    'inside': negative_report}\n \
+        \           require((control / 'fixture.txt').read_text() == 'read-only probe fixture\\n', 'FIXTURE_CHANGED')\n  \
+        \          record['pass'] = True\n    except Exception as error:\n        record['error_type'] = type(error).__name__\n\
+        \        record['error_code'] = str(error) if isinstance(error, RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n   \
+        \ finally:\n        for listener in listeners:\n            listener.close()\n        record['host_policy_after']\
         \ = host_policy()\n        record['host_controls_unchanged_during_probe'] = record.get('host_policy_before') == record['host_policy_after']\n\
         \        if not record['host_controls_unchanged_during_probe']:\n            record['pass'] = False\n            record['error_code']\
         \ = 'HOST_POLICY_CHANGED'\n    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n    print(raw.decode(),\
@@ -385,7 +417,7 @@ jobs:
         \    args = parser.parse_args()\n    if args.mode == 'inside':\n        require(not args.paths, 'ARGUMENT_COUNT')\n\
         \        raise SystemExit(checks())\n    if args.mode == 'enter':\n        require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n\
         \        enter(*map(Path, args.paths))\n    else:\n        require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n     \
-        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' '2bdca2bb306296fc0c9f8e781e474225e4f0c6e5aae488d386fa187d776af2f8'\
+        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' 'cfc287330ab89ad7b750816c16a48d9864cc11a45c6c655f3aaa7829849e0bb6'\
         \ \"$probe_dir/probe.py\" | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\
         \n"
   compare:
