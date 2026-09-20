@@ -2,16 +2,16 @@ name: BEARING R8 runner capability qualification
 'on':
   push:
     branches:
-    - codex/r8-runner-qualification-20260920-r3
+    - codex/r8-runner-qualification-20260920-r4
     paths:
     - .github/workflows/bearing-runner-qualification.yml
 permissions: {}
 concurrency:
-  group: bearing-r8-runner-qualification-20260920-r3
+  group: bearing-r8-runner-qualification-20260920-r4
   cancel-in-progress: false
 jobs:
   probe-a:
-    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r3'
+    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r4'
       && github.run_attempt == 1 && github.event.created == true && github.event.deleted == false && github.event.before ==
       '0000000000000000000000000000000000000000' }}
     runs-on: ubuntu-24.04
@@ -41,9 +41,9 @@ jobs:
       run: "set -euo pipefail\nprobe_dir=$(mktemp -d)\ncat > \"$probe_dir/probe.py\" <<'BEARING_PROBE_PY'\n\"\"\"Fixed, non-production\
         \ Linux isolation capability probe. No product checkout.\"\"\"\nimport argparse\nimport errno\nimport hashlib\nimport\
         \ json\nimport os\nimport platform\nimport re\nimport shutil\nimport socket\nimport subprocess\nimport sys\nimport\
-        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V3'\nNS = ('user',\
+        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V4'\nNS = ('user',\
         \ 'mnt', 'net', 'pid', 'ipc', 'uts')\nRUNTIME = ('/usr/bin', '/usr/lib/x86_64-linux-gnu', '/usr/lib/python3.12', '/usr/lib64')\n\
-        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r3'\n\
+        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r4'\n\
         \ndef require(ok, code):\n    if not ok:\n        raise RuntimeError(code)\n\ndef sha(raw):\n    return hashlib.sha256(raw).hexdigest()\n\
         \ndef encoded(value):\n    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\\n').encode()\n\
         \ndef namespaces():\n    return {name: os.readlink('/proc/self/ns/' + name) for name in NS}\n\ndef host_policy():\n\
@@ -155,30 +155,33 @@ jobs:
         \         record['host_namespaces'] = host['namespaces']\n            result = subprocess.run(bubblewrap_command(control,\
         \ inner_output),\n                env=CLEAN, capture_output=True, timeout=90)\n            record['namespace_exit']\
         \ = result.returncode\n            # Retain only a digest of stderr, never arbitrary host output.\n            record['namespace_stderr_sha256']\
-        \ = sha(result.stderr)\n            record['namespace_diagnostic'] = diagnostic(result.stderr)\n            inside\
-        \ = inner_output / 'inside.json'\n            if inside.is_file():\n                record['inside'] = json.loads(inside.read_text())\n\
-        \            require(result.returncode == 0 and record.get('inside', {}).get('pass') is True, 'ISOLATION_CAPABILITY_FAILED')\n\
-        \            require((control / 'fixture.txt').read_text() == 'read-only probe fixture\\n', 'FIXTURE_CHANGED')\n \
-        \           record['pass'] = True\n    except Exception as error:\n        record['error_type'] = type(error).__name__\n\
-        \        record['error_code'] = str(error) if isinstance(error, RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n   \
-        \ finally:\n        for listener in listeners:\n            listener.close()\n        record['host_policy_after']\
-        \ = host_policy()\n        record['host_policy_unchanged'] = record.get('host_policy_before') == record['host_policy_after']\n\
-        \        if not record['host_policy_unchanged']:\n            record['pass'] = False\n            record['error_code']\
-        \ = 'HOST_POLICY_CHANGED'\n    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n    print(raw.decode(),\
-        \ end='')\n    if record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n        # All outputs are fixed vocabulary\
-        \ or validated hex, never arbitrary environment text.\n        with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:\n\
-        \            for name, value in {'passed': 'yes' if record['pass'] else 'no', 'report_sha256': sha(raw),\n       \
-        \                         'boot_id_sha256': record.get('boot_id_sha256', '0' * 64)}.items():\n                stream.write(name\
-        \ + '=' + value + '\\n')\n    return 0 if record['pass'] else 1\n\nif __name__ == '__main__':\n    parser = argparse.ArgumentParser()\n\
-        \    parser.add_argument('mode', choices=('run', 'enter', 'inside'))\n    parser.add_argument('paths', nargs='*')\n\
-        \    args = parser.parse_args()\n    if args.mode == 'inside':\n        require(not args.paths, 'ARGUMENT_COUNT')\n\
-        \        raise SystemExit(checks())\n    if args.mode == 'enter':\n        require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n\
-        \        enter(*map(Path, args.paths))\n    else:\n        require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n     \
-        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' 'f2a837fe2db4751971adbfd492de5b723d906698b18bdbc3d06be7a7f5760f07'\
-        \ \"$probe_dir/probe.py\" | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\
-        \n"
+        \ = sha(result.stderr)\n            record['namespace_diagnostic'] = diagnostic(result.stderr)\n            # Only\
+        \ fixed-launcher error lines, capped and JSON escaped. The child\n            # receives no credentials, product input\
+        \ or inherited environment.\n            record['launcher_errors'] = [line.replace(str(base), '<probe-temp>')\n  \
+        \              for line in result.stderr.decode('ascii', errors='replace').splitlines()\n                if line.startswith('bwrap:\
+        \ ') and len(line) <= 1000][:4]\n            inside = inner_output / 'inside.json'\n            if inside.is_file():\n\
+        \                record['inside'] = json.loads(inside.read_text())\n            require(result.returncode == 0 and\
+        \ record.get('inside', {}).get('pass') is True, 'ISOLATION_CAPABILITY_FAILED')\n            require((control / 'fixture.txt').read_text()\
+        \ == 'read-only probe fixture\\n', 'FIXTURE_CHANGED')\n            record['pass'] = True\n    except Exception as\
+        \ error:\n        record['error_type'] = type(error).__name__\n        record['error_code'] = str(error) if isinstance(error,\
+        \ RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n    finally:\n        for listener in listeners:\n            listener.close()\n\
+        \        record['host_policy_after'] = host_policy()\n        record['host_policy_unchanged'] = record.get('host_policy_before')\
+        \ == record['host_policy_after']\n        if not record['host_policy_unchanged']:\n            record['pass'] = False\n\
+        \            record['error_code'] = 'HOST_POLICY_CHANGED'\n    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n\
+        \    print(raw.decode(), end='')\n    if record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n        # All\
+        \ outputs are fixed vocabulary or validated hex, never arbitrary environment text.\n        with open(os.environ['GITHUB_OUTPUT'],\
+        \ 'a') as stream:\n            for name, value in {'passed': 'yes' if record['pass'] else 'no', 'report_sha256': sha(raw),\n\
+        \                                'boot_id_sha256': record.get('boot_id_sha256', '0' * 64)}.items():\n            \
+        \    stream.write(name + '=' + value + '\\n')\n    return 0 if record['pass'] else 1\n\nif __name__ == '__main__':\n\
+        \    parser = argparse.ArgumentParser()\n    parser.add_argument('mode', choices=('run', 'enter', 'inside'))\n   \
+        \ parser.add_argument('paths', nargs='*')\n    args = parser.parse_args()\n    if args.mode == 'inside':\n       \
+        \ require(not args.paths, 'ARGUMENT_COUNT')\n        raise SystemExit(checks())\n    if args.mode == 'enter':\n  \
+        \      require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n        enter(*map(Path, args.paths))\n    else:\n       \
+        \ require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n        raise SystemExit(run(Path(args.paths[0]).absolute()))\n\
+        BEARING_PROBE_PY\nprintf '%s  %s\\n' 'efd61013dbbb7092afc369df02fc20f98c5f12b01deaebfb022d6d274711b6cb' \"$probe_dir/probe.py\"\
+        \ | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\n"
   probe-b:
-    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r3'
+    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r4'
       && github.run_attempt == 1 && github.event.created == true && github.event.deleted == false && github.event.before ==
       '0000000000000000000000000000000000000000' }}
     runs-on: ubuntu-24.04
@@ -208,9 +211,9 @@ jobs:
       run: "set -euo pipefail\nprobe_dir=$(mktemp -d)\ncat > \"$probe_dir/probe.py\" <<'BEARING_PROBE_PY'\n\"\"\"Fixed, non-production\
         \ Linux isolation capability probe. No product checkout.\"\"\"\nimport argparse\nimport errno\nimport hashlib\nimport\
         \ json\nimport os\nimport platform\nimport re\nimport shutil\nimport socket\nimport subprocess\nimport sys\nimport\
-        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V3'\nNS = ('user',\
+        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V4'\nNS = ('user',\
         \ 'mnt', 'net', 'pid', 'ipc', 'uts')\nRUNTIME = ('/usr/bin', '/usr/lib/x86_64-linux-gnu', '/usr/lib/python3.12', '/usr/lib64')\n\
-        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r3'\n\
+        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r4'\n\
         \ndef require(ok, code):\n    if not ok:\n        raise RuntimeError(code)\n\ndef sha(raw):\n    return hashlib.sha256(raw).hexdigest()\n\
         \ndef encoded(value):\n    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\\n').encode()\n\
         \ndef namespaces():\n    return {name: os.readlink('/proc/self/ns/' + name) for name in NS}\n\ndef host_policy():\n\
@@ -322,28 +325,31 @@ jobs:
         \         record['host_namespaces'] = host['namespaces']\n            result = subprocess.run(bubblewrap_command(control,\
         \ inner_output),\n                env=CLEAN, capture_output=True, timeout=90)\n            record['namespace_exit']\
         \ = result.returncode\n            # Retain only a digest of stderr, never arbitrary host output.\n            record['namespace_stderr_sha256']\
-        \ = sha(result.stderr)\n            record['namespace_diagnostic'] = diagnostic(result.stderr)\n            inside\
-        \ = inner_output / 'inside.json'\n            if inside.is_file():\n                record['inside'] = json.loads(inside.read_text())\n\
-        \            require(result.returncode == 0 and record.get('inside', {}).get('pass') is True, 'ISOLATION_CAPABILITY_FAILED')\n\
-        \            require((control / 'fixture.txt').read_text() == 'read-only probe fixture\\n', 'FIXTURE_CHANGED')\n \
-        \           record['pass'] = True\n    except Exception as error:\n        record['error_type'] = type(error).__name__\n\
-        \        record['error_code'] = str(error) if isinstance(error, RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n   \
-        \ finally:\n        for listener in listeners:\n            listener.close()\n        record['host_policy_after']\
-        \ = host_policy()\n        record['host_policy_unchanged'] = record.get('host_policy_before') == record['host_policy_after']\n\
-        \        if not record['host_policy_unchanged']:\n            record['pass'] = False\n            record['error_code']\
-        \ = 'HOST_POLICY_CHANGED'\n    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n    print(raw.decode(),\
-        \ end='')\n    if record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n        # All outputs are fixed vocabulary\
-        \ or validated hex, never arbitrary environment text.\n        with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:\n\
-        \            for name, value in {'passed': 'yes' if record['pass'] else 'no', 'report_sha256': sha(raw),\n       \
-        \                         'boot_id_sha256': record.get('boot_id_sha256', '0' * 64)}.items():\n                stream.write(name\
-        \ + '=' + value + '\\n')\n    return 0 if record['pass'] else 1\n\nif __name__ == '__main__':\n    parser = argparse.ArgumentParser()\n\
-        \    parser.add_argument('mode', choices=('run', 'enter', 'inside'))\n    parser.add_argument('paths', nargs='*')\n\
-        \    args = parser.parse_args()\n    if args.mode == 'inside':\n        require(not args.paths, 'ARGUMENT_COUNT')\n\
-        \        raise SystemExit(checks())\n    if args.mode == 'enter':\n        require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n\
-        \        enter(*map(Path, args.paths))\n    else:\n        require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n     \
-        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' 'f2a837fe2db4751971adbfd492de5b723d906698b18bdbc3d06be7a7f5760f07'\
-        \ \"$probe_dir/probe.py\" | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\
-        \n"
+        \ = sha(result.stderr)\n            record['namespace_diagnostic'] = diagnostic(result.stderr)\n            # Only\
+        \ fixed-launcher error lines, capped and JSON escaped. The child\n            # receives no credentials, product input\
+        \ or inherited environment.\n            record['launcher_errors'] = [line.replace(str(base), '<probe-temp>')\n  \
+        \              for line in result.stderr.decode('ascii', errors='replace').splitlines()\n                if line.startswith('bwrap:\
+        \ ') and len(line) <= 1000][:4]\n            inside = inner_output / 'inside.json'\n            if inside.is_file():\n\
+        \                record['inside'] = json.loads(inside.read_text())\n            require(result.returncode == 0 and\
+        \ record.get('inside', {}).get('pass') is True, 'ISOLATION_CAPABILITY_FAILED')\n            require((control / 'fixture.txt').read_text()\
+        \ == 'read-only probe fixture\\n', 'FIXTURE_CHANGED')\n            record['pass'] = True\n    except Exception as\
+        \ error:\n        record['error_type'] = type(error).__name__\n        record['error_code'] = str(error) if isinstance(error,\
+        \ RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n    finally:\n        for listener in listeners:\n            listener.close()\n\
+        \        record['host_policy_after'] = host_policy()\n        record['host_policy_unchanged'] = record.get('host_policy_before')\
+        \ == record['host_policy_after']\n        if not record['host_policy_unchanged']:\n            record['pass'] = False\n\
+        \            record['error_code'] = 'HOST_POLICY_CHANGED'\n    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n\
+        \    print(raw.decode(), end='')\n    if record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n        # All\
+        \ outputs are fixed vocabulary or validated hex, never arbitrary environment text.\n        with open(os.environ['GITHUB_OUTPUT'],\
+        \ 'a') as stream:\n            for name, value in {'passed': 'yes' if record['pass'] else 'no', 'report_sha256': sha(raw),\n\
+        \                                'boot_id_sha256': record.get('boot_id_sha256', '0' * 64)}.items():\n            \
+        \    stream.write(name + '=' + value + '\\n')\n    return 0 if record['pass'] else 1\n\nif __name__ == '__main__':\n\
+        \    parser = argparse.ArgumentParser()\n    parser.add_argument('mode', choices=('run', 'enter', 'inside'))\n   \
+        \ parser.add_argument('paths', nargs='*')\n    args = parser.parse_args()\n    if args.mode == 'inside':\n       \
+        \ require(not args.paths, 'ARGUMENT_COUNT')\n        raise SystemExit(checks())\n    if args.mode == 'enter':\n  \
+        \      require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n        enter(*map(Path, args.paths))\n    else:\n       \
+        \ require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n        raise SystemExit(run(Path(args.paths[0]).absolute()))\n\
+        BEARING_PROBE_PY\nprintf '%s  %s\\n' 'efd61013dbbb7092afc369df02fc20f98c5f12b01deaebfb022d6d274711b6cb' \"$probe_dir/probe.py\"\
+        \ | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\n"
   compare:
     needs:
     - probe-a
