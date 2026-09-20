@@ -2,16 +2,16 @@ name: BEARING R8 runner capability qualification
 'on':
   push:
     branches:
-    - codex/r8-runner-qualification-20260920-r4
+    - codex/r8-runner-qualification-20260920-r5
     paths:
     - .github/workflows/bearing-runner-qualification.yml
 permissions: {}
 concurrency:
-  group: bearing-r8-runner-qualification-20260920-r4
+  group: bearing-r8-runner-qualification-20260920-r5
   cancel-in-progress: false
 jobs:
   probe-a:
-    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r4'
+    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r5'
       && github.run_attempt == 1 && github.event.created == true && github.event.deleted == false && github.event.before ==
       '0000000000000000000000000000000000000000' }}
     runs-on: ubuntu-24.04
@@ -25,25 +25,32 @@ jobs:
     - name: Prepare hash-pinned distro Bubblewrap executable
       shell: bash
       run: "set -euo pipefail\n# Bootstrap one hash-pinned distro executable in this disposable GitHub VM.\n# No package maintainer\
-        \ scripts, sysctl writes, profile changes or candidate code.\ntest \"$(id -u)\" != 0\ntest ! -e /usr/bin/bwrap\ntest\
-        \ ! -L /usr/bin/bwrap\nsetup_dir=$(mktemp -d)\ncurl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time\
-        \ 60 \\\n  'https://security.ubuntu.com/ubuntu/pool/main/b/bubblewrap/bubblewrap_0.9.0-1ubuntu0.3_amd64.deb' \\\n\
-        \  --output \"$setup_dir/bubblewrap.deb\"\nprintf '%s  %s\\n' '2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094'\
+        \ scripts, sysctl writes or candidate code.\ntest \"$(id -u)\" != 0\ntest ! -e /usr/bin/bwrap\ntest ! -L /usr/bin/bwrap\n\
+        setup_dir=$(mktemp -d)\ncurl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 60 \\\n  'https://security.ubuntu.com/ubuntu/pool/main/b/bubblewrap/bubblewrap_0.9.0-1ubuntu0.3_amd64.deb'\
+        \ \\\n  --output \"$setup_dir/bubblewrap.deb\"\nprintf '%s  %s\\n' '2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094'\
         \ \"$setup_dir/bubblewrap.deb\" | sha256sum --check --status\ndpkg-deb --extract \"$setup_dir/bubblewrap.deb\" \"\
         $setup_dir/extracted\"\nprintf '%s  %s\\n' 'e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71' \"$setup_dir/extracted/usr/bin/bwrap\"\
         \ | sha256sum --check --status\ntest -f \"$setup_dir/extracted/usr/bin/bwrap\"\ntest ! -L \"$setup_dir/extracted/usr/bin/bwrap\"\
         \nsudo -n /usr/bin/install --owner=root --group=root --mode=0755 -- \"$setup_dir/extracted/usr/bin/bwrap\" /usr/bin/bwrap\n\
         printf '%s  %s\\n' 'e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71' /usr/bin/bwrap | sha256sum --check\
-        \ --status\n/usr/bin/bwrap --version\n"
+        \ --status\n/usr/bin/bwrap --version\n# App-specific user namespace permission in the disposable VM only.\n# Ubuntu's\
+        \ global restriction stays enabled. --add refuses an existing profile.\ntest \"$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)\"\
+        \ = 1\ntest ! -e /etc/apparmor.d/bearing-r8-bwrap\ntest ! -L /etc/apparmor.d/bearing-r8-bwrap\ncat > \"$setup_dir/bearing-r8-bwrap\"\
+        \ <<'BEARING_APPARMOR'\nabi <abi/4.0>,\nprofile bearing-r8-bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n\
+        }\nBEARING_APPARMOR\nsudo -n /usr/bin/install --owner=root --group=root --mode=0644 -- \"$setup_dir/bearing-r8-bwrap\"\
+        \ /etc/apparmor.d/bearing-r8-bwrap\nsudo -n /usr/sbin/apparmor_parser --add --skip-cache /etc/apparmor.d/bearing-r8-bwrap\n\
+        sha256sum /etc/apparmor.d/bearing-r8-bwrap\ntest \"$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)\"\
+        \ = 1\n"
     - name: Fixed isolation capability probe
       id: probe
       shell: bash
       run: "set -euo pipefail\nprobe_dir=$(mktemp -d)\ncat > \"$probe_dir/probe.py\" <<'BEARING_PROBE_PY'\n\"\"\"Fixed, non-production\
         \ Linux isolation capability probe. No product checkout.\"\"\"\nimport argparse\nimport errno\nimport hashlib\nimport\
         \ json\nimport os\nimport platform\nimport re\nimport shutil\nimport socket\nimport subprocess\nimport sys\nimport\
-        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V4'\nNS = ('user',\
+        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V5'\nNS = ('user',\
         \ 'mnt', 'net', 'pid', 'ipc', 'uts')\nRUNTIME = ('/usr/bin', '/usr/lib/x86_64-linux-gnu', '/usr/lib/python3.12', '/usr/lib64')\n\
-        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r4'\n\
+        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nAPPARMOR_PROFILE = b'abi <abi/4.0>,\\\
+        nprofile bearing-r8-bwrap /usr/bin/bwrap flags=(unconfined) {\\n  userns,\\n}\\n'\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r5'\n\
         \ndef require(ok, code):\n    if not ok:\n        raise RuntimeError(code)\n\ndef sha(raw):\n    return hashlib.sha256(raw).hexdigest()\n\
         \ndef encoded(value):\n    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\\n').encode()\n\
         \ndef namespaces():\n    return {name: os.readlink('/proc/self/ns/' + name) for name in NS}\n\ndef host_policy():\n\
@@ -58,8 +65,9 @@ jobs:
         \ value if re.fullmatch('[A-Za-z0-9_./ ():-]{1,200}', value) else 'UNRECOGNIZED'\n    except OSError:\n        result['apparmor_label']\
         \ = 'UNAVAILABLE'\n    return result\n\ndef diagnostic(stderr):\n    known = {\n        b'unshare: write failed /proc/self/uid_map:\
         \ Operation not permitted\\n': 'UID_MAP_EPERM',\n        b'unshare: unshare failed: Operation not permitted\\n': 'UNSHARE_EPERM',\n\
-        \        b'bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged\
-        \ user namespaces. On e.g. debian this can be enabled with \\'sysctl kernel.unprivileged_userns_clone=1\\'.\\n': 'BWRAP_USERNS_DENIED',\n\
+        \        b'bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\\n': 'BWRAP_LOOPBACK_EPERM',\n        b'bwrap:\
+        \ No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces.\
+        \ On e.g. debian this can be enabled with \\'sysctl kernel.unprivileged_userns_clone=1\\'.\\n': 'BWRAP_USERNS_DENIED',\n\
         \    }\n    return known.get(stderr, 'EMPTY' if not stderr else 'UNCLASSIFIED_STDERR')\n\ndef bubblewrap_command(control,\
         \ output):\n    command = ['/usr/bin/bwrap', '--unshare-user', '--unshare-pid', '--unshare-net', '--unshare-ipc',\
         \ '--unshare-uts',\n               '--uid', '0', '--gid', '0', '--die-with-parent', '--new-session', '--cap-drop',\
@@ -77,12 +85,13 @@ jobs:
         \ '::1', port))\n\ndef checks():\n    host = json.loads(Path('/control/host.json').read_text())\n    status = {}\n\
         \    for line in Path('/proc/self/status').read_text().splitlines():\n        key, _, value = line.partition(':')\n\
         \        if key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs'):\n            status[key] = value.strip()\n\
-        \    observed = {'namespaces': namespaces(), 'status': status, 'environment_names': sorted(os.environ)}\n    observed['host_paths_absent']\
-        \ = all(not Path(p).exists() for p in (\n        '/home', '/root', '/mnt/c', '/var/run/docker.sock', host['sentinel']))\n\
-        \    observed['control_read_only'] = False\n    try:\n        fd = os.open('/control/fixture.txt', os.O_WRONLY)\n\
-        \        os.close(fd)\n    except OSError as error:\n        observed['control_read_only'] = error.errno == errno.EROFS\n\
-        \    observed['blocked'] = {}\n    for name, operation in (\n        ('ipv4', lambda: connect(socket.AF_INET, host['ipv4_port'])),\n\
-        \        ('ipv6', lambda: connect(socket.AF_INET6, host['ipv6_port'])),\n        ('dns', lambda: socket.getaddrinfo('registry.npmjs.org',\
+        \    observed = {'namespaces': namespaces(), 'status': status, 'environment_names': sorted(os.environ),\n        \
+        \        'apparmor_label': host_policy()['apparmor_label']}\n    observed['host_paths_absent'] = all(not Path(p).exists()\
+        \ for p in (\n        '/home', '/root', '/mnt/c', '/var/run/docker.sock', host['sentinel']))\n    observed['control_read_only']\
+        \ = False\n    try:\n        fd = os.open('/control/fixture.txt', os.O_WRONLY)\n        os.close(fd)\n    except OSError\
+        \ as error:\n        observed['control_read_only'] = error.errno == errno.EROFS\n    observed['blocked'] = {}\n  \
+        \  for name, operation in (\n        ('ipv4', lambda: connect(socket.AF_INET, host['ipv4_port'])),\n        ('ipv6',\
+        \ lambda: connect(socket.AF_INET6, host['ipv6_port'])),\n        ('dns', lambda: socket.getaddrinfo('registry.npmjs.org',\
         \ 443, socket.AF_INET, socket.SOCK_STREAM)),\n    ):\n        try:\n            operation()\n            observed['blocked'][name]\
         \ = False\n        except OSError:\n            observed['blocked'][name] = True\n    observed['pass'] = (\n     \
         \   all(observed['namespaces'][n] != host['namespaces'][n] for n in NS)\n        and all(observed['blocked'].values())\n\
@@ -128,7 +137,15 @@ jobs:
         \  native = subprocess.run(['/usr/bin/unshare', '--user', '--map-root-user', '/usr/bin/true'],\n                 \
         \               env=CLEAN, capture_output=True, timeout=10)\n        record['native_userns_control'] = {'exit': native.returncode,\
         \ 'stderr_sha256': sha(native.stderr),\n                                         'classification': diagnostic(native.stderr)}\n\
-        \        record['image'] = {key: os.environ.get(key, '')[:128] for key in ('ImageOS', 'ImageVersion')}\n        record['runtime_paths_present']\
+        \        if record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n            profile = Path('/etc/apparmor.d/bearing-r8-bwrap')\n\
+        \            require(profile.is_file() and not profile.is_symlink() and profile.read_bytes() == APPARMOR_PROFILE,\n\
+        \                    'APPARMOR_PROFILE_BYTES')\n            require(profile.stat().st_uid == 0 and stat.S_IMODE(profile.stat().st_mode)\
+        \ == 0o644, 'APPARMOR_PROFILE_OWNER')\n            record['bootstrap_policy'] = {'scope': 'disposable VM, fixed /usr/bin/bwrap\
+        \ executable',\n                'profile_sha256': sha(APPARMOR_PROFILE), 'app_specific_userns_permission': True,\n\
+        \                'global_userns_restriction': record['host_policy_before']['sysctl']['kernel/apparmor_restrict_unprivileged_userns']}\n\
+        \            require(record['bootstrap_policy']['global_userns_restriction'] == 1 and native.returncode != 0\n   \
+        \                 and diagnostic(native.stderr) == 'UID_MAP_EPERM', 'GLOBAL_RESTRICTION_NOT_PRESERVED')\n        record['image']\
+        \ = {key: os.environ.get(key, '')[:128] for key in ('ImageOS', 'ImageVersion')}\n        record['runtime_paths_present']\
         \ = {p: Path(p).is_dir() for p in RUNTIME}\n        require(all(record['runtime_paths_present'].values()), 'RUNTIME_PATH_MISSING')\n\
         \        require(sys.version_info[:2] == (3, 12), 'PYTHON_312_REQUIRED')\n        executable = Path('/usr/bin/bwrap')\n\
         \        require(executable.is_file() and not executable.is_symlink(), 'BWRAP_NOT_INSTALLED')\n        mode = executable.stat()\n\
@@ -161,27 +178,29 @@ jobs:
         \              for line in result.stderr.decode('ascii', errors='replace').splitlines()\n                if line.startswith('bwrap:\
         \ ') and len(line) <= 1000][:4]\n            inside = inner_output / 'inside.json'\n            if inside.is_file():\n\
         \                record['inside'] = json.loads(inside.read_text())\n            require(result.returncode == 0 and\
-        \ record.get('inside', {}).get('pass') is True, 'ISOLATION_CAPABILITY_FAILED')\n            require((control / 'fixture.txt').read_text()\
-        \ == 'read-only probe fixture\\n', 'FIXTURE_CHANGED')\n            record['pass'] = True\n    except Exception as\
-        \ error:\n        record['error_type'] = type(error).__name__\n        record['error_code'] = str(error) if isinstance(error,\
-        \ RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n    finally:\n        for listener in listeners:\n            listener.close()\n\
-        \        record['host_policy_after'] = host_policy()\n        record['host_policy_unchanged'] = record.get('host_policy_before')\
-        \ == record['host_policy_after']\n        if not record['host_policy_unchanged']:\n            record['pass'] = False\n\
-        \            record['error_code'] = 'HOST_POLICY_CHANGED'\n    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n\
-        \    print(raw.decode(), end='')\n    if record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n        # All\
-        \ outputs are fixed vocabulary or validated hex, never arbitrary environment text.\n        with open(os.environ['GITHUB_OUTPUT'],\
-        \ 'a') as stream:\n            for name, value in {'passed': 'yes' if record['pass'] else 'no', 'report_sha256': sha(raw),\n\
-        \                                'boot_id_sha256': record.get('boot_id_sha256', '0' * 64)}.items():\n            \
-        \    stream.write(name + '=' + value + '\\n')\n    return 0 if record['pass'] else 1\n\nif __name__ == '__main__':\n\
-        \    parser = argparse.ArgumentParser()\n    parser.add_argument('mode', choices=('run', 'enter', 'inside'))\n   \
-        \ parser.add_argument('paths', nargs='*')\n    args = parser.parse_args()\n    if args.mode == 'inside':\n       \
-        \ require(not args.paths, 'ARGUMENT_COUNT')\n        raise SystemExit(checks())\n    if args.mode == 'enter':\n  \
-        \      require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n        enter(*map(Path, args.paths))\n    else:\n       \
-        \ require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n        raise SystemExit(run(Path(args.paths[0]).absolute()))\n\
-        BEARING_PROBE_PY\nprintf '%s  %s\\n' 'efd61013dbbb7092afc369df02fc20f98c5f12b01deaebfb022d6d274711b6cb' \"$probe_dir/probe.py\"\
-        \ | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\n"
+        \ record.get('inside', {}).get('pass') is True, 'ISOLATION_CAPABILITY_FAILED')\n            if record['context']['kind']\
+        \ == 'GITHUB_ENVIRONMENT_OBSERVED':\n                require(record['inside']['apparmor_label'] == 'bearing-r8-bwrap\
+        \ (unconfined)', 'APPARMOR_ATTACHMENT')\n            require((control / 'fixture.txt').read_text() == 'read-only probe\
+        \ fixture\\n', 'FIXTURE_CHANGED')\n            record['pass'] = True\n    except Exception as error:\n        record['error_type']\
+        \ = type(error).__name__\n        record['error_code'] = str(error) if isinstance(error, RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n\
+        \    finally:\n        for listener in listeners:\n            listener.close()\n        record['host_policy_after']\
+        \ = host_policy()\n        record['host_controls_unchanged_during_probe'] = record.get('host_policy_before') == record['host_policy_after']\n\
+        \        if not record['host_controls_unchanged_during_probe']:\n            record['pass'] = False\n            record['error_code']\
+        \ = 'HOST_POLICY_CHANGED'\n    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n    print(raw.decode(),\
+        \ end='')\n    if record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n        # All outputs are fixed vocabulary\
+        \ or validated hex, never arbitrary environment text.\n        with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:\n\
+        \            for name, value in {'passed': 'yes' if record['pass'] else 'no', 'report_sha256': sha(raw),\n       \
+        \                         'boot_id_sha256': record.get('boot_id_sha256', '0' * 64)}.items():\n                stream.write(name\
+        \ + '=' + value + '\\n')\n    return 0 if record['pass'] else 1\n\nif __name__ == '__main__':\n    parser = argparse.ArgumentParser()\n\
+        \    parser.add_argument('mode', choices=('run', 'enter', 'inside'))\n    parser.add_argument('paths', nargs='*')\n\
+        \    args = parser.parse_args()\n    if args.mode == 'inside':\n        require(not args.paths, 'ARGUMENT_COUNT')\n\
+        \        raise SystemExit(checks())\n    if args.mode == 'enter':\n        require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n\
+        \        enter(*map(Path, args.paths))\n    else:\n        require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n     \
+        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' '2bdca2bb306296fc0c9f8e781e474225e4f0c6e5aae488d386fa187d776af2f8'\
+        \ \"$probe_dir/probe.py\" | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\
+        \n"
   probe-b:
-    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r4'
+    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r5'
       && github.run_attempt == 1 && github.event.created == true && github.event.deleted == false && github.event.before ==
       '0000000000000000000000000000000000000000' }}
     runs-on: ubuntu-24.04
@@ -195,25 +214,32 @@ jobs:
     - name: Prepare hash-pinned distro Bubblewrap executable
       shell: bash
       run: "set -euo pipefail\n# Bootstrap one hash-pinned distro executable in this disposable GitHub VM.\n# No package maintainer\
-        \ scripts, sysctl writes, profile changes or candidate code.\ntest \"$(id -u)\" != 0\ntest ! -e /usr/bin/bwrap\ntest\
-        \ ! -L /usr/bin/bwrap\nsetup_dir=$(mktemp -d)\ncurl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time\
-        \ 60 \\\n  'https://security.ubuntu.com/ubuntu/pool/main/b/bubblewrap/bubblewrap_0.9.0-1ubuntu0.3_amd64.deb' \\\n\
-        \  --output \"$setup_dir/bubblewrap.deb\"\nprintf '%s  %s\\n' '2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094'\
+        \ scripts, sysctl writes or candidate code.\ntest \"$(id -u)\" != 0\ntest ! -e /usr/bin/bwrap\ntest ! -L /usr/bin/bwrap\n\
+        setup_dir=$(mktemp -d)\ncurl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 60 \\\n  'https://security.ubuntu.com/ubuntu/pool/main/b/bubblewrap/bubblewrap_0.9.0-1ubuntu0.3_amd64.deb'\
+        \ \\\n  --output \"$setup_dir/bubblewrap.deb\"\nprintf '%s  %s\\n' '2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094'\
         \ \"$setup_dir/bubblewrap.deb\" | sha256sum --check --status\ndpkg-deb --extract \"$setup_dir/bubblewrap.deb\" \"\
         $setup_dir/extracted\"\nprintf '%s  %s\\n' 'e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71' \"$setup_dir/extracted/usr/bin/bwrap\"\
         \ | sha256sum --check --status\ntest -f \"$setup_dir/extracted/usr/bin/bwrap\"\ntest ! -L \"$setup_dir/extracted/usr/bin/bwrap\"\
         \nsudo -n /usr/bin/install --owner=root --group=root --mode=0755 -- \"$setup_dir/extracted/usr/bin/bwrap\" /usr/bin/bwrap\n\
         printf '%s  %s\\n' 'e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71' /usr/bin/bwrap | sha256sum --check\
-        \ --status\n/usr/bin/bwrap --version\n"
+        \ --status\n/usr/bin/bwrap --version\n# App-specific user namespace permission in the disposable VM only.\n# Ubuntu's\
+        \ global restriction stays enabled. --add refuses an existing profile.\ntest \"$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)\"\
+        \ = 1\ntest ! -e /etc/apparmor.d/bearing-r8-bwrap\ntest ! -L /etc/apparmor.d/bearing-r8-bwrap\ncat > \"$setup_dir/bearing-r8-bwrap\"\
+        \ <<'BEARING_APPARMOR'\nabi <abi/4.0>,\nprofile bearing-r8-bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n\
+        }\nBEARING_APPARMOR\nsudo -n /usr/bin/install --owner=root --group=root --mode=0644 -- \"$setup_dir/bearing-r8-bwrap\"\
+        \ /etc/apparmor.d/bearing-r8-bwrap\nsudo -n /usr/sbin/apparmor_parser --add --skip-cache /etc/apparmor.d/bearing-r8-bwrap\n\
+        sha256sum /etc/apparmor.d/bearing-r8-bwrap\ntest \"$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)\"\
+        \ = 1\n"
     - name: Fixed isolation capability probe
       id: probe
       shell: bash
       run: "set -euo pipefail\nprobe_dir=$(mktemp -d)\ncat > \"$probe_dir/probe.py\" <<'BEARING_PROBE_PY'\n\"\"\"Fixed, non-production\
         \ Linux isolation capability probe. No product checkout.\"\"\"\nimport argparse\nimport errno\nimport hashlib\nimport\
         \ json\nimport os\nimport platform\nimport re\nimport shutil\nimport socket\nimport subprocess\nimport sys\nimport\
-        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V4'\nNS = ('user',\
+        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V5'\nNS = ('user',\
         \ 'mnt', 'net', 'pid', 'ipc', 'uts')\nRUNTIME = ('/usr/bin', '/usr/lib/x86_64-linux-gnu', '/usr/lib/python3.12', '/usr/lib64')\n\
-        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r4'\n\
+        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nAPPARMOR_PROFILE = b'abi <abi/4.0>,\\\
+        nprofile bearing-r8-bwrap /usr/bin/bwrap flags=(unconfined) {\\n  userns,\\n}\\n'\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r5'\n\
         \ndef require(ok, code):\n    if not ok:\n        raise RuntimeError(code)\n\ndef sha(raw):\n    return hashlib.sha256(raw).hexdigest()\n\
         \ndef encoded(value):\n    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\\n').encode()\n\
         \ndef namespaces():\n    return {name: os.readlink('/proc/self/ns/' + name) for name in NS}\n\ndef host_policy():\n\
@@ -228,8 +254,9 @@ jobs:
         \ value if re.fullmatch('[A-Za-z0-9_./ ():-]{1,200}', value) else 'UNRECOGNIZED'\n    except OSError:\n        result['apparmor_label']\
         \ = 'UNAVAILABLE'\n    return result\n\ndef diagnostic(stderr):\n    known = {\n        b'unshare: write failed /proc/self/uid_map:\
         \ Operation not permitted\\n': 'UID_MAP_EPERM',\n        b'unshare: unshare failed: Operation not permitted\\n': 'UNSHARE_EPERM',\n\
-        \        b'bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged\
-        \ user namespaces. On e.g. debian this can be enabled with \\'sysctl kernel.unprivileged_userns_clone=1\\'.\\n': 'BWRAP_USERNS_DENIED',\n\
+        \        b'bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\\n': 'BWRAP_LOOPBACK_EPERM',\n        b'bwrap:\
+        \ No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces.\
+        \ On e.g. debian this can be enabled with \\'sysctl kernel.unprivileged_userns_clone=1\\'.\\n': 'BWRAP_USERNS_DENIED',\n\
         \    }\n    return known.get(stderr, 'EMPTY' if not stderr else 'UNCLASSIFIED_STDERR')\n\ndef bubblewrap_command(control,\
         \ output):\n    command = ['/usr/bin/bwrap', '--unshare-user', '--unshare-pid', '--unshare-net', '--unshare-ipc',\
         \ '--unshare-uts',\n               '--uid', '0', '--gid', '0', '--die-with-parent', '--new-session', '--cap-drop',\
@@ -247,12 +274,13 @@ jobs:
         \ '::1', port))\n\ndef checks():\n    host = json.loads(Path('/control/host.json').read_text())\n    status = {}\n\
         \    for line in Path('/proc/self/status').read_text().splitlines():\n        key, _, value = line.partition(':')\n\
         \        if key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs'):\n            status[key] = value.strip()\n\
-        \    observed = {'namespaces': namespaces(), 'status': status, 'environment_names': sorted(os.environ)}\n    observed['host_paths_absent']\
-        \ = all(not Path(p).exists() for p in (\n        '/home', '/root', '/mnt/c', '/var/run/docker.sock', host['sentinel']))\n\
-        \    observed['control_read_only'] = False\n    try:\n        fd = os.open('/control/fixture.txt', os.O_WRONLY)\n\
-        \        os.close(fd)\n    except OSError as error:\n        observed['control_read_only'] = error.errno == errno.EROFS\n\
-        \    observed['blocked'] = {}\n    for name, operation in (\n        ('ipv4', lambda: connect(socket.AF_INET, host['ipv4_port'])),\n\
-        \        ('ipv6', lambda: connect(socket.AF_INET6, host['ipv6_port'])),\n        ('dns', lambda: socket.getaddrinfo('registry.npmjs.org',\
+        \    observed = {'namespaces': namespaces(), 'status': status, 'environment_names': sorted(os.environ),\n        \
+        \        'apparmor_label': host_policy()['apparmor_label']}\n    observed['host_paths_absent'] = all(not Path(p).exists()\
+        \ for p in (\n        '/home', '/root', '/mnt/c', '/var/run/docker.sock', host['sentinel']))\n    observed['control_read_only']\
+        \ = False\n    try:\n        fd = os.open('/control/fixture.txt', os.O_WRONLY)\n        os.close(fd)\n    except OSError\
+        \ as error:\n        observed['control_read_only'] = error.errno == errno.EROFS\n    observed['blocked'] = {}\n  \
+        \  for name, operation in (\n        ('ipv4', lambda: connect(socket.AF_INET, host['ipv4_port'])),\n        ('ipv6',\
+        \ lambda: connect(socket.AF_INET6, host['ipv6_port'])),\n        ('dns', lambda: socket.getaddrinfo('registry.npmjs.org',\
         \ 443, socket.AF_INET, socket.SOCK_STREAM)),\n    ):\n        try:\n            operation()\n            observed['blocked'][name]\
         \ = False\n        except OSError:\n            observed['blocked'][name] = True\n    observed['pass'] = (\n     \
         \   all(observed['namespaces'][n] != host['namespaces'][n] for n in NS)\n        and all(observed['blocked'].values())\n\
@@ -298,7 +326,15 @@ jobs:
         \  native = subprocess.run(['/usr/bin/unshare', '--user', '--map-root-user', '/usr/bin/true'],\n                 \
         \               env=CLEAN, capture_output=True, timeout=10)\n        record['native_userns_control'] = {'exit': native.returncode,\
         \ 'stderr_sha256': sha(native.stderr),\n                                         'classification': diagnostic(native.stderr)}\n\
-        \        record['image'] = {key: os.environ.get(key, '')[:128] for key in ('ImageOS', 'ImageVersion')}\n        record['runtime_paths_present']\
+        \        if record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n            profile = Path('/etc/apparmor.d/bearing-r8-bwrap')\n\
+        \            require(profile.is_file() and not profile.is_symlink() and profile.read_bytes() == APPARMOR_PROFILE,\n\
+        \                    'APPARMOR_PROFILE_BYTES')\n            require(profile.stat().st_uid == 0 and stat.S_IMODE(profile.stat().st_mode)\
+        \ == 0o644, 'APPARMOR_PROFILE_OWNER')\n            record['bootstrap_policy'] = {'scope': 'disposable VM, fixed /usr/bin/bwrap\
+        \ executable',\n                'profile_sha256': sha(APPARMOR_PROFILE), 'app_specific_userns_permission': True,\n\
+        \                'global_userns_restriction': record['host_policy_before']['sysctl']['kernel/apparmor_restrict_unprivileged_userns']}\n\
+        \            require(record['bootstrap_policy']['global_userns_restriction'] == 1 and native.returncode != 0\n   \
+        \                 and diagnostic(native.stderr) == 'UID_MAP_EPERM', 'GLOBAL_RESTRICTION_NOT_PRESERVED')\n        record['image']\
+        \ = {key: os.environ.get(key, '')[:128] for key in ('ImageOS', 'ImageVersion')}\n        record['runtime_paths_present']\
         \ = {p: Path(p).is_dir() for p in RUNTIME}\n        require(all(record['runtime_paths_present'].values()), 'RUNTIME_PATH_MISSING')\n\
         \        require(sys.version_info[:2] == (3, 12), 'PYTHON_312_REQUIRED')\n        executable = Path('/usr/bin/bwrap')\n\
         \        require(executable.is_file() and not executable.is_symlink(), 'BWRAP_NOT_INSTALLED')\n        mode = executable.stat()\n\
@@ -331,25 +367,27 @@ jobs:
         \              for line in result.stderr.decode('ascii', errors='replace').splitlines()\n                if line.startswith('bwrap:\
         \ ') and len(line) <= 1000][:4]\n            inside = inner_output / 'inside.json'\n            if inside.is_file():\n\
         \                record['inside'] = json.loads(inside.read_text())\n            require(result.returncode == 0 and\
-        \ record.get('inside', {}).get('pass') is True, 'ISOLATION_CAPABILITY_FAILED')\n            require((control / 'fixture.txt').read_text()\
-        \ == 'read-only probe fixture\\n', 'FIXTURE_CHANGED')\n            record['pass'] = True\n    except Exception as\
-        \ error:\n        record['error_type'] = type(error).__name__\n        record['error_code'] = str(error) if isinstance(error,\
-        \ RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n    finally:\n        for listener in listeners:\n            listener.close()\n\
-        \        record['host_policy_after'] = host_policy()\n        record['host_policy_unchanged'] = record.get('host_policy_before')\
-        \ == record['host_policy_after']\n        if not record['host_policy_unchanged']:\n            record['pass'] = False\n\
-        \            record['error_code'] = 'HOST_POLICY_CHANGED'\n    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n\
-        \    print(raw.decode(), end='')\n    if record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n        # All\
-        \ outputs are fixed vocabulary or validated hex, never arbitrary environment text.\n        with open(os.environ['GITHUB_OUTPUT'],\
-        \ 'a') as stream:\n            for name, value in {'passed': 'yes' if record['pass'] else 'no', 'report_sha256': sha(raw),\n\
-        \                                'boot_id_sha256': record.get('boot_id_sha256', '0' * 64)}.items():\n            \
-        \    stream.write(name + '=' + value + '\\n')\n    return 0 if record['pass'] else 1\n\nif __name__ == '__main__':\n\
-        \    parser = argparse.ArgumentParser()\n    parser.add_argument('mode', choices=('run', 'enter', 'inside'))\n   \
-        \ parser.add_argument('paths', nargs='*')\n    args = parser.parse_args()\n    if args.mode == 'inside':\n       \
-        \ require(not args.paths, 'ARGUMENT_COUNT')\n        raise SystemExit(checks())\n    if args.mode == 'enter':\n  \
-        \      require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n        enter(*map(Path, args.paths))\n    else:\n       \
-        \ require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n        raise SystemExit(run(Path(args.paths[0]).absolute()))\n\
-        BEARING_PROBE_PY\nprintf '%s  %s\\n' 'efd61013dbbb7092afc369df02fc20f98c5f12b01deaebfb022d6d274711b6cb' \"$probe_dir/probe.py\"\
-        \ | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\n"
+        \ record.get('inside', {}).get('pass') is True, 'ISOLATION_CAPABILITY_FAILED')\n            if record['context']['kind']\
+        \ == 'GITHUB_ENVIRONMENT_OBSERVED':\n                require(record['inside']['apparmor_label'] == 'bearing-r8-bwrap\
+        \ (unconfined)', 'APPARMOR_ATTACHMENT')\n            require((control / 'fixture.txt').read_text() == 'read-only probe\
+        \ fixture\\n', 'FIXTURE_CHANGED')\n            record['pass'] = True\n    except Exception as error:\n        record['error_type']\
+        \ = type(error).__name__\n        record['error_code'] = str(error) if isinstance(error, RuntimeError) else 'HOST_OR_PROCESS_FAILURE'\n\
+        \    finally:\n        for listener in listeners:\n            listener.close()\n        record['host_policy_after']\
+        \ = host_policy()\n        record['host_controls_unchanged_during_probe'] = record.get('host_policy_before') == record['host_policy_after']\n\
+        \        if not record['host_controls_unchanged_during_probe']:\n            record['pass'] = False\n            record['error_code']\
+        \ = 'HOST_POLICY_CHANGED'\n    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n    print(raw.decode(),\
+        \ end='')\n    if record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n        # All outputs are fixed vocabulary\
+        \ or validated hex, never arbitrary environment text.\n        with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:\n\
+        \            for name, value in {'passed': 'yes' if record['pass'] else 'no', 'report_sha256': sha(raw),\n       \
+        \                         'boot_id_sha256': record.get('boot_id_sha256', '0' * 64)}.items():\n                stream.write(name\
+        \ + '=' + value + '\\n')\n    return 0 if record['pass'] else 1\n\nif __name__ == '__main__':\n    parser = argparse.ArgumentParser()\n\
+        \    parser.add_argument('mode', choices=('run', 'enter', 'inside'))\n    parser.add_argument('paths', nargs='*')\n\
+        \    args = parser.parse_args()\n    if args.mode == 'inside':\n        require(not args.paths, 'ARGUMENT_COUNT')\n\
+        \        raise SystemExit(checks())\n    if args.mode == 'enter':\n        require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n\
+        \        enter(*map(Path, args.paths))\n    else:\n        require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n     \
+        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' '2bdca2bb306296fc0c9f8e781e474225e4f0c6e5aae488d386fa187d776af2f8'\
+        \ \"$probe_dir/probe.py\" | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\
+        \n"
   compare:
     needs:
     - probe-a
