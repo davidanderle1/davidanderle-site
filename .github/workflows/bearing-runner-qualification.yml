@@ -2,16 +2,16 @@ name: BEARING R8 runner capability qualification
 'on':
   push:
     branches:
-    - codex/r8-runner-qualification-20260920-r2
+    - codex/r8-runner-qualification-20260920-r3
     paths:
     - .github/workflows/bearing-runner-qualification.yml
 permissions: {}
 concurrency:
-  group: bearing-r8-runner-qualification-20260920-r2
+  group: bearing-r8-runner-qualification-20260920-r3
   cancel-in-progress: false
 jobs:
   probe-a:
-    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r2'
+    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r3'
       && github.run_attempt == 1 && github.event.created == true && github.event.deleted == false && github.event.before ==
       '0000000000000000000000000000000000000000' }}
     runs-on: ubuntu-24.04
@@ -22,15 +22,28 @@ jobs:
       boot_id_sha256: ${{ steps.probe.outputs.boot_id_sha256 }}
       report_sha256: ${{ steps.probe.outputs.report_sha256 }}
     steps:
+    - name: Prepare hash-pinned distro Bubblewrap executable
+      shell: bash
+      run: "set -euo pipefail\n# Bootstrap one hash-pinned distro executable in this disposable GitHub VM.\n# No package maintainer\
+        \ scripts, sysctl writes, profile changes or candidate code.\ntest \"$(id -u)\" != 0\ntest ! -e /usr/bin/bwrap\ntest\
+        \ ! -L /usr/bin/bwrap\nsetup_dir=$(mktemp -d)\ncurl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time\
+        \ 60 \\\n  'https://security.ubuntu.com/ubuntu/pool/main/b/bubblewrap/bubblewrap_0.9.0-1ubuntu0.3_amd64.deb' \\\n\
+        \  --output \"$setup_dir/bubblewrap.deb\"\nprintf '%s  %s\\n' '2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094'\
+        \ \"$setup_dir/bubblewrap.deb\" | sha256sum --check --status\ndpkg-deb --extract \"$setup_dir/bubblewrap.deb\" \"\
+        $setup_dir/extracted\"\nprintf '%s  %s\\n' 'e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71' \"$setup_dir/extracted/usr/bin/bwrap\"\
+        \ | sha256sum --check --status\ntest -f \"$setup_dir/extracted/usr/bin/bwrap\"\ntest ! -L \"$setup_dir/extracted/usr/bin/bwrap\"\
+        \nsudo -n /usr/bin/install --owner=root --group=root --mode=0755 -- \"$setup_dir/extracted/usr/bin/bwrap\" /usr/bin/bwrap\n\
+        printf '%s  %s\\n' 'e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71' /usr/bin/bwrap | sha256sum --check\
+        \ --status\n/usr/bin/bwrap --version\n"
     - name: Fixed isolation capability probe
       id: probe
       shell: bash
       run: "set -euo pipefail\nprobe_dir=$(mktemp -d)\ncat > \"$probe_dir/probe.py\" <<'BEARING_PROBE_PY'\n\"\"\"Fixed, non-production\
         \ Linux isolation capability probe. No product checkout.\"\"\"\nimport argparse\nimport errno\nimport hashlib\nimport\
         \ json\nimport os\nimport platform\nimport re\nimport shutil\nimport socket\nimport subprocess\nimport sys\nimport\
-        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V2'\nNS = ('user',\
+        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V3'\nNS = ('user',\
         \ 'mnt', 'net', 'pid', 'ipc', 'uts')\nRUNTIME = ('/usr/bin', '/usr/lib/x86_64-linux-gnu', '/usr/lib/python3.12', '/usr/lib64')\n\
-        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r2'\n\
+        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r3'\n\
         \ndef require(ok, code):\n    if not ok:\n        raise RuntimeError(code)\n\ndef sha(raw):\n    return hashlib.sha256(raw).hexdigest()\n\
         \ndef encoded(value):\n    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\\n').encode()\n\
         \ndef namespaces():\n    return {name: os.readlink('/proc/self/ns/' + name) for name in NS}\n\ndef host_policy():\n\
@@ -124,20 +137,22 @@ jobs:
         \ timeout=10)\n        version_text = version.stdout.decode('ascii', errors='strict').strip()\n        require(version.returncode\
         \ == 0 and re.fullmatch('bubblewrap [0-9.]{3,20}', version_text), 'BWRAP_VERSION')\n        record['bubblewrap'] =\
         \ {'path': str(executable), 'version': version_text, 'sha256': sha(executable.read_bytes()),\n                   \
-        \             'uid': mode.st_uid, 'mode': oct(stat.S_IMODE(mode.st_mode)), 'admitted': False}\n        with tempfile.TemporaryDirectory(prefix='bearing-qualification-')\
-        \ as temp:\n            base = Path(temp)\n            control, target, inner_output = base / 'control', base / 'root',\
-        \ base / 'output'\n            for directory in (control, target, inner_output):\n                directory.mkdir()\n\
-        \            sentinel = base / 'host-sentinel'\n            sentinel.write_text('owned probe fixture\\n')\n      \
-        \      (control / 'fixture.txt').write_text('read-only probe fixture\\n')\n            (control / 'hosts').write_text('127.0.0.1\
-        \ localhost\\n::1 localhost\\n')\n            shutil.copyfile(__file__, control / 'probe.py')\n            host =\
-        \ {'namespaces': namespaces(), 'sentinel': str(sentinel), 'positive': {}}\n            for kind, family, address in\
-        \ [('ipv4', socket.AF_INET, '127.0.0.1'), ('ipv6', socket.AF_INET6, '::1')]:\n                s = socket.socket(family,\
-        \ socket.SOCK_STREAM)\n                listeners.append(s)\n                s.bind((address, 0))\n               \
-        \ s.listen(4)\n                host[kind + '_port'] = s.getsockname()[1]\n                connect(family, host[kind\
-        \ + '_port'])\n                host['positive'][kind] = True\n            host['positive']['dns'] = bool(socket.getaddrinfo('registry.npmjs.org',\
-        \ 443, socket.AF_INET, socket.SOCK_STREAM))\n            require(all(host['positive'].values()), 'HOST_POSITIVE_CONTROL')\n\
-        \            (control / 'host.json').write_bytes(encoded(host))\n            record['host_positive'] = host['positive']\n\
-        \            record['host_namespaces'] = host['namespaces']\n            result = subprocess.run(bubblewrap_command(control,\
+        \             'uid': mode.st_uid, 'mode': oct(stat.S_IMODE(mode.st_mode)), 'admitted': False}\n        if record['context']['kind']\
+        \ == 'GITHUB_ENVIRONMENT_OBSERVED':\n            require(record['bubblewrap']['sha256'] == 'e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71',\
+        \ 'BWRAP_PIN')\n        with tempfile.TemporaryDirectory(prefix='bearing-qualification-') as temp:\n            base\
+        \ = Path(temp)\n            control, target, inner_output = base / 'control', base / 'root', base / 'output'\n   \
+        \         for directory in (control, target, inner_output):\n                directory.mkdir()\n            sentinel\
+        \ = base / 'host-sentinel'\n            sentinel.write_text('owned probe fixture\\n')\n            (control / 'fixture.txt').write_text('read-only\
+        \ probe fixture\\n')\n            (control / 'hosts').write_text('127.0.0.1 localhost\\n::1 localhost\\n')\n     \
+        \       shutil.copyfile(__file__, control / 'probe.py')\n            host = {'namespaces': namespaces(), 'sentinel':\
+        \ str(sentinel), 'positive': {}}\n            for kind, family, address in [('ipv4', socket.AF_INET, '127.0.0.1'),\
+        \ ('ipv6', socket.AF_INET6, '::1')]:\n                s = socket.socket(family, socket.SOCK_STREAM)\n            \
+        \    listeners.append(s)\n                s.bind((address, 0))\n                s.listen(4)\n                host[kind\
+        \ + '_port'] = s.getsockname()[1]\n                connect(family, host[kind + '_port'])\n                host['positive'][kind]\
+        \ = True\n            host['positive']['dns'] = bool(socket.getaddrinfo('registry.npmjs.org', 443, socket.AF_INET,\
+        \ socket.SOCK_STREAM))\n            require(all(host['positive'].values()), 'HOST_POSITIVE_CONTROL')\n           \
+        \ (control / 'host.json').write_bytes(encoded(host))\n            record['host_positive'] = host['positive']\n   \
+        \         record['host_namespaces'] = host['namespaces']\n            result = subprocess.run(bubblewrap_command(control,\
         \ inner_output),\n                env=CLEAN, capture_output=True, timeout=90)\n            record['namespace_exit']\
         \ = result.returncode\n            # Retain only a digest of stderr, never arbitrary host output.\n            record['namespace_stderr_sha256']\
         \ = sha(result.stderr)\n            record['namespace_diagnostic'] = diagnostic(result.stderr)\n            inside\
@@ -159,11 +174,11 @@ jobs:
         \    args = parser.parse_args()\n    if args.mode == 'inside':\n        require(not args.paths, 'ARGUMENT_COUNT')\n\
         \        raise SystemExit(checks())\n    if args.mode == 'enter':\n        require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n\
         \        enter(*map(Path, args.paths))\n    else:\n        require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n     \
-        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' '7157be2bb6f4d08730078ed2339ad316dd4ead8faedf406a2ee3617cd15ebb09'\
+        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' 'f2a837fe2db4751971adbfd492de5b723d906698b18bdbc3d06be7a7f5760f07'\
         \ \"$probe_dir/probe.py\" | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\
         \n"
   probe-b:
-    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r2'
+    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920-r3'
       && github.run_attempt == 1 && github.event.created == true && github.event.deleted == false && github.event.before ==
       '0000000000000000000000000000000000000000' }}
     runs-on: ubuntu-24.04
@@ -174,15 +189,28 @@ jobs:
       boot_id_sha256: ${{ steps.probe.outputs.boot_id_sha256 }}
       report_sha256: ${{ steps.probe.outputs.report_sha256 }}
     steps:
+    - name: Prepare hash-pinned distro Bubblewrap executable
+      shell: bash
+      run: "set -euo pipefail\n# Bootstrap one hash-pinned distro executable in this disposable GitHub VM.\n# No package maintainer\
+        \ scripts, sysctl writes, profile changes or candidate code.\ntest \"$(id -u)\" != 0\ntest ! -e /usr/bin/bwrap\ntest\
+        \ ! -L /usr/bin/bwrap\nsetup_dir=$(mktemp -d)\ncurl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time\
+        \ 60 \\\n  'https://security.ubuntu.com/ubuntu/pool/main/b/bubblewrap/bubblewrap_0.9.0-1ubuntu0.3_amd64.deb' \\\n\
+        \  --output \"$setup_dir/bubblewrap.deb\"\nprintf '%s  %s\\n' '2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094'\
+        \ \"$setup_dir/bubblewrap.deb\" | sha256sum --check --status\ndpkg-deb --extract \"$setup_dir/bubblewrap.deb\" \"\
+        $setup_dir/extracted\"\nprintf '%s  %s\\n' 'e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71' \"$setup_dir/extracted/usr/bin/bwrap\"\
+        \ | sha256sum --check --status\ntest -f \"$setup_dir/extracted/usr/bin/bwrap\"\ntest ! -L \"$setup_dir/extracted/usr/bin/bwrap\"\
+        \nsudo -n /usr/bin/install --owner=root --group=root --mode=0755 -- \"$setup_dir/extracted/usr/bin/bwrap\" /usr/bin/bwrap\n\
+        printf '%s  %s\\n' 'e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71' /usr/bin/bwrap | sha256sum --check\
+        \ --status\n/usr/bin/bwrap --version\n"
     - name: Fixed isolation capability probe
       id: probe
       shell: bash
       run: "set -euo pipefail\nprobe_dir=$(mktemp -d)\ncat > \"$probe_dir/probe.py\" <<'BEARING_PROBE_PY'\n\"\"\"Fixed, non-production\
         \ Linux isolation capability probe. No product checkout.\"\"\"\nimport argparse\nimport errno\nimport hashlib\nimport\
         \ json\nimport os\nimport platform\nimport re\nimport shutil\nimport socket\nimport subprocess\nimport sys\nimport\
-        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V2'\nNS = ('user',\
+        \ tempfile\nimport uuid\nimport stat\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V3'\nNS = ('user',\
         \ 'mnt', 'net', 'pid', 'ipc', 'uts')\nRUNTIME = ('/usr/bin', '/usr/lib/x86_64-linux-gnu', '/usr/lib/python3.12', '/usr/lib64')\n\
-        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r2'\n\
+        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920-r3'\n\
         \ndef require(ok, code):\n    if not ok:\n        raise RuntimeError(code)\n\ndef sha(raw):\n    return hashlib.sha256(raw).hexdigest()\n\
         \ndef encoded(value):\n    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\\n').encode()\n\
         \ndef namespaces():\n    return {name: os.readlink('/proc/self/ns/' + name) for name in NS}\n\ndef host_policy():\n\
@@ -276,20 +304,22 @@ jobs:
         \ timeout=10)\n        version_text = version.stdout.decode('ascii', errors='strict').strip()\n        require(version.returncode\
         \ == 0 and re.fullmatch('bubblewrap [0-9.]{3,20}', version_text), 'BWRAP_VERSION')\n        record['bubblewrap'] =\
         \ {'path': str(executable), 'version': version_text, 'sha256': sha(executable.read_bytes()),\n                   \
-        \             'uid': mode.st_uid, 'mode': oct(stat.S_IMODE(mode.st_mode)), 'admitted': False}\n        with tempfile.TemporaryDirectory(prefix='bearing-qualification-')\
-        \ as temp:\n            base = Path(temp)\n            control, target, inner_output = base / 'control', base / 'root',\
-        \ base / 'output'\n            for directory in (control, target, inner_output):\n                directory.mkdir()\n\
-        \            sentinel = base / 'host-sentinel'\n            sentinel.write_text('owned probe fixture\\n')\n      \
-        \      (control / 'fixture.txt').write_text('read-only probe fixture\\n')\n            (control / 'hosts').write_text('127.0.0.1\
-        \ localhost\\n::1 localhost\\n')\n            shutil.copyfile(__file__, control / 'probe.py')\n            host =\
-        \ {'namespaces': namespaces(), 'sentinel': str(sentinel), 'positive': {}}\n            for kind, family, address in\
-        \ [('ipv4', socket.AF_INET, '127.0.0.1'), ('ipv6', socket.AF_INET6, '::1')]:\n                s = socket.socket(family,\
-        \ socket.SOCK_STREAM)\n                listeners.append(s)\n                s.bind((address, 0))\n               \
-        \ s.listen(4)\n                host[kind + '_port'] = s.getsockname()[1]\n                connect(family, host[kind\
-        \ + '_port'])\n                host['positive'][kind] = True\n            host['positive']['dns'] = bool(socket.getaddrinfo('registry.npmjs.org',\
-        \ 443, socket.AF_INET, socket.SOCK_STREAM))\n            require(all(host['positive'].values()), 'HOST_POSITIVE_CONTROL')\n\
-        \            (control / 'host.json').write_bytes(encoded(host))\n            record['host_positive'] = host['positive']\n\
-        \            record['host_namespaces'] = host['namespaces']\n            result = subprocess.run(bubblewrap_command(control,\
+        \             'uid': mode.st_uid, 'mode': oct(stat.S_IMODE(mode.st_mode)), 'admitted': False}\n        if record['context']['kind']\
+        \ == 'GITHUB_ENVIRONMENT_OBSERVED':\n            require(record['bubblewrap']['sha256'] == 'e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71',\
+        \ 'BWRAP_PIN')\n        with tempfile.TemporaryDirectory(prefix='bearing-qualification-') as temp:\n            base\
+        \ = Path(temp)\n            control, target, inner_output = base / 'control', base / 'root', base / 'output'\n   \
+        \         for directory in (control, target, inner_output):\n                directory.mkdir()\n            sentinel\
+        \ = base / 'host-sentinel'\n            sentinel.write_text('owned probe fixture\\n')\n            (control / 'fixture.txt').write_text('read-only\
+        \ probe fixture\\n')\n            (control / 'hosts').write_text('127.0.0.1 localhost\\n::1 localhost\\n')\n     \
+        \       shutil.copyfile(__file__, control / 'probe.py')\n            host = {'namespaces': namespaces(), 'sentinel':\
+        \ str(sentinel), 'positive': {}}\n            for kind, family, address in [('ipv4', socket.AF_INET, '127.0.0.1'),\
+        \ ('ipv6', socket.AF_INET6, '::1')]:\n                s = socket.socket(family, socket.SOCK_STREAM)\n            \
+        \    listeners.append(s)\n                s.bind((address, 0))\n                s.listen(4)\n                host[kind\
+        \ + '_port'] = s.getsockname()[1]\n                connect(family, host[kind + '_port'])\n                host['positive'][kind]\
+        \ = True\n            host['positive']['dns'] = bool(socket.getaddrinfo('registry.npmjs.org', 443, socket.AF_INET,\
+        \ socket.SOCK_STREAM))\n            require(all(host['positive'].values()), 'HOST_POSITIVE_CONTROL')\n           \
+        \ (control / 'host.json').write_bytes(encoded(host))\n            record['host_positive'] = host['positive']\n   \
+        \         record['host_namespaces'] = host['namespaces']\n            result = subprocess.run(bubblewrap_command(control,\
         \ inner_output),\n                env=CLEAN, capture_output=True, timeout=90)\n            record['namespace_exit']\
         \ = result.returncode\n            # Retain only a digest of stderr, never arbitrary host output.\n            record['namespace_stderr_sha256']\
         \ = sha(result.stderr)\n            record['namespace_diagnostic'] = diagnostic(result.stderr)\n            inside\
@@ -311,7 +341,7 @@ jobs:
         \    args = parser.parse_args()\n    if args.mode == 'inside':\n        require(not args.paths, 'ARGUMENT_COUNT')\n\
         \        raise SystemExit(checks())\n    if args.mode == 'enter':\n        require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n\
         \        enter(*map(Path, args.paths))\n    else:\n        require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n     \
-        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' '7157be2bb6f4d08730078ed2339ad316dd4ead8faedf406a2ee3617cd15ebb09'\
+        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' 'f2a837fe2db4751971adbfd492de5b723d906698b18bdbc3d06be7a7f5760f07'\
         \ \"$probe_dir/probe.py\" | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\
         \n"
   compare:
