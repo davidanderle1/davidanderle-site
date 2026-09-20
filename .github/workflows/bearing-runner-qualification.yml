@@ -1,0 +1,265 @@
+name: BEARING R8 runner capability qualification
+'on':
+  push:
+    branches:
+    - codex/r8-runner-qualification-20260920
+    paths:
+    - .github/workflows/bearing-runner-qualification.yml
+permissions: {}
+concurrency:
+  group: bearing-r8-runner-qualification-20260920
+  cancel-in-progress: false
+jobs:
+  probe-a:
+    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920'
+      && github.run_attempt == 1 && github.event.created == true && github.event.deleted == false && github.event.before ==
+      '0000000000000000000000000000000000000000' }}
+    runs-on: ubuntu-24.04
+    permissions: {}
+    timeout-minutes: 5
+    outputs:
+      passed: ${{ steps.probe.outputs.passed }}
+      boot_id_sha256: ${{ steps.probe.outputs.boot_id_sha256 }}
+      report_sha256: ${{ steps.probe.outputs.report_sha256 }}
+    steps:
+    - name: Fixed isolation capability probe
+      id: probe
+      shell: bash
+      run: "set -euo pipefail\nprobe_dir=$(mktemp -d)\ncat > \"$probe_dir/probe.py\" <<'BEARING_PROBE_PY'\n\"\"\"Fixed, non-production\
+        \ Linux isolation capability probe. No product checkout.\"\"\"\nimport argparse\nimport errno\nimport hashlib\nimport\
+        \ json\nimport os\nimport platform\nimport re\nimport shutil\nimport socket\nimport subprocess\nimport sys\nimport\
+        \ tempfile\nimport uuid\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V1'\nNS = ('user', 'mnt',\
+        \ 'net', 'pid', 'ipc', 'uts')\nRUNTIME = ('/usr/bin', '/usr/lib/x86_64-linux-gnu', '/usr/lib/python3.12', '/usr/lib64')\n\
+        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920'\n\
+        \ndef require(ok, code):\n    if not ok:\n        raise RuntimeError(code)\n\ndef sha(raw):\n    return hashlib.sha256(raw).hexdigest()\n\
+        \ndef encoded(value):\n    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\\n').encode()\n\
+        \ndef namespaces():\n    return {name: os.readlink('/proc/self/ns/' + name) for name in NS}\n\ndef connect(family,\
+        \ port):\n    with socket.socket(family, socket.SOCK_STREAM) as s:\n        s.settimeout(2)\n        s.connect(('127.0.0.1'\
+        \ if family == socket.AF_INET else '::1', port))\n\ndef checks():\n    host = json.loads(Path('/control/host.json').read_text())\n\
+        \    status = {}\n    for line in Path('/proc/self/status').read_text().splitlines():\n        key, _, value = line.partition(':')\n\
+        \        if key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs'):\n            status[key] = value.strip()\n\
+        \    observed = {'namespaces': namespaces(), 'status': status, 'environment_names': sorted(os.environ)}\n    observed['host_paths_absent']\
+        \ = all(not Path(p).exists() for p in (\n        '/home', '/root', '/mnt/c', '/var/run/docker.sock', host['sentinel']))\n\
+        \    observed['control_read_only'] = False\n    try:\n        fd = os.open('/control/fixture.txt', os.O_WRONLY)\n\
+        \        os.close(fd)\n    except OSError as error:\n        observed['control_read_only'] = error.errno == errno.EROFS\n\
+        \    observed['blocked'] = {}\n    for name, operation in (\n        ('ipv4', lambda: connect(socket.AF_INET, host['ipv4_port'])),\n\
+        \        ('ipv6', lambda: connect(socket.AF_INET6, host['ipv6_port'])),\n        ('dns', lambda: socket.getaddrinfo('registry.npmjs.org',\
+        \ 443, socket.AF_INET, socket.SOCK_STREAM)),\n    ):\n        try:\n            operation()\n            observed['blocked'][name]\
+        \ = False\n        except OSError:\n            observed['blocked'][name] = True\n    observed['pass'] = (\n     \
+        \   all(observed['namespaces'][n] != host['namespaces'][n] for n in NS)\n        and all(observed['blocked'].values())\n\
+        \        and observed['host_paths_absent'] and observed['control_read_only']\n        and set(os.environ) == set(CLEAN)\n\
+        \        and status.get('NoNewPrivs') == '1'\n        and all(status.get(k) == '0000000000000000' for k in ('CapInh',\
+        \ 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'))\n    )\n    Path('/output/inside.json').write_bytes(encoded(observed))\n\
+        \    return 0 if observed['pass'] else 1\n\ndef call(*argv):\n    result = subprocess.run(argv, env=CLEAN, capture_output=True,\
+        \ timeout=30)\n    require(result.returncode == 0, 'NAMESPACE_SETUP_' + str(result.returncode))\n\ndef enter(root,\
+        \ control, output):\n    call('/usr/bin/mount', '--make-rprivate', '/')\n    call('/usr/bin/mount', '-t', 'tmpfs',\
+        \ '-o', 'nosuid,nodev,size=64m', 'tmpfs', str(root))\n    def bind(source, destination, readonly=True):\n        target\
+        \ = root / destination.lstrip('/')\n        if Path(source).is_dir():\n            target.mkdir(parents=True, exist_ok=True)\n\
+        \        else:\n            target.parent.mkdir(parents=True, exist_ok=True)\n            target.touch()\n       \
+        \ call('/usr/bin/mount', '--bind', str(source), str(target))\n        if readonly:\n            call('/usr/bin/mount',\
+        \ '-o', 'remount,bind,ro,nosuid,nodev', str(target))\n    for path in RUNTIME:\n        bind(path, path)\n    for\
+        \ name, target in [('bin', 'usr/bin'), ('lib', 'usr/lib'), ('lib64', 'usr/lib64')]:\n        (root / name).symlink_to(target)\n\
+        \    bind(control, '/control')\n    bind(output, '/output', False)\n    for name in ('work', 'tmp', 'dev', 'etc',\
+        \ 'proc'):\n        (root / name).mkdir()\n    call('/usr/bin/mount', '-t', 'tmpfs', '-o', 'nosuid,nodev,size=32m,mode=1777',\
+        \ 'tmpfs', str(root / 'tmp'))\n    call('/usr/bin/mount', '-t', 'proc', '-o', 'ro,nosuid,nodev,noexec', 'proc', str(root\
+        \ / 'proc'))\n    for name in ('null', 'zero', 'urandom', 'random'):\n        bind('/dev/' + name, '/dev/' + name,\
+        \ False)\n    for name in ('resolv.conf', 'nsswitch.conf', 'ld.so.cache'):\n        source = Path('/etc') / name\n\
+        \        if source.is_file():\n            shutil.copyfile(source, root / 'etc' / name)\n    (root / 'etc/hosts').write_text('127.0.0.1\
+        \ localhost\\n::1 localhost\\n')\n    os.chroot(root)\n    os.chdir('/work')\n    os.execve('/usr/bin/setpriv', ['setpriv',\
+        \ '--bounding-set=-all', '--inh-caps=-all',\n        '--ambient-caps=-all', '--no-new-privs', '/usr/bin/python3',\
+        \ '-I', '-B',\n        '/control/probe.py', 'inside'], CLEAN)\n\ndef github_context():\n    if os.environ.get('GITHUB_ACTIONS')\
+        \ != 'true':\n        require(not os.environ.get('GITHUB_RUN_ID'), 'PARTIAL_GITHUB_CONTEXT')\n        return {'kind':\
+        \ 'LOCAL_DEVELOPMENT', 'authenticated': False}\n    fixed = {'GITHUB_REPOSITORY': 'davidanderle1/davidanderle-site',\
+        \ 'GITHUB_REPOSITORY_ID': '1186790949',\n             'GITHUB_SERVER_URL': 'https://github.com', 'GITHUB_EVENT_NAME':\
+        \ 'push', 'GITHUB_REF': BRANCH,\n             'RUNNER_OS': 'Linux', 'RUNNER_ARCH': 'X64', 'GITHUB_RUN_ATTEMPT': '1'}\n\
+        \    require(all(os.environ.get(k) == v for k, v in fixed.items()), 'GITHUB_FIXED_CONTEXT')\n    require(os.environ.get('GITHUB_JOB')\
+        \ in ('probe-a', 'probe-b'), 'GITHUB_JOB')\n    require(re.fullmatch('[1-9][0-9]{0,19}', os.environ.get('GITHUB_RUN_ID',\
+        \ '')), 'GITHUB_RUN_ID')\n    for key in ('GITHUB_SHA', 'GITHUB_WORKFLOW_SHA'):\n        require(re.fullmatch('[0-9a-f]{40}',\
+        \ os.environ.get(key, '')), 'GITHUB_SHA')\n    require(os.environ['GITHUB_SHA'] == os.environ['GITHUB_WORKFLOW_SHA'],\
+        \ 'GITHUB_WORKFLOW_SOURCE')\n    require(os.environ.get('GITHUB_WORKFLOW_REF') == fixed['GITHUB_REPOSITORY'] +\n \
+        \           '/.github/workflows/bearing-runner-qualification.yml@' + BRANCH, 'GITHUB_WORKFLOW_REF')\n    keys = (*fixed,\
+        \ 'GITHUB_JOB', 'GITHUB_RUN_ID', 'GITHUB_SHA', 'GITHUB_WORKFLOW_SHA', 'GITHUB_WORKFLOW_REF')\n    return {'kind':\
+        \ 'GITHUB_ENVIRONMENT_OBSERVED', 'values': {k: os.environ[k] for k in keys}, 'authenticated': False}\n\ndef run(output):\n\
+        \    require(not output.exists(), 'OUTPUT_EXISTS')\n    output.mkdir(parents=True)\n    record = {'record_type': SCHEMA,\
+        \ 'pass': False, 'production_authorized': False,\n              'probe_sha256': sha(Path(__file__).read_bytes()),\
+        \ 'context': github_context()}\n    listeners = []\n    try:\n        require(platform.system() == 'Linux' and platform.machine()\
+        \ == 'x86_64', 'LINUX_X64_REQUIRED')\n        boot = str(uuid.UUID(Path('/proc/sys/kernel/random/boot_id').read_text().strip()))\n\
+        \        record['boot_id_sha256'] = sha(boot.encode())\n        record['kernel_release'] = platform.release()\n  \
+        \      record['python'] = platform.python_version()\n        record['image'] = {key: os.environ.get(key, '')[:128]\
+        \ for key in ('ImageOS', 'ImageVersion')}\n        record['runtime_paths_present'] = {p: Path(p).is_dir() for p in\
+        \ RUNTIME}\n        require(all(record['runtime_paths_present'].values()), 'RUNTIME_PATH_MISSING')\n        require(sys.version_info[:2]\
+        \ == (3, 12), 'PYTHON_312_REQUIRED')\n        with tempfile.TemporaryDirectory(prefix='bearing-qualification-') as\
+        \ temp:\n            base = Path(temp)\n            control, target, inner_output = base / 'control', base / 'root',\
+        \ base / 'output'\n            for directory in (control, target, inner_output):\n                directory.mkdir()\n\
+        \            sentinel = base / 'host-sentinel'\n            sentinel.write_text('owned probe fixture\\n')\n      \
+        \      (control / 'fixture.txt').write_text('read-only probe fixture\\n')\n            shutil.copyfile(__file__, control\
+        \ / 'probe.py')\n            host = {'namespaces': namespaces(), 'sentinel': str(sentinel), 'positive': {}}\n    \
+        \        for kind, family, address in [('ipv4', socket.AF_INET, '127.0.0.1'), ('ipv6', socket.AF_INET6, '::1')]:\n\
+        \                s = socket.socket(family, socket.SOCK_STREAM)\n                listeners.append(s)\n            \
+        \    s.bind((address, 0))\n                s.listen(4)\n                host[kind + '_port'] = s.getsockname()[1]\n\
+        \                connect(family, host[kind + '_port'])\n                host['positive'][kind] = True\n          \
+        \  host['positive']['dns'] = bool(socket.getaddrinfo('registry.npmjs.org', 443, socket.AF_INET, socket.SOCK_STREAM))\n\
+        \            require(all(host['positive'].values()), 'HOST_POSITIVE_CONTROL')\n            (control / 'host.json').write_bytes(encoded(host))\n\
+        \            record['host_positive'] = host['positive']\n            record['host_namespaces'] = host['namespaces']\n\
+        \            result = subprocess.run(['/usr/bin/unshare', '--user', '--map-root-user', '--mount', '--net',\n     \
+        \           '--pid', '--fork', '--ipc', '--uts', '--kill-child=SIGKILL', '/usr/bin/python3', '-I', '-B',\n       \
+        \         str(control / 'probe.py'), 'enter', str(target), str(control), str(inner_output)],\n                env=CLEAN,\
+        \ capture_output=True, timeout=90)\n            record['namespace_exit'] = result.returncode\n            # Retain\
+        \ only a digest of stderr, never arbitrary host output.\n            record['namespace_stderr_sha256'] = sha(result.stderr)\n\
+        \            inside = inner_output / 'inside.json'\n            if inside.is_file():\n                record['inside']\
+        \ = json.loads(inside.read_text())\n            require(result.returncode == 0 and record.get('inside', {}).get('pass')\
+        \ is True, 'ISOLATION_CAPABILITY_FAILED')\n            require((control / 'fixture.txt').read_text() == 'read-only\
+        \ probe fixture\\n', 'FIXTURE_CHANGED')\n            record['pass'] = True\n    except Exception as error:\n     \
+        \   record['error_type'] = type(error).__name__\n        record['error_code'] = str(error) if isinstance(error, RuntimeError)\
+        \ else 'HOST_OR_PROCESS_FAILURE'\n    finally:\n        for listener in listeners:\n            listener.close()\n\
+        \    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n    print(raw.decode(), end='')\n    if\
+        \ record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n        # All outputs are fixed vocabulary or validated\
+        \ hex, never arbitrary environment text.\n        with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:\n       \
+        \     for name, value in {'passed': 'yes' if record['pass'] else 'no', 'report_sha256': sha(raw),\n              \
+        \                  'boot_id_sha256': record.get('boot_id_sha256', '0' * 64)}.items():\n                stream.write(name\
+        \ + '=' + value + '\\n')\n    return 0 if record['pass'] else 1\n\nif __name__ == '__main__':\n    parser = argparse.ArgumentParser()\n\
+        \    parser.add_argument('mode', choices=('run', 'enter', 'inside'))\n    parser.add_argument('paths', nargs='*')\n\
+        \    args = parser.parse_args()\n    if args.mode == 'inside':\n        require(not args.paths, 'ARGUMENT_COUNT')\n\
+        \        raise SystemExit(checks())\n    if args.mode == 'enter':\n        require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n\
+        \        enter(*map(Path, args.paths))\n    else:\n        require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n     \
+        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' '3cd5465c8e683913b74dc21d7872fb1b022c4b5e834a093f33dea4d9ba84a20f'\
+        \ \"$probe_dir/probe.py\" | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\
+        \n"
+  probe-b:
+    if: ${{ github.repository_id == '1186790949' && github.event_name == 'push' && github.ref == 'refs/heads/codex/r8-runner-qualification-20260920'
+      && github.run_attempt == 1 && github.event.created == true && github.event.deleted == false && github.event.before ==
+      '0000000000000000000000000000000000000000' }}
+    runs-on: ubuntu-24.04
+    permissions: {}
+    timeout-minutes: 5
+    outputs:
+      passed: ${{ steps.probe.outputs.passed }}
+      boot_id_sha256: ${{ steps.probe.outputs.boot_id_sha256 }}
+      report_sha256: ${{ steps.probe.outputs.report_sha256 }}
+    steps:
+    - name: Fixed isolation capability probe
+      id: probe
+      shell: bash
+      run: "set -euo pipefail\nprobe_dir=$(mktemp -d)\ncat > \"$probe_dir/probe.py\" <<'BEARING_PROBE_PY'\n\"\"\"Fixed, non-production\
+        \ Linux isolation capability probe. No product checkout.\"\"\"\nimport argparse\nimport errno\nimport hashlib\nimport\
+        \ json\nimport os\nimport platform\nimport re\nimport shutil\nimport socket\nimport subprocess\nimport sys\nimport\
+        \ tempfile\nimport uuid\nfrom pathlib import Path\n\nSCHEMA = 'BEARING_RUNNER_CAPABILITY_V1'\nNS = ('user', 'mnt',\
+        \ 'net', 'pid', 'ipc', 'uts')\nRUNTIME = ('/usr/bin', '/usr/lib/x86_64-linux-gnu', '/usr/lib/python3.12', '/usr/lib64')\n\
+        CLEAN = {'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC', 'TMPDIR': '/tmp'}\nBRANCH = 'refs/heads/codex/r8-runner-qualification-20260920'\n\
+        \ndef require(ok, code):\n    if not ok:\n        raise RuntimeError(code)\n\ndef sha(raw):\n    return hashlib.sha256(raw).hexdigest()\n\
+        \ndef encoded(value):\n    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\\n').encode()\n\
+        \ndef namespaces():\n    return {name: os.readlink('/proc/self/ns/' + name) for name in NS}\n\ndef connect(family,\
+        \ port):\n    with socket.socket(family, socket.SOCK_STREAM) as s:\n        s.settimeout(2)\n        s.connect(('127.0.0.1'\
+        \ if family == socket.AF_INET else '::1', port))\n\ndef checks():\n    host = json.loads(Path('/control/host.json').read_text())\n\
+        \    status = {}\n    for line in Path('/proc/self/status').read_text().splitlines():\n        key, _, value = line.partition(':')\n\
+        \        if key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs'):\n            status[key] = value.strip()\n\
+        \    observed = {'namespaces': namespaces(), 'status': status, 'environment_names': sorted(os.environ)}\n    observed['host_paths_absent']\
+        \ = all(not Path(p).exists() for p in (\n        '/home', '/root', '/mnt/c', '/var/run/docker.sock', host['sentinel']))\n\
+        \    observed['control_read_only'] = False\n    try:\n        fd = os.open('/control/fixture.txt', os.O_WRONLY)\n\
+        \        os.close(fd)\n    except OSError as error:\n        observed['control_read_only'] = error.errno == errno.EROFS\n\
+        \    observed['blocked'] = {}\n    for name, operation in (\n        ('ipv4', lambda: connect(socket.AF_INET, host['ipv4_port'])),\n\
+        \        ('ipv6', lambda: connect(socket.AF_INET6, host['ipv6_port'])),\n        ('dns', lambda: socket.getaddrinfo('registry.npmjs.org',\
+        \ 443, socket.AF_INET, socket.SOCK_STREAM)),\n    ):\n        try:\n            operation()\n            observed['blocked'][name]\
+        \ = False\n        except OSError:\n            observed['blocked'][name] = True\n    observed['pass'] = (\n     \
+        \   all(observed['namespaces'][n] != host['namespaces'][n] for n in NS)\n        and all(observed['blocked'].values())\n\
+        \        and observed['host_paths_absent'] and observed['control_read_only']\n        and set(os.environ) == set(CLEAN)\n\
+        \        and status.get('NoNewPrivs') == '1'\n        and all(status.get(k) == '0000000000000000' for k in ('CapInh',\
+        \ 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'))\n    )\n    Path('/output/inside.json').write_bytes(encoded(observed))\n\
+        \    return 0 if observed['pass'] else 1\n\ndef call(*argv):\n    result = subprocess.run(argv, env=CLEAN, capture_output=True,\
+        \ timeout=30)\n    require(result.returncode == 0, 'NAMESPACE_SETUP_' + str(result.returncode))\n\ndef enter(root,\
+        \ control, output):\n    call('/usr/bin/mount', '--make-rprivate', '/')\n    call('/usr/bin/mount', '-t', 'tmpfs',\
+        \ '-o', 'nosuid,nodev,size=64m', 'tmpfs', str(root))\n    def bind(source, destination, readonly=True):\n        target\
+        \ = root / destination.lstrip('/')\n        if Path(source).is_dir():\n            target.mkdir(parents=True, exist_ok=True)\n\
+        \        else:\n            target.parent.mkdir(parents=True, exist_ok=True)\n            target.touch()\n       \
+        \ call('/usr/bin/mount', '--bind', str(source), str(target))\n        if readonly:\n            call('/usr/bin/mount',\
+        \ '-o', 'remount,bind,ro,nosuid,nodev', str(target))\n    for path in RUNTIME:\n        bind(path, path)\n    for\
+        \ name, target in [('bin', 'usr/bin'), ('lib', 'usr/lib'), ('lib64', 'usr/lib64')]:\n        (root / name).symlink_to(target)\n\
+        \    bind(control, '/control')\n    bind(output, '/output', False)\n    for name in ('work', 'tmp', 'dev', 'etc',\
+        \ 'proc'):\n        (root / name).mkdir()\n    call('/usr/bin/mount', '-t', 'tmpfs', '-o', 'nosuid,nodev,size=32m,mode=1777',\
+        \ 'tmpfs', str(root / 'tmp'))\n    call('/usr/bin/mount', '-t', 'proc', '-o', 'ro,nosuid,nodev,noexec', 'proc', str(root\
+        \ / 'proc'))\n    for name in ('null', 'zero', 'urandom', 'random'):\n        bind('/dev/' + name, '/dev/' + name,\
+        \ False)\n    for name in ('resolv.conf', 'nsswitch.conf', 'ld.so.cache'):\n        source = Path('/etc') / name\n\
+        \        if source.is_file():\n            shutil.copyfile(source, root / 'etc' / name)\n    (root / 'etc/hosts').write_text('127.0.0.1\
+        \ localhost\\n::1 localhost\\n')\n    os.chroot(root)\n    os.chdir('/work')\n    os.execve('/usr/bin/setpriv', ['setpriv',\
+        \ '--bounding-set=-all', '--inh-caps=-all',\n        '--ambient-caps=-all', '--no-new-privs', '/usr/bin/python3',\
+        \ '-I', '-B',\n        '/control/probe.py', 'inside'], CLEAN)\n\ndef github_context():\n    if os.environ.get('GITHUB_ACTIONS')\
+        \ != 'true':\n        require(not os.environ.get('GITHUB_RUN_ID'), 'PARTIAL_GITHUB_CONTEXT')\n        return {'kind':\
+        \ 'LOCAL_DEVELOPMENT', 'authenticated': False}\n    fixed = {'GITHUB_REPOSITORY': 'davidanderle1/davidanderle-site',\
+        \ 'GITHUB_REPOSITORY_ID': '1186790949',\n             'GITHUB_SERVER_URL': 'https://github.com', 'GITHUB_EVENT_NAME':\
+        \ 'push', 'GITHUB_REF': BRANCH,\n             'RUNNER_OS': 'Linux', 'RUNNER_ARCH': 'X64', 'GITHUB_RUN_ATTEMPT': '1'}\n\
+        \    require(all(os.environ.get(k) == v for k, v in fixed.items()), 'GITHUB_FIXED_CONTEXT')\n    require(os.environ.get('GITHUB_JOB')\
+        \ in ('probe-a', 'probe-b'), 'GITHUB_JOB')\n    require(re.fullmatch('[1-9][0-9]{0,19}', os.environ.get('GITHUB_RUN_ID',\
+        \ '')), 'GITHUB_RUN_ID')\n    for key in ('GITHUB_SHA', 'GITHUB_WORKFLOW_SHA'):\n        require(re.fullmatch('[0-9a-f]{40}',\
+        \ os.environ.get(key, '')), 'GITHUB_SHA')\n    require(os.environ['GITHUB_SHA'] == os.environ['GITHUB_WORKFLOW_SHA'],\
+        \ 'GITHUB_WORKFLOW_SOURCE')\n    require(os.environ.get('GITHUB_WORKFLOW_REF') == fixed['GITHUB_REPOSITORY'] +\n \
+        \           '/.github/workflows/bearing-runner-qualification.yml@' + BRANCH, 'GITHUB_WORKFLOW_REF')\n    keys = (*fixed,\
+        \ 'GITHUB_JOB', 'GITHUB_RUN_ID', 'GITHUB_SHA', 'GITHUB_WORKFLOW_SHA', 'GITHUB_WORKFLOW_REF')\n    return {'kind':\
+        \ 'GITHUB_ENVIRONMENT_OBSERVED', 'values': {k: os.environ[k] for k in keys}, 'authenticated': False}\n\ndef run(output):\n\
+        \    require(not output.exists(), 'OUTPUT_EXISTS')\n    output.mkdir(parents=True)\n    record = {'record_type': SCHEMA,\
+        \ 'pass': False, 'production_authorized': False,\n              'probe_sha256': sha(Path(__file__).read_bytes()),\
+        \ 'context': github_context()}\n    listeners = []\n    try:\n        require(platform.system() == 'Linux' and platform.machine()\
+        \ == 'x86_64', 'LINUX_X64_REQUIRED')\n        boot = str(uuid.UUID(Path('/proc/sys/kernel/random/boot_id').read_text().strip()))\n\
+        \        record['boot_id_sha256'] = sha(boot.encode())\n        record['kernel_release'] = platform.release()\n  \
+        \      record['python'] = platform.python_version()\n        record['image'] = {key: os.environ.get(key, '')[:128]\
+        \ for key in ('ImageOS', 'ImageVersion')}\n        record['runtime_paths_present'] = {p: Path(p).is_dir() for p in\
+        \ RUNTIME}\n        require(all(record['runtime_paths_present'].values()), 'RUNTIME_PATH_MISSING')\n        require(sys.version_info[:2]\
+        \ == (3, 12), 'PYTHON_312_REQUIRED')\n        with tempfile.TemporaryDirectory(prefix='bearing-qualification-') as\
+        \ temp:\n            base = Path(temp)\n            control, target, inner_output = base / 'control', base / 'root',\
+        \ base / 'output'\n            for directory in (control, target, inner_output):\n                directory.mkdir()\n\
+        \            sentinel = base / 'host-sentinel'\n            sentinel.write_text('owned probe fixture\\n')\n      \
+        \      (control / 'fixture.txt').write_text('read-only probe fixture\\n')\n            shutil.copyfile(__file__, control\
+        \ / 'probe.py')\n            host = {'namespaces': namespaces(), 'sentinel': str(sentinel), 'positive': {}}\n    \
+        \        for kind, family, address in [('ipv4', socket.AF_INET, '127.0.0.1'), ('ipv6', socket.AF_INET6, '::1')]:\n\
+        \                s = socket.socket(family, socket.SOCK_STREAM)\n                listeners.append(s)\n            \
+        \    s.bind((address, 0))\n                s.listen(4)\n                host[kind + '_port'] = s.getsockname()[1]\n\
+        \                connect(family, host[kind + '_port'])\n                host['positive'][kind] = True\n          \
+        \  host['positive']['dns'] = bool(socket.getaddrinfo('registry.npmjs.org', 443, socket.AF_INET, socket.SOCK_STREAM))\n\
+        \            require(all(host['positive'].values()), 'HOST_POSITIVE_CONTROL')\n            (control / 'host.json').write_bytes(encoded(host))\n\
+        \            record['host_positive'] = host['positive']\n            record['host_namespaces'] = host['namespaces']\n\
+        \            result = subprocess.run(['/usr/bin/unshare', '--user', '--map-root-user', '--mount', '--net',\n     \
+        \           '--pid', '--fork', '--ipc', '--uts', '--kill-child=SIGKILL', '/usr/bin/python3', '-I', '-B',\n       \
+        \         str(control / 'probe.py'), 'enter', str(target), str(control), str(inner_output)],\n                env=CLEAN,\
+        \ capture_output=True, timeout=90)\n            record['namespace_exit'] = result.returncode\n            # Retain\
+        \ only a digest of stderr, never arbitrary host output.\n            record['namespace_stderr_sha256'] = sha(result.stderr)\n\
+        \            inside = inner_output / 'inside.json'\n            if inside.is_file():\n                record['inside']\
+        \ = json.loads(inside.read_text())\n            require(result.returncode == 0 and record.get('inside', {}).get('pass')\
+        \ is True, 'ISOLATION_CAPABILITY_FAILED')\n            require((control / 'fixture.txt').read_text() == 'read-only\
+        \ probe fixture\\n', 'FIXTURE_CHANGED')\n            record['pass'] = True\n    except Exception as error:\n     \
+        \   record['error_type'] = type(error).__name__\n        record['error_code'] = str(error) if isinstance(error, RuntimeError)\
+        \ else 'HOST_OR_PROCESS_FAILURE'\n    finally:\n        for listener in listeners:\n            listener.close()\n\
+        \    raw = encoded(record)\n    (output / 'report.json').write_bytes(raw)\n    print(raw.decode(), end='')\n    if\
+        \ record['context']['kind'] == 'GITHUB_ENVIRONMENT_OBSERVED':\n        # All outputs are fixed vocabulary or validated\
+        \ hex, never arbitrary environment text.\n        with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:\n       \
+        \     for name, value in {'passed': 'yes' if record['pass'] else 'no', 'report_sha256': sha(raw),\n              \
+        \                  'boot_id_sha256': record.get('boot_id_sha256', '0' * 64)}.items():\n                stream.write(name\
+        \ + '=' + value + '\\n')\n    return 0 if record['pass'] else 1\n\nif __name__ == '__main__':\n    parser = argparse.ArgumentParser()\n\
+        \    parser.add_argument('mode', choices=('run', 'enter', 'inside'))\n    parser.add_argument('paths', nargs='*')\n\
+        \    args = parser.parse_args()\n    if args.mode == 'inside':\n        require(not args.paths, 'ARGUMENT_COUNT')\n\
+        \        raise SystemExit(checks())\n    if args.mode == 'enter':\n        require(len(args.paths) == 3, 'ARGUMENT_COUNT')\n\
+        \        enter(*map(Path, args.paths))\n    else:\n        require(len(args.paths) == 1, 'ARGUMENT_COUNT')\n     \
+        \   raise SystemExit(run(Path(args.paths[0]).absolute()))\nBEARING_PROBE_PY\nprintf '%s  %s\\n' '3cd5465c8e683913b74dc21d7872fb1b022c4b5e834a093f33dea4d9ba84a20f'\
+        \ \"$probe_dir/probe.py\" | sha256sum --check --status\n/usr/bin/python3 -I -B \"$probe_dir/probe.py\" run \"$probe_dir/result\"\
+        \n"
+  compare:
+    needs:
+    - probe-a
+    - probe-b
+    runs-on: ubuntu-24.04
+    permissions: {}
+    timeout-minutes: 2
+    steps:
+    - name: Require distinct observed kernel boots
+      shell: bash
+      env:
+        A_BOOT: ${{ needs.probe-a.outputs.boot_id_sha256 }}
+        B_BOOT: ${{ needs.probe-b.outputs.boot_id_sha256 }}
+        A_PASS: ${{ needs.probe-a.outputs.passed }}
+        B_PASS: ${{ needs.probe-b.outputs.passed }}
+        A_REPORT: ${{ needs.probe-a.outputs.report_sha256 }}
+        B_REPORT: ${{ needs.probe-b.outputs.report_sha256 }}
+      run: "set -euo pipefail\n/usr/bin/python3 -I -B - <<'BEARING_COMPARE_PY'\nimport os,re,json\ndef need(ok,code):\n  \
+        \  if not ok: raise SystemExit(code)\na,b=os.environ['A_BOOT'],os.environ['B_BOOT']\nneed(os.environ['A_PASS']==os.environ['B_PASS']=='yes','PROBE_DID_NOT_PASS')\n\
+        need(all(re.fullmatch('[0-9a-f]{64}',x) and x!='0'*64 for x in (a,b,os.environ['A_REPORT'],os.environ['B_REPORT'])),'MISSING_EVIDENCE')\n\
+        need(a!=b,'SAME_KERNEL_BOOT_NOT_TWO_HOST_INSTANCES')\nprint(json.dumps({'record_type':'BEARING_TWO_HOST_CAPABILITY_OBSERVATION','pass':True,\n\
+        \ 'boot_ids_distinct':True,'a_report_sha256':os.environ['A_REPORT'],'b_report_sha256':os.environ['B_REPORT'],\n 'authenticated_provenance':False,'canonical_build_pair':False,'production_authorized':False},sort_keys=True))\n\
+        BEARING_COMPARE_PY\n"
