@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" role="img" aria-labelledby="title desc">
+  <title id="title">Volatility Cascade Engine mechanism overview</title>
+  <desc id="desc">A deterministic four-step cycle from initial loss through margin pressure and forced sales to price impact.</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#91d6c9"/></marker></defs>
+  <rect width="960" height="420" rx="28" fill="#0b171b"/>
+  <g fill="none" stroke="#91d6c9" stroke-width="3" marker-end="url(#arrow)">
+    <path d="M210 125 H365"/><path d="M470 125 H625"/><path d="M730 125 C850 125 850 300 730 300"/><path d="M625 300 H470"/><path d="M365 300 H210"/>
+  </g>
+  <g font-family="system-ui, sans-serif" text-anchor="middle">
+    <g><circle cx="135" cy="125" r="72" fill="#102229" stroke="#31505a"/><text x="135" y="116" fill="#f1f5f2" font-size="25">Initial</text><text x="135" y="146" fill="#a7b8b6" font-size="20">loss</text></g>
+    <g><circle cx="405" cy="125" r="72" fill="#102229" stroke="#31505a"/><text x="405" y="116" fill="#f1f5f2" font-size="25">Margin</text><text x="405" y="146" fill="#a7b8b6" font-size="20">pressure</text></g>
+    <g><circle cx="675" cy="125" r="72" fill="#102229" stroke="#31505a"/><text x="675" y="116" fill="#f1f5f2" font-size="25">Forced</text><text x="675" y="146" fill="#a7b8b6" font-size="20">sales</text></g>
+    <g><circle cx="675" cy="300" r="72" fill="#102229" stroke="#31505a"/><text x="675" y="291" fill="#f1f5f2" font-size="25">Price</text><text x="675" y="321" fill="#a7b8b6" font-size="20">impact</text></g>
+    <g><circle cx="405" cy="300" r="72" fill="#102229" stroke="#31505a"/><text x="405" y="291" fill="#f1f5f2" font-size="25">Next</text><text x="405" y="321" fill="#a7b8b6" font-size="20">state</text></g>
+    <text x="135" y="306" fill="#91d6c9" font-size="19">repeat until stop rule</text>
+  </g>
+</svg>

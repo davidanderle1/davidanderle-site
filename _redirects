@@ -1,17 +1,5 @@
-# Canonical current routes
-/resume /documents/david-anderle-resume.pdf 301
-/cv.pdf /documents/david-anderle-resume.pdf 301
-/documents/david-anderle-resume-2026-07-29.pdf /documents/david-anderle-resume.pdf 301
-/documents/David_Anderle_Resume_Global_Europe_2026_FINAL.pdf /documents/david-anderle-resume.pdf 301
-/work/volatility-cascade /work/volatility-cascade-engine/ 301
-/work/merkle-commitments /work/merkle-poseidon/ 301
-/writing/merkle-poseidon-boundaries /writing/boundaries-of-a-merkle-poseidon-prototype/ 301
-/research /work/ 301
-/research/ /work/ 301
-/projects /work/ 301
-/projects/ /work/ 301
-/about.html /about/ 301
-/work.html /work/ 301
-/writing.html /writing/ 301
-/contact.html /contact/ 301
-/cv.html /cv/ 301
+# BEARING W13 exact local redirects; native HTML aliases are separate
+/documents/david-anderle-resume.pdf /cv/ 301
+/projects/volatility-cascade-engine/ /work/volatility-cascade-engine/ 301
+/writing/boundaries-of-a-merkle-poseidon-prototype/ /work/merkle-poseidon/ 301
+/writing/reading-a-stylized-cascade-model/ /work/volatility-cascade-engine/ 301

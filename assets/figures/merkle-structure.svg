@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 440" role="img" aria-labelledby="title desc">
+  <title id="title">Simplified Merkle membership structure</title>
+  <desc id="desc">Four committed leaves combine into two intermediate hashes and one root, with one highlighted membership path.</desc>
+  <rect width="960" height="440" rx="28" fill="#0b171b"/>
+  <g stroke="#31505a" stroke-width="3" fill="none"><path d="M170 340 300 230 480 110"/><path d="M350 340 300 230"/><path d="M610 340 660 230 480 110"/><path d="M790 340 660 230"/></g>
+  <g stroke="#91d6c9" stroke-width="6" fill="none"><path d="M170 340 300 230 480 110"/></g>
+  <g font-family="system-ui,sans-serif" text-anchor="middle"><circle cx="480" cy="90" r="56" fill="#102229" stroke="#91d6c9"/><text x="480" y="98" fill="#f1f5f2" font-size="25">root</text><circle cx="300" cy="230" r="48" fill="#102229" stroke="#91d6c9"/><text x="300" y="237" fill="#f1f5f2" font-size="20">hash</text><circle cx="660" cy="230" r="48" fill="#102229" stroke="#31505a"/><text x="660" y="237" fill="#f1f5f2" font-size="20">hash</text><g fill="#102229" stroke="#31505a"><rect x="110" y="320" width="120" height="60" rx="12"/><rect x="290" y="320" width="120" height="60" rx="12"/><rect x="550" y="320" width="120" height="60" rx="12"/><rect x="730" y="320" width="120" height="60" rx="12"/></g><text x="170" y="357" fill="#f1f5f2" font-size="18">leaf 0</text><text x="350" y="357" fill="#f1f5f2" font-size="18">leaf 1</text><text x="610" y="357" fill="#f1f5f2" font-size="18">leaf 2</text><text x="790" y="357" fill="#f1f5f2" font-size="18">leaf 3</text></g>
+</svg>

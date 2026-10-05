@@ -1,0 +1,343 @@
+{
+  "schemaVersion": "1.0.0",
+  "immutableId": "work-vce",
+  "canonicalSlug": "volatility-cascade-engine",
+  "recordType": "research-software",
+  "title": "Volatility Cascade Engine",
+  "summary": "An independent Python research-software prototype for examining a margin-driven liquidation feedback mechanism in a small synthetic financial system.",
+  "startDate": "2026-03",
+  "endDate": "2026-07",
+  "datePrecision": "month",
+  "lifecycleStatus": "completed",
+  "artifactMaturity": "working-prototype",
+  "verificationStrength": "artifact-supported",
+  "role": "Independent designer and implementer",
+  "contribution": "Defined the mechanism, implemented and documented the Python baseline, and created 15 synthetic scenarios across six funds and five assets.",
+  "collaborators": [],
+  "context": "Independent technical and modelling work outside a production trading system.",
+  "technologies": [
+    "Python",
+    "NumPy",
+    "pandas",
+    "Matplotlib"
+  ],
+  "methods": [
+    "state-transition modelling",
+    "synthetic scenarios",
+    "sensitivity analysis",
+    "explicit assumption tracking"
+  ],
+  "themes": [
+    "market structure",
+    "risk",
+    "liquidation feedback",
+    "research engineering"
+  ],
+  "outputs": [
+    "corrected 0.3.0-rc1 machine-readable evidence",
+    "full scenario sweep",
+    "method note",
+    "limitations record"
+  ],
+  "evidenceLinks": [
+    {
+      "label": "Corrected release-candidate evidence (JSON)",
+      "href": "/artifacts/vce-record.json",
+      "kind": "artifact"
+    },
+    {
+      "label": "Method and assumptions",
+      "href": "/work/volatility-cascade-engine/#method",
+      "kind": "method"
+    },
+    {
+      "label": "Material limitations",
+      "href": "/work/volatility-cascade-engine/#limitations",
+      "kind": "provenance"
+    }
+  ],
+  "repositoryReferences": [],
+  "publicationReferences": [],
+  "limitations": [
+    "The model is synthetic and is not calibrated to market data.",
+    "It is non-predictive and does not establish real-world causal effects.",
+    "The corrected prototype is not a trading platform or production risk engine; superseded early-baseline results are not current evidence.",
+    "The 0.3.0-rc1 evidence remains a release candidate; independent human clean-room reproduction and accounting review are pending, and AI-assisted implementation is not independent research review.",
+    "Source code is not currently published as a public repository."
+  ],
+  "provenance": {
+    "source": "David Anderle's corrected 0.3.0-rc1 machine-readable artifact set and project record",
+    "reviewedOn": "2026-10-05",
+    "confidence": "artifact-supported"
+  },
+  "relationships": [
+    "milestone-vce-baseline"
+  ],
+  "featured": true,
+  "homepageOrder": 1,
+  "homepageSignal": "Independent synthetic research-software prototype",
+  "visibility": "public",
+  "indexability": "index",
+  "lastReviewed": "2026-10-05",
+  "lastModified": "2026-10-05",
+  "testFixture": false,
+  "structuredDataClassification": "CreativeWork",
+  "route": "/work/volatility-cascade-engine/",
+  "releaseCandidateEvidence": {
+    "artifact": "Volatility Cascade Engine corrected release-candidate evidence",
+    "data": "fully synthetic and uncalibrated",
+    "date": "2026-07-30",
+    "modelSpec": {
+      "accounting": {
+        "debt_rule": "debt is explicit and reduced only with sale proceeds; it is never recomputed from shrinking assets",
+        "identity": "equity = risky_assets + cash - debt",
+        "liquidation_rule": "distressed funds sell risky assets pro-rata to target leverage at current prices",
+        "price_impact": "new_price = old_price * exp(-impact_coefficient * aggregate_sale_value / market_depth)"
+      },
+      "assets": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "convergence_tolerance": 1e-9,
+      "data": "synthetic",
+      "funds": 6,
+      "impact_coefficient": 0.605,
+      "market_depth": {
+        "A": 360,
+        "B": 330,
+        "C": 300,
+        "D": 285,
+        "E": 270
+      },
+      "max_rounds": 80,
+      "shock_profile": {
+        "A": 0.918,
+        "B": 0.29376,
+        "C": 0.12852,
+        "D": 0.0459,
+        "E": 0
+      },
+      "status": "release candidate",
+      "version": "0.3.0-rc1"
+    },
+    "originalArtifactChecksums": {
+      "amplification-curve.svg": "5b7c33667e937bbfdc83bfb4ba0f61439a370c67878aeab03a423fe3db8efd48",
+      "environment.json": "39bb25e6bd7891947dc7fcfd2b2c04a674453b8da3b9e796a72f72845fa96601",
+      "loss-curve.svg": "4d566650c797c1d04cbf4a51e34e7d4e3c20712c84fd1359f1024cd7339b9a21",
+      "model-spec.json": "dba72224523836cda925f2293dbf59dfc169cd135132c7f8ec3c917aa5d3db3e",
+      "portfolio-network.svg": "763dab2cc6b63dbe15717c0f8e471b417d749b7916f04440bbf8291d0046c7d8",
+      "reference-result.json": "ecfce96a602079cbd39bb4e855a7e22797a6f7c0170f11f70f8ae4472c002bec",
+      "scenario-sweep.csv": "5e33a9b49a5c7f407fb471eca25c480e8a86818df5bfac58b43a2089a3950fc7",
+      "sensitivity-grid.json": "df962faf20d6d2c6f406bbf5176920b97fb28909fd13bc6b208aa6a78efa3ef6"
+    },
+    "referenceResult": {
+      "amplification": 2.0393369890370727,
+      "baseline_loss": 0.23694475049999986,
+      "converged": true,
+      "distressed_funds": 6,
+      "feedback_enabled": true,
+      "final_loss": 0.4832101940528102,
+      "final_prices": {
+        "A": 64.22597770138938,
+        "B": 78.5754042408088,
+        "C": 81.4996483692963,
+        "D": 84.36544017544975,
+        "E": 86.22285343746613
+      },
+      "final_system_equity": 310.0738835683139,
+      "immediate_loss": 0.23694475049999986,
+      "initial_system_equity": 600,
+      "insolvent_funds": 0,
+      "post_shock_equity": 457.8331497000001,
+      "rounds": 2,
+      "shock": 0.3,
+      "stop_reason": "no fund above margin threshold"
+    },
+    "reviewBoundary": "Independent human clean-room reproduction and accounting review remain pending. AI-assisted implementation does not substitute for independent research review.",
+    "scenarioSweep": [
+      {
+        "amplification": 1,
+        "baseline_loss": 0.015796316699999924,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.015796316699999924,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.02,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.03159263339999996,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.03159263339999996,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.04,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.047388950099999994,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.047388950099999994,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.06,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.06318526679999992,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.06318526679999992,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.08,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.07898158349999984,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.07898158349999984,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.1,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.09477790019999988,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.09477790019999988,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.12,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.11057421689999991,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.11057421689999991,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.14,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.12637053360000006,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.12637053360000006,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.16,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.14216685029999965,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.14216685029999965,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.18,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.15796316700000002,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.15796316700000002,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.2,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.17375948370000016,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.17375948370000016,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.22,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 1,
+        "baseline_loss": 0.18955580039999986,
+        "converged": true,
+        "distressed_funds": 0,
+        "final_loss": 0.18955580039999986,
+        "insolvent_funds": 0,
+        "rounds": 0,
+        "shock": 0.24,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 2.187362988086472,
+        "baseline_loss": 0.2053521171,
+        "converged": true,
+        "distressed_funds": 6,
+        "final_loss": 0.44917962046973914,
+        "insolvent_funds": 0,
+        "rounds": 2,
+        "shock": 0.26,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 2.131464941491138,
+        "baseline_loss": 0.22114843380000004,
+        "converged": true,
+        "distressed_funds": 6,
+        "final_loss": 0.47137013351037393,
+        "insolvent_funds": 0,
+        "rounds": 2,
+        "shock": 0.28,
+        "stop_reason": "no fund above margin threshold"
+      },
+      {
+        "amplification": 2.0393369890370727,
+        "baseline_loss": 0.23694475049999986,
+        "converged": true,
+        "distressed_funds": 6,
+        "final_loss": 0.4832101940528102,
+        "insolvent_funds": 0,
+        "rounds": 2,
+        "shock": 0.3,
+        "stop_reason": "no fund above margin threshold"
+      }
+    ],
+    "schemaVersion": "1.0.0",
+    "scopeBoundary": [
+      "not a real-market calibration",
+      "not a broker margin system",
+      "not a crash forecast",
+      "not investment advice",
+      "not production or regulatory-grade risk software"
+    ],
+    "status": "release candidate",
+    "technicalReport": {
+      "publiclyServedInThisCandidate": false,
+      "sha256": "5bc112f0f67bc48aac55704716387eb5776396e1b8de4cf03094004d34edeb2e",
+      "title": "Volatility Cascade Engine v0.3.0-rc1 - Technical Report"
+    },
+    "version": "0.3.0-rc1"
+  }
+}

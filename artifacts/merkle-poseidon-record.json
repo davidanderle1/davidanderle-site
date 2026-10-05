@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0.0",
+  "immutableId": "work-merkle-poseidon",
+  "canonicalSlug": "merkle-poseidon",
+  "recordType": "software-prototype",
+  "title": "Merkle Commitments with Poseidon in Rust",
+  "summary": "A collaborative Rust and arkworks work-in-progress prototype for Poseidon commitments, Merkle roots and membership paths.",
+  "startDate": "2026-05",
+  "endDate": null,
+  "datePrecision": "month",
+  "lifecycleStatus": "paused",
+  "artifactMaturity": "working-prototype",
+  "verificationStrength": "artifact-supported",
+  "role": "Collaborative contributor",
+  "contribution": "A collaborator wrote the initial core implementation. My later work covers selected Poseidon, tree and proof updates, examples and documentation. The repository history records those later changes; it does not make me the sole author of the prototype.",
+  "collaborators": [
+    "Project collaborator: initial core implementation"
+  ],
+  "context": "Exploratory cryptographic engineering and learning work using arkworks.",
+  "technologies": [
+    "Rust",
+    "arkworks",
+    "Poseidon",
+    "Merkle trees"
+  ],
+  "methods": [
+    "commitment construction",
+    "Merkle membership paths",
+    "threshold checks",
+    "example-driven validation"
+  ],
+  "themes": [
+    "cryptography",
+    "verifiable computation",
+    "systems engineering"
+  ],
+  "outputs": [
+    "working repository history",
+    "native membership check",
+    "native threshold demonstration",
+    "documentation updates"
+  ],
+  "evidenceLinks": [
+    {
+      "label": "Public repository",
+      "href": "https://github.com/davidanderle1/merkle-poseidon",
+      "kind": "repository"
+    },
+    {
+      "label": "Commit history at the reviewed revision",
+      "href": "https://github.com/davidanderle1/merkle-poseidon/commits/5f6a52183f156024c832a8e6527d1c21127578f3/",
+      "kind": "provenance"
+    },
+    {
+      "label": "Project record (JSON)",
+      "href": "/artifacts/merkle-poseidon-record.json",
+      "kind": "artifact"
+    }
+  ],
+  "repositoryReferences": [
+    "https://github.com/davidanderle1/merkle-poseidon",
+    "https://github.com/davidanderle1/merkle-poseidon/tree/5f6a52183f156024c832a8e6527d1c21127578f3"
+  ],
+  "publicationReferences": [],
+  "limitations": [
+    "The current threshold check is native rather than zero knowledge.",
+    "Parameters are demonstrative rather than production cryptographic parameters.",
+    "The prototype is unaudited and must not be treated as production cryptography.",
+    "The repository and commit history provide inspectable records, not an independent security or authorship audit."
+  ],
+  "provenance": {
+    "source": "First-party contribution description, public repository README and commit metadata at 5f6a52183f156024c832a8e6527d1c21127578f3",
+    "reviewedOn": "2026-09-17",
+    "confidence": "artifact-supported"
+  },
+  "relationships": [],
+  "featured": true,
+  "homepageOrder": 2,
+  "homepageSignal": "Collaborative Rust and arkworks working prototype",
+  "visibility": "public",
+  "indexability": "index",
+  "lastReviewed": "2026-09-17",
+  "lastModified": "2026-09-17",
+  "testFixture": false,
+  "structuredDataClassification": "CreativeWork",
+  "route": "/work/merkle-poseidon/"
+}

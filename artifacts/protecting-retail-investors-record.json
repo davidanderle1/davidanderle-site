@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1.0.0",
+  "immutableId": "writing-protecting-retail-investors",
+  "canonicalSlug": "protecting-retail-investors",
+  "recordType": "policy-memo",
+  "title": "Protecting Retail Investors: A Framework for Transparency and Risk Controls in High-Volatility Trading",
+  "summary": "A policy memo prepared for the 2026 Wisconsin Ideas Conference on disclosure, product transparency and proportionate risk controls in high-volatility trading.",
+  "startDate": "2026-04",
+  "endDate": "2026-04",
+  "datePrecision": "month",
+  "publicationStatus": "issued",
+  "peerReviewStatus": "not-peer-reviewed",
+  "venue": "2026 Wisconsin Ideas Conference",
+  "role": "Contributing author",
+  "structuredDataCredit": "contributor",
+  "contribution": "Contributed to a policy framework addressing disclosure, product transparency and proportionate risk controls.",
+  "collaborators": [],
+  "evidenceLinks": [
+    {
+      "label": "Contribution record (JSON)",
+      "href": "/artifacts/protecting-retail-investors-record.json",
+      "kind": "artifact"
+    },
+    {
+      "label": "Proceedings and verification status",
+      "href": "/writing/protecting-retail-investors/#verification",
+      "kind": "verification-gap"
+    }
+  ],
+  "limitations": [
+    "This is a policy memo, not a peer-reviewed paper.",
+    "The 2026 conference is independently corroborated, but my specific contribution and proceedings inclusion remain first-party claims until an official proceedings record for the memo is linked.",
+    "The page does not present the memo as empirical research or regulator-authored guidance."
+  ],
+  "provenance": {
+    "source": "David Anderle's contribution record; UW–Madison conference context and contemporary event reporting corroborate the 2026 event, not this specific contribution.",
+    "reviewedOn": "2026-10-05",
+    "confidence": "first-party"
+  },
+  "relationships": [],
+  "featured": true,
+  "homepageOrder": 3,
+  "homepageSignal": "Issued policy memo; not peer reviewed",
+  "visibility": "public",
+  "indexability": "index",
+  "lastReviewed": "2026-10-05",
+  "lastModified": "2026-10-05",
+  "testFixture": false,
+  "structuredDataClassification": "Article",
+  "route": "/writing/protecting-retail-investors/"
+}
